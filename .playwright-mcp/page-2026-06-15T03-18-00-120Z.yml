@@ -1,0 +1,120 @@
+- generic [ref=e1]:
+  - alert [ref=e3]
+  - generic [ref=e19]:
+    - complementary [ref=e20]:
+      - generic [ref=e21]:
+        - generic [ref=e22]: ContentAgent Social
+        - generic [ref=e23]: Pro workspace
+      - navigation [ref=e24]:
+        - button "Today" [ref=e25] [cursor=pointer]:
+          - img [ref=e27]
+          - generic [ref=e29]: Today
+        - button "Intelligence 2" [active] [ref=e30] [cursor=pointer]:
+          - img [ref=e32]
+          - generic [ref=e39]: Intelligence
+          - generic [ref=e40]: "2"
+        - button "Briefs" [ref=e41] [cursor=pointer]:
+          - img [ref=e43]
+          - generic [ref=e46]: Briefs
+        - button "Production" [ref=e47] [cursor=pointer]:
+          - img [ref=e49]
+          - generic [ref=e52]: Production
+        - button "UGC Video" [ref=e53] [cursor=pointer]:
+          - img [ref=e55]
+          - generic [ref=e57]: UGC Video
+        - button "Publish" [ref=e58] [cursor=pointer]:
+          - img [ref=e60]
+          - generic [ref=e62]: Publish
+        - button "Analytics" [ref=e63] [cursor=pointer]:
+          - img [ref=e65]
+          - generic [ref=e67]: Analytics
+        - button "Brand Kit" [ref=e68] [cursor=pointer]:
+          - img [ref=e70]
+          - generic [ref=e76]: Brand Kit
+        - button "Settings" [ref=e77] [cursor=pointer]:
+          - img [ref=e79]
+          - generic [ref=e82]: Settings
+      - generic [ref=e84]:
+        - generic [ref=e85]: SE
+        - generic [ref=e86]:
+          - generic [ref=e87]: Sean Tan
+          - generic [ref=e88]: owner
+    - main [ref=e89]:
+      - generic [ref=e90]:
+        - generic [ref=e91]:
+          - generic [ref=e92]:
+            - generic [ref=e93]: Social Intelligence
+            - generic [ref=e94]: SME AI automation
+          - generic [ref=e95]:
+            - generic [ref=e96]: 240 credits
+            - button "Refresh" [ref=e97] [cursor=pointer]:
+              - img [ref=e98]
+            - button "Log out" [ref=e103] [cursor=pointer]:
+              - img [ref=e104]
+        - generic [ref=e107]:
+          - generic [ref=e108]:
+            - img [ref=e109]
+            - generic [ref=e111]: "2"
+            - generic [ref=e112]: high-priority gaps
+          - generic [ref=e113]:
+            - img [ref=e114]
+            - generic [ref=e117]: "1"
+            - generic [ref=e118]: active briefs
+          - generic [ref=e119]:
+            - img [ref=e120]
+            - generic [ref=e123]: "1"
+            - generic [ref=e124]: ready assets
+          - generic [ref=e125]:
+            - img [ref=e126]
+            - generic [ref=e128]: "1"
+            - generic [ref=e129]: scheduled posts
+      - generic [ref=e167]:
+        - generic [ref=e168]:
+          - heading "Opportunity gaps" [level=3] [ref=e169]
+          - generic [ref=e170]:
+            - generic [ref=e171]:
+              - generic [ref=e172]:
+                - generic [ref=e173]: Why SMEs are replacing repetitive ops tasks with AI agents
+                - generic [ref=e174]: TikTok · Short video 9:16
+              - strong [ref=e176]: "87"
+              - button "Brief" [ref=e178] [cursor=pointer]
+              - button "Dismiss" [ref=e179] [cursor=pointer]
+            - generic [ref=e180]:
+              - generic [ref=e181]:
+                - generic [ref=e182]: The hidden cost of manual reporting in founder-led teams
+                - generic [ref=e183]: LinkedIn · Text post
+              - strong [ref=e185]: "78"
+              - button "Brief" [ref=e187] [cursor=pointer]
+              - button "Dismiss" [ref=e188] [cursor=pointer]
+            - generic [ref=e189]:
+              - generic [ref=e190]:
+                - generic [ref=e191]: 5 automations that give back 10 hours per week
+                - generic [ref=e192]: Instagram · Carousel
+              - strong [ref=e194]: "82"
+              - button "Brief" [ref=e196] [cursor=pointer]
+              - button "Dismiss" [ref=e197] [cursor=pointer]
+        - generic [ref=e198]:
+          - heading "Add competitor" [level=3] [ref=e199]
+          - generic [ref=e200]:
+            - generic [ref=e201]:
+              - text: Platform
+              - combobox "Platform" [ref=e202]:
+                - option "TikTok" [selected]
+                - option "Instagram"
+                - option "LinkedIn"
+                - option "Facebook"
+            - generic [ref=e203]:
+              - text: Handle
+              - textbox "Handle" [ref=e204]:
+                - /placeholder: "@competitor"
+            - generic [ref=e205]:
+              - text: Cadence
+              - combobox "Cadence" [ref=e206]:
+                - option "Daily" [selected]
+                - option "Weekly"
+            - button "Add monitor" [ref=e207] [cursor=pointer]:
+              - img [ref=e208]
+              - text: Add monitor
+          - generic [ref=e209]:
+            - generic [ref=e210]: "TikTok: @aioperator"
+            - generic [ref=e211]: "LinkedIn: GrowthOps AI"

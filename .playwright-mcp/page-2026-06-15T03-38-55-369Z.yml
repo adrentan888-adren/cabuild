@@ -1,0 +1,99 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]: ContentAgent Social
+        - generic [ref=e7]: Pro workspace
+      - navigation [ref=e8]:
+        - button "Today" [ref=e9] [cursor=pointer]:
+          - img [ref=e11]
+          - generic [ref=e13]: Today
+        - button "Intelligence 2" [ref=e14] [cursor=pointer]:
+          - img [ref=e16]
+          - generic [ref=e23]: Intelligence
+          - generic [ref=e24]: "2"
+        - button "Briefs" [ref=e25] [cursor=pointer]:
+          - img [ref=e27]
+          - generic [ref=e30]: Briefs
+        - button "Production" [ref=e31] [cursor=pointer]:
+          - img [ref=e33]
+          - generic [ref=e36]: Production
+        - button "UGC Video" [ref=e37] [cursor=pointer]:
+          - img [ref=e39]
+          - generic [ref=e41]: UGC Video
+        - button "Publish" [ref=e42] [cursor=pointer]:
+          - img [ref=e44]
+          - generic [ref=e46]: Publish
+        - button "Analytics" [ref=e47] [cursor=pointer]:
+          - img [ref=e49]
+          - generic [ref=e51]: Analytics
+        - button "Brand Kit" [ref=e52] [cursor=pointer]:
+          - img [ref=e54]
+          - generic [ref=e60]: Brand Kit
+        - button "Settings" [ref=e61] [cursor=pointer]:
+          - img [ref=e63]
+          - generic [ref=e66]: Settings
+      - generic [ref=e68]:
+        - generic [ref=e69]: SE
+        - generic [ref=e70]:
+          - generic [ref=e71]: Sean Tan
+          - generic [ref=e72]: owner
+    - main [ref=e73]:
+      - generic [ref=e74]:
+        - generic [ref=e75]:
+          - generic [ref=e76]:
+            - generic [ref=e77]: Deployment Settings
+            - generic [ref=e78]: SME AI automation
+          - generic [ref=e79]:
+            - generic [ref=e80]: 239 credits
+            - button "Refresh" [ref=e81] [cursor=pointer]:
+              - img [ref=e82]
+            - button "Log out" [ref=e87] [cursor=pointer]:
+              - img [ref=e88]
+        - generic [ref=e91]:
+          - generic [ref=e92]:
+            - img [ref=e93]
+            - generic [ref=e95]: "2"
+            - generic [ref=e96]: high-priority gaps
+          - generic [ref=e97]:
+            - img [ref=e98]
+            - generic [ref=e101]: "2"
+            - generic [ref=e102]: active briefs
+          - generic [ref=e103]:
+            - img [ref=e104]
+            - generic [ref=e107]: "1"
+            - generic [ref=e108]: ready assets
+          - generic [ref=e109]:
+            - img [ref=e110]
+            - generic [ref=e112]: "1"
+            - generic [ref=e113]: scheduled posts
+      - generic [ref=e153]:
+        - generic [ref=e154]:
+          - heading "Provider status" [level=3] [ref=e155]
+          - generic [ref=e156]:
+            - generic [ref=e157]:
+              - generic [ref=e158]: kie
+              - generic [ref=e159]: configured
+            - generic [ref=e160]:
+              - generic [ref=e161]: apify
+              - generic [ref=e162]: configured
+            - generic [ref=e163]:
+              - generic [ref=e164]: uploadPost
+              - generic [ref=e165]: verified
+              - generic [ref=e166]: HTTP 200
+        - generic [ref=e167]:
+          - heading "Connect social accounts" [level=3] [ref=e168]
+          - paragraph [ref=e169]: Generate an Upload-Post connection page for the local profile. Publishing will fail until the target social account is connected there.
+          - button "Create connect link" [active] [ref=e170] [cursor=pointer]:
+            - img [ref=e171]
+            - text: Create connect link
+          - link "Open Upload-Post connection page" [ref=e181] [cursor=pointer]:
+            - /url: https://app.upload-post.com/connect?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6ImFkcmVudGFuODg4QGdtYWlsLmNvbSIsInByb2ZpbGVfdXNlcm5hbWUiOiJjb250ZW50YWdlbnQtZGVtbyIsImV4cCI6MTc4MTY2NzUzNCwiaWF0IjoxNzgxNDk0NzM0fQ.wrJE1RqVRyqlsayq8GKU5jPerPzCwtlPGwuM9Cd92-w
+        - generic [ref=e174]:
+          - heading "Token handling" [level=3] [ref=e175]
+          - paragraph [ref=e176]: Keys are loaded from ignored local environment variables. Rotate the pasted keys before production because they were exposed in chat.
+          - code [ref=e177]: KIE_API_TOKEN, APIFY_API_TOKEN, UPLOAD_POST_API_KEY
+        - generic [ref=e178]:
+          - heading "Recommended production shape" [level=3] [ref=e179]
+          - paragraph [ref=e180]: GCP Cloud Run or a VPS can run this app later. Keep Postgres, queue, object storage, and provider keys outside the client.
+  - alert [ref=e3]

@@ -1,0 +1,92 @@
+- generic [ref=e1]:
+  - alert [ref=e3]
+  - generic [ref=e19]:
+    - complementary [ref=e20]:
+      - generic [ref=e21]:
+        - generic [ref=e22]: ContentAgent Social
+        - generic [ref=e23]: Pro workspace
+      - navigation [ref=e24]:
+        - button "Today" [ref=e25] [cursor=pointer]:
+          - img [ref=e27]
+          - generic [ref=e29]: Today
+        - button "Intelligence 2" [ref=e30] [cursor=pointer]:
+          - img [ref=e32]
+          - generic [ref=e39]: Intelligence
+          - generic [ref=e40]: "2"
+        - button "Briefs" [active] [ref=e41] [cursor=pointer]:
+          - img [ref=e43]
+          - generic [ref=e46]: Briefs
+        - button "Production" [ref=e47] [cursor=pointer]:
+          - img [ref=e49]
+          - generic [ref=e52]: Production
+        - button "UGC Video" [ref=e53] [cursor=pointer]:
+          - img [ref=e55]
+          - generic [ref=e57]: UGC Video
+        - button "Publish" [ref=e58] [cursor=pointer]:
+          - img [ref=e60]
+          - generic [ref=e62]: Publish
+        - button "Analytics" [ref=e63] [cursor=pointer]:
+          - img [ref=e65]
+          - generic [ref=e67]: Analytics
+        - button "Brand Kit" [ref=e68] [cursor=pointer]:
+          - img [ref=e70]
+          - generic [ref=e76]: Brand Kit
+        - button "Settings" [ref=e77] [cursor=pointer]:
+          - img [ref=e79]
+          - generic [ref=e82]: Settings
+      - generic [ref=e84]:
+        - generic [ref=e85]: SE
+        - generic [ref=e86]:
+          - generic [ref=e87]: Sean Tan
+          - generic [ref=e88]: owner
+    - main [ref=e89]:
+      - generic [ref=e90]:
+        - generic [ref=e91]:
+          - generic [ref=e92]:
+            - generic [ref=e93]: Content Briefs
+            - generic [ref=e94]: SME AI automation
+          - generic [ref=e95]:
+            - generic [ref=e96]: 239 credits
+            - button "Refresh" [ref=e97] [cursor=pointer]:
+              - img [ref=e98]
+            - button "Log out" [ref=e103] [cursor=pointer]:
+              - img [ref=e104]
+        - generic [ref=e107]:
+          - generic [ref=e108]:
+            - img [ref=e109]
+            - generic [ref=e111]: "2"
+            - generic [ref=e112]: high-priority gaps
+          - generic [ref=e113]:
+            - img [ref=e114]
+            - generic [ref=e117]: "2"
+            - generic [ref=e118]: active briefs
+          - generic [ref=e119]:
+            - img [ref=e120]
+            - generic [ref=e123]: "1"
+            - generic [ref=e124]: ready assets
+          - generic [ref=e125]:
+            - img [ref=e126]
+            - generic [ref=e128]: "1"
+            - generic [ref=e129]: scheduled posts
+      - generic [ref=e213]:
+        - generic [ref=e214]:
+          - heading "new" [level=3] [ref=e215]
+          - article [ref=e216]:
+            - text: Why SMEs are replacing repetitive ops tasks with AI agents
+            - paragraph [ref=e217]: The smartest SME AI automation are already acting on this.
+            - generic [ref=e219]: TikTok
+            - button "Approve" [ref=e221] [cursor=pointer]
+        - generic [ref=e222]:
+          - heading "approved" [level=3] [ref=e223]
+          - article [ref=e224]:
+            - text: 5 automations that give back 10 hours per week
+            - paragraph [ref=e225]: Most SMEs do not need more staff. They need fewer repeated decisions.
+            - generic [ref=e226]:
+              - generic [ref=e227]: TikTok
+              - generic [ref=e228]: Instagram
+              - generic [ref=e229]: LinkedIn
+              - generic [ref=e230]: Facebook
+            - button "Render" [ref=e232] [cursor=pointer]
+        - heading "production" [level=3] [ref=e234]
+        - heading "scheduled" [level=3] [ref=e236]
+        - heading "published" [level=3] [ref=e238]

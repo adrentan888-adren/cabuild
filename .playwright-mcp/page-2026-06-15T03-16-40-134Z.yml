@@ -1,0 +1,60 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - heading "Anime Floor Workflow" [level=1] [ref=e3]
+    - generic [ref=e4]: Config Editor
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - generic [ref=e7] [cursor=pointer]:
+        - generic [ref=e8]: ⚙️
+        - heading "n8n Settings" [level=2] [ref=e9]
+        - generic [ref=e10]: ▶
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - generic [ref=e13]: API Key
+          - textbox [ref=e14]: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwNGVmYzI2YS1jM2YxLTQwYTktODQ0Ny0wMzZmZmIxN2RmY2EiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzc1MTEwMTA1LCJleHAiOjE3ODI4MzUyMDB9.oWqMmfV7b6Djp67NCnqAMA4tBem6jJl2G4sMr7QCqc4
+        - generic [ref=e15]:
+          - generic [ref=e16]:
+            - generic [ref=e17]: Base URL
+            - textbox [ref=e18]: https://adrentan.app.n8n.cloud/api/v1
+          - generic [ref=e19]:
+            - generic [ref=e20]: Workflow ID
+            - textbox [ref=e21]: JXDiwU7yqHrmfLcR
+    - generic [ref=e22]:
+      - generic [ref=e23] [cursor=pointer]:
+        - generic [ref=e24]: 🤖
+        - heading "Prompt Generation (Step 1)" [level=2] [ref=e25]
+        - generic [ref=e26]: ▶
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - generic [ref=e29]:
+            - generic [ref=e30]: API URL
+            - textbox [ref=e31]: https://api.kie.ai/gpt-5-2/v1/chat/completions
+          - generic [ref=e32]:
+            - generic [ref=e33]: Model
+            - textbox [ref=e34]: gpt-5-2
+        - generic [ref=e35]:
+          - generic [ref=e36]: Temperature controls randomness (0 = deterministic, 2 = max creative)
+          - spinbutton [ref=e37]: "1.2"
+        - generic [ref=e38]:
+          - generic [ref=e39]: User Prompt the full instruction sent to the AI to generate all prompts
+          - textbox [ref=e40]: "Randomly pick ONE famous anime series and ONE of its iconic characters. Use the character's actual signature colors, elemental powers, iconic pose/weapon, and the anime's tone. Return ONLY a raw JSON object with exactly these keys — no markdown, no code fences, no extra text: { \"character\": \"...\", \"anime\": \"...\", \"char_image_prompt\": \"...\", \"img1_prompt\": \"...\", \"img2_prompt\": \"...\", \"img3_prompt\": \"...\", \"img4_prompt\": \"...\", \"video1_prompt\": \"...\", \"video2_prompt\": \"...\", \"video3_prompt\": \"...\", \"video4_prompt\": \"...\", \"music_prompt\": \"...\", \"music_style\": \"...\", \"music_title\": \"...\", \"music_negative\": \"...\" } Rules per key: - character: character name only - anime: series name only - char_image_prompt: detailed image prompt for the character in iconic battle pose, 9:16, anime style, dramatic lighting, character-specific vibrant colors - img1_prompt: 9x16 SCENE LOCK: Static tripod inside modern bedroom, no windows, ceiling panel cool blue light. STAGE: Empty room before renovation. No character elements yet. Include NEGATIVE section. - img2_prompt: 9x16 SCENE LOCK: SAME ROOM. STAGE: Active construction of character elemental epoxy design in floor using character ACTUAL elemental colors and crack/pattern shapes. Character artwork fused into floor. Include NEGATIVE section. - img3_prompt: 9x16 SCENE LOCK: SAME ROOM. STAGE: Completed epoxy floor empty room. Character fully fused into glossy surface, LED cracks in character elemental color. Include NEGATIVE section. - img4_prompt: 9x16 SCENE LOCK: SAME ROOM. STAGE: Fully staged gaming bedroom. Bed, desk, monitors, RGB all in character color theme. Floor UNCHANGED from img3. Include NEGATIVE section. - video1_prompt: Static tripod, no movement. Fast timelapse empty room to construction. Character elemental motifs appear. Physically realistic. No music. - video2_prompt: Static tripod, no movement. Fast timelapse epoxy curing, character appears under surface, elemental LED cracks glow. Ultra-glossy finish. No music. - video3_prompt: Static tripod, no movement. Fast timelapse furniture setup. Character-colored RGB activates progressively. Floor identical. No music. - video4_prompt: Slow POV walk into completed gaming room. Cinematic reveal of character epoxy floor with LED cracks and full RGB setup. No music. - music_prompt: 30s anime instrumental matching character anime tone, describe tempo/instruments/energy, no vocals - music_style: 4-6 comma-separated genre/style tags - music_title: short evocative title - music_negative: comma-separated negative tags"
+    - generic [ref=e42] [cursor=pointer]:
+      - generic [ref=e43]: 🖼️
+      - heading "Image Generation (Steps 2–3)" [level=2] [ref=e44]
+      - generic [ref=e45]: ▶
+    - generic [ref=e47] [cursor=pointer]:
+      - generic [ref=e48]: 🎬
+      - heading "Video Generation (Steps 4a–4d)" [level=2] [ref=e49]
+      - generic [ref=e50]: ▶
+    - generic [ref=e52] [cursor=pointer]:
+      - generic [ref=e53]: 🎵
+      - heading "Music Generation (Step M1)" [level=2] [ref=e54]
+      - generic [ref=e55]: ▶
+    - generic [ref=e57] [cursor=pointer]:
+      - generic [ref=e58]: ✂️
+      - heading "Video Stitch Resolution (Step 5)" [level=2] [ref=e59]
+      - generic [ref=e60]: ▶
+    - generic [ref=e61]:
+      - button "💾 Save Config" [ref=e62] [cursor=pointer]
+      - button "🚀 Apply to n8n Workflow" [ref=e63] [cursor=pointer]
+      - button "↺ Reset Changes" [ref=e64] [cursor=pointer]

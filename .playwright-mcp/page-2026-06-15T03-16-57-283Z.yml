@@ -1,0 +1,104 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "Suno Batch Cover Generator" [level=1] [ref=e5]
+      - paragraph [ref=e6]: Upload multiple audio or MP4 files, generate Suno covers, stitch them, create artwork, and export an MP4.
+    - paragraph [ref=e7]: 0 files selected
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - heading "Generation Settings" [level=2] [ref=e10]
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - generic [ref=e13]: Source audio or video files
+          - button "Source audio or video files" [ref=e14]
+          - generic [ref=e15]: Each file is uploaded, covered with the same Suno settings, then stitched in selected order.
+        - generic [ref=e16]:
+          - generic [ref=e17]: Prompt
+          - textbox "Prompt" [ref=e18]: A polished cover version with clear vocals and modern pop production.
+          - generic [ref=e19]: 69/500
+        - generic [ref=e20]:
+          - generic [ref=e21]: Model
+          - combobox "Model" [ref=e22]:
+            - option "V5" [selected]
+            - option "V5_5"
+            - option "V4_5PLUS"
+            - option "V4_5"
+            - option "V4_5ALL"
+            - option "V4"
+        - generic [ref=e23]:
+          - generic [ref=e24]: Custom Mode
+          - generic [ref=e25]:
+            - checkbox "Enable advanced Suno fields" [ref=e26]
+            - generic [ref=e27]: Enable advanced Suno fields
+        - generic [ref=e28]:
+          - generic [ref=e29]: Instrumental
+          - generic [ref=e30]:
+            - checkbox "No lyrics or vocals" [ref=e31]
+            - generic [ref=e32]: No lyrics or vocals
+        - generic [ref=e33]:
+          - generic [ref=e34]: Style
+          - textbox "Style" [ref=e35]:
+            - /placeholder: Jazz, EDM, acoustic pop
+          - generic [ref=e36]: 0/1000
+        - generic [ref=e37]:
+          - generic [ref=e38]: Title
+          - textbox "Title" [ref=e39]:
+            - /placeholder: Compilation title
+          - generic [ref=e40]: 0/100
+        - generic [ref=e41]:
+          - generic [ref=e42]: Negative Tags
+          - textbox "Negative Tags" [ref=e43]:
+            - /placeholder: Heavy metal, distorted vocals, harsh drums
+        - generic [ref=e44]:
+          - generic [ref=e45]: Vocal Gender
+          - combobox "Vocal Gender" [ref=e46]:
+            - option "No preference" [selected]
+            - option "Male"
+            - option "Female"
+        - generic [ref=e47]:
+          - generic [ref=e48]: Persona Model
+          - combobox "Persona Model" [ref=e49]:
+            - option "Style persona" [selected]
+            - option "Voice persona"
+        - generic [ref=e50]:
+          - generic [ref=e51]: Persona ID
+          - textbox "Persona ID" [ref=e52]:
+            - /placeholder: persona_123
+        - generic [ref=e53]:
+          - generic [ref=e54]: Style Weight
+          - generic [ref=e55]:
+            - slider "Style Weight" [ref=e56]: "0.65"
+            - generic [ref=e57]: "0.65"
+        - generic [ref=e58]:
+          - generic [ref=e59]: Weirdness
+          - generic [ref=e60]:
+            - slider "Weirdness" [ref=e61]: "0.65"
+            - generic [ref=e62]: "0.65"
+        - generic [ref=e63]:
+          - generic [ref=e64]: Audio Weight
+          - generic [ref=e65]:
+            - slider "Audio Weight" [ref=e66]: "0.65"
+            - generic [ref=e67]: "0.65"
+        - generic [ref=e68]:
+          - generic [ref=e69]: Callback URL
+          - textbox "Callback URL" [ref=e70]:
+            - /placeholder: Defaults to this app /api/callback
+      - button "Generate Covers + MP4" [ref=e72] [cursor=pointer]
+    - generic [ref=e73]:
+      - generic [ref=e74]:
+        - heading "Batch Progress" [level=2] [ref=e75]
+        - paragraph [ref=e76]: Generated covers and final exports will appear here.
+      - heading "Final Output" [level=2] [ref=e78]
+      - generic [ref=e79]:
+        - heading "Post Edit Single Cover" [level=2] [ref=e80]
+        - generic [ref=e81]:
+          - generic [ref=e82]: Pitch
+          - generic [ref=e83]:
+            - slider "Pitch" [ref=e84]: "0"
+            - generic [ref=e85]: "0"
+        - generic [ref=e86]:
+          - generic [ref=e87]: Speed
+          - generic [ref=e88]:
+            - slider "Speed" [ref=e89]: "1"
+            - generic [ref=e90]: 1.00x
+        - button "Apply Edit" [disabled] [ref=e92]

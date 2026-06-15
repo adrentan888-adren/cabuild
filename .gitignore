@@ -1,0 +1,39 @@
+node_modules
+.next
+out
+.env
+.env*.local
+data/*.json
+npm-debug.log*
+
+# Codex migration safety ignores
+# dependencies
+node_modules/
+# local env and secrets
+.env.*
+!.env.example
+*.pem
+*.key
+*secret*
+*credential*
+.codex-*-credentials.json
+service-account*.json
+# build output
+.next/
+dist/
+build/
+out/
+.vercel/
+.turbo/
+.cache/
+coverage/
+# logs and local OS/editor files
+*.log
+logs/
+.DS_Store
+Thumbs.db
+
+# Local automation/runtime files
+.playwright-mcp/
+*.local
+.render-api-key.local

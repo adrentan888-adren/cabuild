@@ -1,19 +1,103 @@
-# Project Handoff: CABuild
+# CABuild Project Handoff
+
+Last updated: 2026-06-16
 
 ## Purpose
-Content Agent build/application work. Appears to be a Next.js-style project.
+ContentAgent Social is a local Next.js prototype for research, content planning, AI generation, and publishing. The mock UI is the visual source of truth when it conflicts with the PRD.
 
-## Start Here
-- Read `README.md`.
-- Check `package.json` for dev/build commands.
-- Review API routes under `app/api` before changing app behavior.
+## Local Start
+- Workspace: `C:\Users\WINDOWS-10\Desktop\ClaudeWork\CABuild`
+- Dev server: `npm run dev -- -p 3100`
+- Build check: `npm run build`
+- App URL: `http://localhost:3100`
 
-## Local/Private Files
-- `.env.local` is private and must not be committed.
-- `.env.example` is the setup reference.
-- `.playwright-mcp/` is local automation output.
+Before builds, stop old project-local Node processes if `.next/trace` is locked:
+```powershell
+Get-CimInstance Win32_Process -Filter "name = 'node.exe'" | Where-Object { $_.CommandLine -like '*CABuild*' } | Select-Object -ExpandProperty ProcessId | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+```
 
-## GitHub
-- Intended private repo: `https://github.com/adrentan888-adren/cabuild.git`
-- Branch: `main`
+## Key Files
+- UI: `app/page.tsx`
+- Styling: `app/globals.css`
+- Main backend actions: `app/api/social/route.ts`
+- App data route: `app/api/app/route.ts`
+- Types: `lib/types.ts`
+- JSON store: `lib/store.ts`
+- Apify provider: `lib/providers/apify.ts`
+- Kie provider: `lib/providers/kie.ts`
+- Upload-Post provider: `lib/providers/uploadPost.ts`
+- Local data file: `data/app.json`
 
+## Environment And Secrets
+Do not commit raw API keys. Keep secrets in `.env.local`, which is ignored by git. Required key names:
+- `APP_SECRET`
+- `KIE_API_TOKEN`
+- `APIFY_API_TOKEN`
+- `GITHUB_TOKEN`
+- `UPLOAD_POST_API_KEY`
+- `UPLOAD_POST_PROFILE`
+- `UPLOAD_POST_DEFAULT_PLATFORMS`
+- `DIGITALOCEAN_TOKEN`
+- `CLOUDFLARE_API_TOKEN`
+- Cloudflare R2 keys if object storage is enabled
+- `DATABASE_URL` when migrating from JSON storage to Postgres
+
+The user pasted live keys in chat earlier. Treat them as compromised before production and rotate them.
+
+## Current Feature State
+- Auth exists with local users and workspace data.
+- Research supports URL scans and keyword scans through Apify with local fallback.
+- Research results include thumbnails, timestamps, views, likes, sorting, loading states, and history.
+- Content Plan cards show only number, title/description, content type, timestamp, and actions.
+- Full plan details are available through Edit.
+- Content Plan `Format` is now a dropdown.
+- Generate opens a modal with prefilled prompt, caption, hashtags, content type, model, and duration.
+- Generate modal content type is a dropdown and no longer includes publishing placement.
+- Generate modal prefill has fallbacks for older/incomplete content plans that do not have prompt, caption, hashtags, hooks, or outline.
+- Video generation model options:
+  - VEO Fast: duration dropdown limited to 8 seconds.
+  - Seedance 2.0: duration dropdown supports 4 to 15 seconds.
+- Image generation model options: Nanobanana Pro and GPT-image 2.
+- Text generation model options: Gemini 3.5 Flash and Claude Opus 4.8.
+- Generate creates a Publish entry:
+  - VEO Fast uses Kie and starts as `Generating`.
+  - Other model choices currently create demo-ready local drafts as `Done` until exact provider endpoints are wired.
+- Polling a Kie asset updates the linked Publish item to `Done` or `Failed`.
+- Publish auto-polls generating Kie video jobs in the background; no manual Poll button is shown.
+- Publish shows model, content type, duration, caption, hashtags, video thumbnail/player, generated asset download, status, and Publish action.
+- Video drafts can be previewed in a built-in modal player with browser-native controls.
+- Video downloads go through `/api/assets/[id]/download` so generated videos are served as MP4 downloads where possible.
+- Upload-Post publish uses generated caption and hashtags.
+
+## Provider Notes
+- Kie VEO generation is wired through `generateVeoVideo`.
+- Kie Gemini content plan generation is wired through `generateContentPlanWithGemini`.
+- Seedance, Nanobanana Pro, GPT-image 2, Gemini text draft generation, and Claude text draft generation are UI/provider selections but still need exact production endpoints.
+- Upload-Post is configured for the demo profile Mariana.
+
+## GCP Deployment Access
+- Preferred deployment target: Cloud Run + Artifact Registry + Secret Manager.
+- Production persistence needs Cloud SQL/Postgres or another managed database; current local JSON storage is not production-safe on Cloud Run.
+- If temporary operator access is needed, create a dedicated deploy service account and place its JSON key in an ignored local file such as `.gcp-deploy-key.local.json`; do not paste raw keys into chat or commit them.
+- Minimum practical deployment roles usually include Cloud Run Admin, Cloud Build Editor, Artifact Registry Admin or Writer, Secret Manager Admin, Service Account User, and Cloud SQL Admin if creating Cloud SQL.
+- Revoke/delete the temporary service account key after deployment.
+- 2026-06-17 Console setup created `contentagent-deployer@content-agent-2-499616.iam.gserviceaccount.com` with Owner on project `content-agent-2-499616`, but JSON key creation is blocked by org policy `iam.disableServiceAccountKeyCreation`. Use keyless `gcloud auth login` with the browser account `sean@gigwave.tech`, or ask an Org Policy Admin to temporarily disable that constraint if a key is absolutely required.
+
+## User Preferences
+- Follow the mock UI layout over PRD wording when they conflict.
+- Keep the UI close to the mock.
+- For Research, avoid unnecessary filters like Intent/Source and use platform/source style controls.
+- Do not expose raw secrets in code, docs, or final answers.
+- Keep this file updated whenever material project behavior changes.
+
+## Latest Change Log
+- 2026-06-17: User asked to use Playwright for GCP Console setup; operator should navigate GCP Console while user handles Google login/2FA manually.
+- 2026-06-17: Created GCP deploy service account in Console, assigned Owner, but service account key download was blocked by org policy `iam.disableServiceAccountKeyCreation`; next path is keyless local `gcloud auth login` as `sean@gigwave.tech`.
+- 2026-06-17: Added GCP deployment access guidance: use temporary service account JSON or keyless auth, not pasted raw credentials; target is Cloud Run + Artifact Registry + Secret Manager, with Cloud SQL/Postgres needed for production persistence.
+- 2026-06-16: Removed old seeded `5 automations carousel` demo publish row and linked demo records from both local JSON data and seed data.
+- 2026-06-16: Added fallback prefill for Generate popup and backend draft creation when older content plans have blank fields.
+- 2026-06-16: Added Publish video thumbnails, built-in video preview modal, MP4 download route, and automatic Kie polling.
+- 2026-06-16: Changed Content Plan edit Format to dropdown.
+- 2026-06-16: Changed Generate modal Content type to dropdown and removed Placement.
+- 2026-06-16: Added duration dropdown rules for VEO Fast and Seedance 2.0 with closest-duration defaulting.
+- 2026-06-16: Expanded this handoff file and documented secret handling without raw keys.

@@ -10,8 +10,20 @@ function profile() {
   return process.env.UPLOAD_POST_PROFILE || "contentagent-demo";
 }
 
-function mapPlatform(platform: Platform) {
+function mapPlatform(platform: Platform | string) {
   return platform.toLowerCase();
+}
+
+function defaultPlatforms() {
+  return (process.env.UPLOAD_POST_DEFAULT_PLATFORMS || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function targetPlatforms(platform?: Platform) {
+  const defaults = defaultPlatforms();
+  return defaults.length > 0 ? defaults : platform ? [mapPlatform(platform)] : ["tiktok"];
 }
 
 export function hasUploadPost() {
@@ -66,7 +78,7 @@ export async function createUploadPostConnectionUrl() {
       username: profile(),
       connect_title: "Connect ContentAgent Social",
       connect_description: "Connect the social accounts you want ContentAgent to publish to.",
-      platforms: ["tiktok", "instagram", "linkedin", "facebook"],
+      platforms: defaultPlatforms().length > 0 ? defaultPlatforms() : ["tiktok", "instagram", "linkedin", "facebook", "x"],
       show_calendar: true,
       language: "en"
     })
@@ -86,7 +98,7 @@ export async function publishTextPost(input: {
   await ensureUploadPostProfile();
   const form = new FormData();
   form.append("user", profile());
-  form.append("platform[]", mapPlatform(input.platform));
+  targetPlatforms(input.platform).forEach((platform) => form.append("platform[]", platform));
   form.append("title", input.title);
   if (input.description) form.append("description", input.description);
   if (input.scheduledAt) form.append("scheduled_date", input.scheduledAt);
@@ -115,7 +127,7 @@ export async function publishVideoPost(input: {
   await ensureUploadPostProfile();
   const form = new FormData();
   form.append("user", profile());
-  form.append("platform[]", mapPlatform(input.platform));
+  targetPlatforms(input.platform).forEach((platform) => form.append("platform[]", platform));
   form.append("video", input.videoUrl);
   form.append("title", input.title);
   if (input.description) form.append("description", input.description);

@@ -1,4 +1,4 @@
-export type Platform = "TikTok" | "Instagram" | "LinkedIn" | "Facebook";
+export type Platform = "TikTok" | "Instagram" | "LinkedIn" | "Facebook" | "X";
 
 export type User = {
   id: string;
@@ -34,8 +34,45 @@ export type Competitor = {
   workspaceId: string;
   platform: Platform;
   handle: string;
+  url?: string;
+  minViews?: number;
   cadence: "daily" | "weekly";
   lastScraped: string;
+};
+
+export type CompetitorResult = {
+  id: string;
+  workspaceId: string;
+  competitorId: string;
+  platform: Platform;
+  url: string;
+  title: string;
+  thumbnailUrl?: string;
+  description?: string;
+  views: number;
+  likes: number;
+  comments: number;
+  publishedAt: string;
+  capturedAt: string;
+};
+
+export type ResearchScan = {
+  id: string;
+  workspaceId: string;
+  url: string;
+  query?: string;
+  dimensions?: {
+    actorSources?: string[];
+    contentTypes?: string[];
+    formats?: string[];
+    uploadDate?: string;
+  };
+  platform: Platform;
+  minViews: number;
+  resultIds: string[];
+  createdAt: string;
+  source: "apify" | "cache" | "fallback";
+  error?: string;
 };
 
 export type Opportunity = {
@@ -62,10 +99,18 @@ export type Brief = {
   platforms: Platform[];
   hooks: string[];
   outline: string[];
+  description?: string;
+  videoPrompt?: string;
+  duration?: number;
+  shotList?: string[];
+  creativeNotes?: string;
   caption: string;
   hashtags: string[];
   optimalTime: string;
   expectedPerformance: string;
+  analysisSummary?: string;
+  createdAt?: string;
+  updatedAt?: string;
   status: "new" | "approved" | "production" | "scheduled" | "published";
 };
 
@@ -74,7 +119,7 @@ export type Asset = {
   workspaceId: string;
   briefId: string;
   title: string;
-  type: "image" | "carousel" | "video" | "ugc";
+  type: "image" | "carousel" | "video" | "ugc" | "text";
   status: "queued" | "rendering" | "ready" | "failed";
   progress: number;
   createdAt: string;
@@ -92,9 +137,17 @@ export type PublishItem = {
   title: string;
   platform: Platform;
   scheduledAt: string;
-  status: "draft" | "scheduled" | "published" | "failed";
-  provider?: "local" | "upload-post";
+  status: "draft" | "generating" | "done" | "scheduled" | "published" | "failed";
+  provider?: "local" | "kie" | "upload-post";
   providerRequestId?: string;
+  caption?: string;
+  hashtags?: string[];
+  generationModel?: string;
+  generationType?: "video" | "image" | "text";
+  duration?: number;
+  prompt?: string;
+  assetUrl?: string;
+  createdAt?: string;
   error?: string;
 };
 
@@ -110,6 +163,8 @@ export type Database = {
   workspaces: Workspace[];
   brandKits: BrandKit[];
   competitors: Competitor[];
+  competitorResults: CompetitorResult[];
+  researchScans: ResearchScan[];
   opportunities: Opportunity[];
   briefs: Brief[];
   assets: Asset[];

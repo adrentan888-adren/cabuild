@@ -52,6 +52,39 @@ function seeded(): Database {
       { id: id("cmp"), workspaceId, platform: "TikTok", handle: "@aioperator", cadence: "daily", lastScraped: new Date().toISOString() },
       { id: id("cmp"), workspaceId, platform: "LinkedIn", handle: "GrowthOps AI", cadence: "weekly", lastScraped: new Date().toISOString() }
     ],
+    competitorResults: [
+      {
+        id: id("res"),
+        workspaceId,
+        competitorId: "seed",
+        platform: "TikTok",
+        url: "https://www.tiktok.com/@aioperator/video/demo",
+        title: "I automated my invoice chasing in one afternoon",
+        thumbnailUrl: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=480&h=270&fit=crop",
+        description: "Competitor post about automating collections and admin follow-up.",
+        views: 128400,
+        likes: 9200,
+        comments: 410,
+        publishedAt: new Date(Date.now() - 1000 * 60 * 60 * 21).toISOString(),
+        capturedAt: new Date().toISOString()
+      },
+      {
+        id: id("res"),
+        workspaceId,
+        competitorId: "seed",
+        platform: "Instagram",
+        url: "https://www.instagram.com/reel/demo",
+        title: "3 reports your team should stop doing manually",
+        thumbnailUrl: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=480&h=270&fit=crop",
+        description: "A carousel-style breakdown of recurring manual reports.",
+        views: 48200,
+        likes: 3100,
+        comments: 126,
+        publishedAt: new Date(Date.now() - 1000 * 60 * 60 * 42).toISOString(),
+        capturedAt: new Date().toISOString()
+      }
+    ],
+    researchScans: [],
     opportunities: [
       {
         id: "opp_automation",
@@ -80,48 +113,13 @@ function seeded(): Database {
         engagementPotential: 15,
         platformFit: 14,
         status: "new"
-      },
-      {
-        id: "opp_carousel",
-        workspaceId,
-        topic: "5 automations that give back 10 hours per week",
-        platform: "Instagram",
-        format: "Carousel",
-        gapScore: 82,
-        trendVelocity: 16,
-        competitorGap: 16,
-        nicheRelevance: 18,
-        engagementPotential: 16,
-        platformFit: 16,
-        status: "briefed"
       }
     ],
-    briefs: [
-      {
-        id: "brf_carousel",
-        workspaceId,
-        opportunityId: "opp_carousel",
-        topic: "5 automations that give back 10 hours per week",
-        format: "Carousel",
-        platforms,
-        hooks: ["Most SMEs do not need more staff. They need fewer repeated decisions."],
-        outline: ["Manual reporting", "Lead routing", "Invoice reminders", "Content repurposing", "Client follow-up"],
-        caption: "Automation is not about replacing the team. It is about removing the repetitive work that keeps the team from thinking.",
-        hashtags: ["#SME", "#Automation", "#AI"],
-        optimalTime: "Tue 9:30 AM",
-        expectedPerformance: "3.8-5.2% engagement",
-        status: "approved"
-      }
-    ],
-    assets: [
-      { id: "ast_demo", workspaceId, briefId: "brf_carousel", title: "5 automations carousel", type: "carousel", status: "ready", progress: 100, createdAt: new Date().toISOString() }
-    ],
-    publishQueue: [
-      { id: "pub_demo", workspaceId, assetId: "ast_demo", title: "5 automations carousel", platform: "LinkedIn", scheduledAt: new Date(Date.now() + 86400000).toISOString(), status: "scheduled" }
-    ],
+    briefs: [],
+    assets: [],
+    publishQueue: [],
     activity: [
-      { id: id("act"), workspaceId, message: "Detected TikTok automation topic crossing high-priority threshold.", createdAt: new Date().toISOString() },
-      { id: id("act"), workspaceId, message: "Carousel brief approved and moved to production.", createdAt: new Date().toISOString() }
+      { id: id("act"), workspaceId, message: "Detected TikTok automation topic crossing high-priority threshold.", createdAt: new Date().toISOString() }
     ]
   };
 }

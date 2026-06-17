@@ -11,6 +11,11 @@ ContentAgent Social is a local Next.js prototype for research, content planning,
 - Build check: `npm run build`
 - App URL: `http://localhost:3100`
 
+## GitHub
+- Private repo: `https://github.com/adrentan888-adren/cabuild`
+- Branch: `main`
+- Current deployment commit pushed: `0477adc Prepare ContentAgent for GCP deployment`
+
 Before builds, stop old project-local Node processes if `.next/trace` is locked:
 ```powershell
 Get-CimInstance Win32_Process -Filter "name = 'node.exe'" | Where-Object { $_.CommandLine -like '*CABuild*' } | Select-Object -ExpandProperty ProcessId | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
@@ -91,6 +96,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+- 2026-06-17: Pushed current deployment code to GitHub private repo `adrentan888-adren/cabuild` on branch `main`.
 - 2026-06-17: User asked to use Playwright for GCP Console setup; operator should navigate GCP Console while user handles Google login/2FA manually.
 - 2026-06-17: Created GCP deploy service account in Console, assigned Owner, but service account key download was blocked by org policy `iam.disableServiceAccountKeyCreation`; next path is keyless local `gcloud auth login` as `sean@gigwave.tech`.
 - 2026-06-17: Added GCP deployment access guidance: use temporary service account JSON or keyless auth, not pasted raw credentials; target is Cloud Run + Artifact Registry + Secret Manager, with Cloud SQL/Postgres needed for production persistence.

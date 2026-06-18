@@ -3,7 +3,7 @@ import { currentUser } from "@/lib/session";
 import { id, mutateDb } from "@/lib/store";
 import type { Asset, Brief, CompetitorResult, Platform, PublishItem } from "@/lib/types";
 import { fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl } from "@/lib/providers/apify";
-import { generateContentPlanWithGemini, generateVeoVideo, getVeoVideo } from "@/lib/providers/kie";
+import { generateContentPlanWithGemini, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 
 async function requireUser() {
@@ -262,32 +262,57 @@ export async function POST(req: Request) {
       const updated = await mutateDb(async (db) => {
         const asset = db.assets.find((item) => item.id === body.id && item.workspaceId === workspaceId);
         if (!asset?.providerTaskId) throw new Error("Asset has no provider task to poll.");
-        const status = await getVeoVideo(asset.providerTaskId);
-        if (status.successFlag === 1 && status.assetUrl) {
-          asset.status = "ready";
-          asset.progress = 100;
-          asset.assetUrl = status.assetUrl;
-          asset.error = "";
-          db.publishQueue
-            .filter((item) => item.assetId === asset.id && item.workspaceId === workspaceId)
-            .forEach((item) => {
+        const publishItems = db.publishQueue.filter((item) => item.assetId === asset.id && item.workspaceId === workspaceId);
+        const generationModel = asset.generationModel || publishItems.find((item) => item.generationModel)?.generationModel || "";
+        const isSeedance = generationModel === "seedance-2.0" || asset.providerTaskId.startsWith("task_bytedance");
+        if (isSeedance) {
+          const status = await getMarketTask(asset.providerTaskId);
+          if (status.state === "success" && status.assetUrl) {
+            asset.status = "ready";
+            asset.progress = 100;
+            asset.assetUrl = status.assetUrl;
+            asset.error = "";
+            publishItems.forEach((item) => {
               item.status = "done";
               item.assetUrl = status.assetUrl;
               item.error = "";
             });
-          db.activity.push({ id: id("act"), workspaceId, message: `Kie video ready for "${asset.title}".`, createdAt: new Date().toISOString() });
-        } else if (status.successFlag === 2 || status.successFlag === 3) {
-          asset.status = "failed";
-          asset.error = status.error || "Kie generation failed.";
-          db.publishQueue
-            .filter((item) => item.assetId === asset.id && item.workspaceId === workspaceId)
-            .forEach((item) => {
+            db.activity.push({ id: id("act"), workspaceId, message: `Kie video ready for "${asset.title}".`, createdAt: new Date().toISOString() });
+          } else if (status.state === "fail") {
+            asset.status = "failed";
+            asset.error = status.error || "Kie generation failed.";
+            publishItems.forEach((item) => {
               item.status = "failed";
               item.error = asset.error;
             });
+          } else {
+            asset.status = "rendering";
+            asset.progress = Math.max(asset.progress, status.progress || 35);
+          }
         } else {
-          asset.status = "rendering";
-          asset.progress = Math.max(asset.progress, 45);
+          const status = await getVeoVideo(asset.providerTaskId);
+          if (status.successFlag === 1 && status.assetUrl) {
+            asset.status = "ready";
+            asset.progress = 100;
+            asset.assetUrl = status.assetUrl;
+            asset.error = "";
+            publishItems.forEach((item) => {
+              item.status = "done";
+              item.assetUrl = status.assetUrl;
+              item.error = "";
+            });
+            db.activity.push({ id: id("act"), workspaceId, message: `Kie video ready for "${asset.title}".`, createdAt: new Date().toISOString() });
+          } else if (status.successFlag === 2 || status.successFlag === 3) {
+            asset.status = "failed";
+            asset.error = status.error || "Kie generation failed.";
+            publishItems.forEach((item) => {
+              item.status = "failed";
+              item.error = asset.error;
+            });
+          } else {
+            asset.status = "rendering";
+            asset.progress = Math.max(asset.progress, 45);
+          }
         }
         return asset;
       });
@@ -721,7 +746,7 @@ export async function POST(req: Request) {
       const platform = (String(body.platform || brief.platforms[0] || "TikTok") as Platform);
       const now = new Date().toISOString();
       const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? (brief.format.toLowerCase().includes("carousel") ? "carousel" : "image") : "text";
-      const isKieVideo = generationType === "video" && model === "veo-fast";
+      const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
       brief.duration = duration || brief.duration;
       brief.status = "production";
       brief.updatedAt = now;
@@ -735,6 +760,7 @@ export async function POST(req: Request) {
         progress: isKieVideo ? 10 : 100,
         createdAt: now,
         provider: isKieVideo ? "kie" : "local",
+        generationModel: model,
         prompt,
         assetUrl: isKieVideo ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
       };
@@ -823,13 +849,17 @@ export async function POST(req: Request) {
   const generatedAsset = action === "generateDraftFromPlan" ? (data as { asset?: Asset }).asset : data as Asset;
   if ((action === "renderAsset" || action === "generateUgc" || action === "generateDraftFromPlan") && generatedAsset?.provider === "kie") {
     try {
-      const taskId = await generateVeoVideo(generatedAsset.prompt || generatedAsset.title, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16") });
+      const model = generatedAsset.generationModel || String(body.generationModel || "veo-fast");
+      const taskId = model === "seedance-2.0"
+        ? await generateSeedanceVideo(generatedAsset.prompt || generatedAsset.title, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16") })
+        : await generateVeoVideo(generatedAsset.prompt || generatedAsset.title, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16") });
       const updated = await mutateDb((db) => {
         const asset = db.assets.find((item) => item.id === generatedAsset.id && item.workspaceId === workspaceId);
         if (!asset) return data;
         asset.status = "rendering";
         asset.progress = 35;
         asset.providerTaskId = taskId;
+        asset.generationModel = model;
         db.publishQueue
           .filter((item) => item.assetId === asset.id && item.workspaceId === workspaceId)
           .forEach((item) => {

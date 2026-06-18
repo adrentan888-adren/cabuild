@@ -1,6 +1,6 @@
 # CABuild Project Handoff
 
-Last updated: 2026-06-16
+Last updated: 2026-06-18
 
 ## Purpose
 ContentAgent Social is a local Next.js prototype for research, content planning, AI generation, and publishing. The mock UI is the visual source of truth when it conflicts with the PRD.
@@ -67,6 +67,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Text generation model options: Gemini 3.5 Flash and Claude Opus 4.8.
 - Generate creates a Publish entry:
   - VEO Fast uses Kie and starts as `Generating`.
+  - Seedance 2.0 uses Kie and starts as `Generating`.
   - Other model choices currently create demo-ready local drafts as `Done` until exact provider endpoints are wired.
 - Polling a Kie asset updates the linked Publish item to `Done` or `Failed`.
 - Publish auto-polls generating Kie video jobs in the background; no manual Poll button is shown.
@@ -77,8 +78,9 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 
 ## Provider Notes
 - Kie VEO generation is wired through `generateVeoVideo`.
+- Kie Seedance 2.0 video generation is wired through the Kie Market `bytedance/seedance-2` task endpoint and polled through `getMarketTask`.
 - Kie Gemini content plan generation is wired through `generateContentPlanWithGemini`.
-- Seedance, Nanobanana Pro, GPT-image 2, Gemini text draft generation, and Claude text draft generation are UI/provider selections but still need exact production endpoints.
+- Nanobanana Pro, GPT-image 2, Gemini text draft generation, and Claude text draft generation are UI/provider selections but still need exact production endpoints.
 - Upload-Post is configured for the demo profile Mariana.
 
 ## GCP Deployment Access
@@ -97,6 +99,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+- 2026-06-18: Fixed Content Plan Generate with Seedance 2.0. It now creates a Kie `bytedance/seedance-2` task instead of attaching the local demo video, stores the selected generation model on the asset, and polls Seedance tasks through Kie Market status until Publish moves from `Generating` to `Done` or `Failed`. Local `npm run build` passed.
 - 2026-06-17: Pushed current deployment code to GitHub private repo `adrentan888-adren/cabuild` on branch `main`.
 - 2026-06-17: User asked to use Playwright for GCP Console setup; operator should navigate GCP Console while user handles Google login/2FA manually.
 - 2026-06-17: Created GCP deploy service account in Console, assigned Owner, but service account key download was blocked by org policy `iam.disableServiceAccountKeyCreation`; next path is keyless local `gcloud auth login` as `sean@gigwave.tech`.

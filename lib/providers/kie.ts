@@ -20,6 +20,25 @@ type KieStatusResponse = {
   };
 };
 
+type KieMarketTaskResponse = {
+  code: number;
+  msg: string;
+  data?: { taskId?: string };
+};
+
+type KieMarketStatusResponse = {
+  code: number;
+  msg: string;
+  data?: {
+    taskId: string;
+    state: "waiting" | "queuing" | "generating" | "success" | "fail";
+    resultJson?: string;
+    failMsg?: string;
+    failCode?: string;
+    progress?: number;
+  };
+};
+
 const baseUrl = "https://api.kie.ai";
 
 function token() {
@@ -56,6 +75,34 @@ export async function generateVeoVideo(prompt: string, options: { duration?: num
   return json.data.taskId;
 }
 
+export async function generateSeedanceVideo(prompt: string, options: { duration?: number; aspectRatio?: string } = {}) {
+  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const duration = Math.max(4, Math.min(15, Math.round(options.duration || 8)));
+  const res = await fetch(`${baseUrl}/api/v1/jobs/createTask`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token()}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "bytedance/seedance-2",
+      input: {
+        prompt,
+        generate_audio: false,
+        resolution: "720p",
+        aspect_ratio: options.aspectRatio || "9:16",
+        duration,
+        web_search: false
+      }
+    })
+  });
+  const json = (await res.json()) as KieMarketTaskResponse;
+  if (!res.ok || json.code !== 200 || !json.data?.taskId) {
+    throw new Error(json.msg || `Kie Seedance generation failed with HTTP ${res.status}.`);
+  }
+  return json.data.taskId;
+}
+
 export async function getVeoVideo(taskId: string) {
   if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
   const url = new URL(`${baseUrl}/api/v1/veo/record-info`);
@@ -71,6 +118,33 @@ export async function getVeoVideo(taskId: string) {
     successFlag: json.data.successFlag,
     assetUrl: urls[0],
     error: json.data.errorMessage || ""
+  };
+}
+
+export async function getMarketTask(taskId: string) {
+  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const url = new URL(`${baseUrl}/api/v1/jobs/recordInfo`);
+  url.searchParams.set("taskId", taskId);
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token()}` } });
+  const json = (await res.json()) as KieMarketStatusResponse;
+  if (!res.ok || !json.data) {
+    throw new Error(json.msg || `Kie task status check failed with HTTP ${res.status}.`);
+  }
+  let resultUrls: string[] = [];
+  if (json.data.resultJson) {
+    try {
+      const parsed = JSON.parse(json.data.resultJson) as { resultUrls?: string[]; videoUrl?: string; video?: { url?: string } };
+      resultUrls = parsed.resultUrls || (parsed.videoUrl ? [parsed.videoUrl] : parsed.video?.url ? [parsed.video.url] : []);
+    } catch {
+      resultUrls = [];
+    }
+  }
+  return {
+    taskId: json.data.taskId,
+    state: json.data.state,
+    progress: json.data.progress || 0,
+    assetUrl: resultUrls[0],
+    error: json.data.failMsg || json.data.failCode || ""
   };
 }
 

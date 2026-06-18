@@ -141,6 +141,7 @@ export type Asset = {
   createdAt: string;
   provider?: "local" | "kie";
   providerTaskId?: string;
+  generationModel?: string;
   assetUrl?: string;
   prompt?: string;
   error?: string;

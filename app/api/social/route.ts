@@ -4,7 +4,7 @@ import { id, mutateDb } from "@/lib/store";
 import type { Asset, Brief, CompetitorResult, Platform, PublishItem } from "@/lib/types";
 import { fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl } from "@/lib/providers/apify";
 import { generateContentPlanWithGemini, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
-import { publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
+import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 
 async function requireUser() {
   const user = await currentUser();
@@ -398,6 +398,85 @@ export async function POST(req: Request) {
       return created;
     });
     return NextResponse.json(audit);
+  }
+
+  if (action === "auditConnectedSocials") {
+    const accounts = (await getConnectedUploadPostAccounts()).filter((account) => !account.reauthRequired);
+    if (accounts.length === 0) return NextResponse.json({ audits: [], connectedAccounts: [] });
+    const audits = [];
+    for (const account of accounts) {
+      const platform = account.platform as Platform;
+      let normalized: Omit<CompetitorResult, "id" | "workspaceId" | "competitorId" | "platform" | "capturedAt">[];
+      let source: "apify" | "fallback" = "apify";
+      let error = "";
+      try {
+        const apifyItems = await scanSocialUrl(account.url, 0);
+        normalized = apifyItems.map((item) => ({
+          url: item.sourceUrl,
+          title: item.title,
+          thumbnailUrl: item.thumbnailUrl,
+          description: item.description,
+          views: item.views,
+          likes: item.likes,
+          comments: item.comments,
+          publishedAt: item.publishedAt
+        }));
+      } catch (err) {
+        source = "fallback";
+        error = err instanceof Error ? err.message : "Apify connected-account audit failed";
+        normalized = mockCompetitorResults({ workspaceId, competitorId: "audit", platform, url: account.url, minViews: 0 }).map((item) => ({
+          url: item.url,
+          title: item.title,
+          thumbnailUrl: item.thumbnailUrl,
+          description: item.description,
+          views: item.views,
+          likes: item.likes,
+          comments: item.comments,
+          publishedAt: item.publishedAt
+        }));
+      }
+      const audit = await mutateDb((db) => {
+        db.competitorResults ||= [];
+        db.socialAudits ||= [];
+        const auditId = id("aud");
+        const results: CompetitorResult[] = normalized.slice(0, 12).map((item) => ({
+          id: id("res"),
+          workspaceId,
+          competitorId: auditId,
+          platform,
+          capturedAt: new Date().toISOString(),
+          ...item
+        }));
+        db.competitorResults.push(...results);
+        const postsAnalysed = results.length;
+        const avgViews = postsAnalysed ? Math.round(results.reduce((sum, item) => sum + item.views, 0) / postsAnalysed) : 0;
+        const avgLikes = postsAnalysed ? Math.round(results.reduce((sum, item) => sum + item.likes, 0) / postsAnalysed) : 0;
+        const engagementRate = avgViews > 0 ? avgLikes / avgViews : 0;
+        const authorityScore = Math.max(20, Math.min(96, Math.round(38 + Math.log10(Math.max(avgViews, 1)) * 9 + engagementRate * 140)));
+        const created = {
+          id: auditId,
+          workspaceId,
+          url: account.url,
+          platform,
+          handle: account.handle,
+          authorityScore,
+          avgViews,
+          avgLikes,
+          postsAnalysed,
+          topResultIds: results.slice(0, 5).map((item) => item.id),
+          createdAt: new Date().toISOString(),
+          source,
+          error
+        };
+        db.socialAudits = db.socialAudits.filter((item) => !(item.workspaceId === workspaceId && item.platform === platform && item.handle === account.handle));
+        db.socialAudits.push(created);
+        db.socialAudits = db.socialAudits.filter((item) => item.workspaceId !== workspaceId).concat(db.socialAudits.filter((item) => item.workspaceId === workspaceId).slice(-10));
+        db.activity.push({ id: id("act"), workspaceId, message: `Connected social audit completed for ${account.displayName} on ${platform} using ${source}.`, createdAt: new Date().toISOString() });
+        return created;
+      });
+      audits.push(audit);
+    }
+    return NextResponse.json({ audits, connectedAccounts: accounts });
   }
 
   if (action === "scanResearchUrl") {

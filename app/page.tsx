@@ -31,6 +31,14 @@ type AppData = {
   competitors: Competitor[];
   competitorResults: CompetitorResult[];
   socialAudits: SocialAudit[];
+  connectedSocialAccounts: {
+    platform: Platform;
+    handle: string;
+    displayName: string;
+    imageUrl?: string;
+    reauthRequired?: boolean;
+    url: string;
+  }[];
   opportunities: Opportunity[];
   briefs: Brief[];
   assets: Asset[];
@@ -304,36 +312,34 @@ function HomePanel({ data, setScreen, run }: { data: AppData; setScreen: (s: str
 function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
   const [auditing, setAuditing] = useState(false);
   const [auditElapsed, setAuditElapsed] = useState(0);
-  const latestAudit = data.socialAudits?.[0];
-  const auditResults = latestAudit
-    ? latestAudit.topResultIds
-        .map((resultId) => data.competitorResults.find((item) => item.id === resultId))
-        .filter((item): item is CompetitorResult => Boolean(item))
-    : [];
-  const allAuditResults = latestAudit ? data.competitorResults.filter((item) => item.competitorId === latestAudit.id) : [];
+  const [connectError, setConnectError] = useState("");
+  const autoAuditRef = useRef(false);
+  const connectedAccounts = data.connectedSocialAccounts || [];
+  const connectedAudits = connectedAccounts
+    .map((account) => data.socialAudits.find((audit) => audit.platform === account.platform && audit.handle === account.handle))
+    .filter((audit): audit is SocialAudit => Boolean(audit));
+  const latestAudit = connectedAudits[0];
+  const auditResultIds = new Set(connectedAudits.flatMap((audit) => audit.topResultIds));
+  const auditResults = data.competitorResults.filter((item) => auditResultIds.has(item.id));
+  const allAuditResults = data.competitorResults.filter((item) => connectedAudits.some((audit) => audit.id === item.competitorId));
   const totalReach = allAuditResults.reduce((sum, item) => sum + item.views, 0);
   const totalLikes = allAuditResults.reduce((sum, item) => sum + item.likes, 0);
   const engagementRate = totalReach > 0 ? (totalLikes / totalReach) * 100 : 0;
   const postsThisWeek = allAuditResults.filter((item) => Date.now() - new Date(item.publishedAt).getTime() <= 1000 * 60 * 60 * 24 * 7).length;
-  const followerEstimate = latestAudit ? Math.max(120, Math.round((latestAudit.avgLikes || 0) * 9 + (latestAudit.postsAnalysed || 0) * 82)) : 0;
-  const platformRows: { name: string; score: number }[] = ["LinkedIn", "Facebook", "Instagram", "TikTok", "X"].map((name) => {
-    const isCurrent = latestAudit?.platform === name || (name === "X" && latestAudit?.platform === "X");
-    const offset = name === "LinkedIn" ? 12 : name === "Facebook" ? 2 : name === "Instagram" ? -4 : name === "TikTok" ? -12 : -28;
-    return { name: name === "X" ? "X (Twitter)" : name, score: latestAudit ? Math.max(18, Math.min(96, (isCurrent ? latestAudit.authorityScore : latestAudit.authorityScore + offset))) : 0 };
+  const followerEstimate = connectedAudits.length ? Math.max(120, Math.round(connectedAudits.reduce((sum, audit) => sum + audit.avgLikes, 0) * 9 + connectedAudits.reduce((sum, audit) => sum + audit.postsAnalysed, 0) * 82)) : 0;
+  const averageAuthority = connectedAudits.length ? Math.round(connectedAudits.reduce((sum, audit) => sum + audit.authorityScore, 0) / connectedAudits.length) : 0;
+  const accountRows = connectedAccounts.map((account) => {
+    const audit = connectedAudits.find((item) => item.platform === account.platform && item.handle === account.handle);
+    return { account, audit, score: audit?.authorityScore || 0 };
   });
   const pillarRows = [
-    { name: "AI automation writes", score: Math.min(96, Math.round((latestAudit?.authorityScore || 0) + 18)), badge: "Strong" },
-    { name: "Founder story", score: Math.min(88, Math.round((latestAudit?.authorityScore || 0) + 4)), badge: "Avg" },
-    { name: "SME productivity tips", score: Math.max(36, Math.round((latestAudit?.authorityScore || 0) - 6)), badge: "Avg" },
-    { name: "Industry news shares", score: Math.max(22, Math.round((latestAudit?.authorityScore || 0) - 34)), badge: "Drop this" }
+    { name: "AI automation writes", score: Math.min(96, averageAuthority + 18), badge: "Strong" },
+    { name: "Founder story", score: Math.min(88, averageAuthority + 4), badge: "Avg" },
+    { name: "SME productivity tips", score: Math.max(36, averageAuthority - 6), badge: "Avg" },
+    { name: "Industry news shares", score: Math.max(22, averageAuthority - 34), badge: "Drop this" }
   ];
-  const competitorRows = data.competitors.slice(0, 4).map((item, index) => ({
-    name: item.handle,
-    followers: compact(Math.max(1800, (latestAudit?.avgViews || 2200) * (index + 2))),
-    posts: (2.4 + index * 1.2).toFixed(1),
-    er: `${Math.max(1.2, engagementRate + (index === 0 ? 0.4 : index === 1 ? -0.8 : -1.4)).toFixed(1)}%`,
-    delta: index === 0 ? "-1.4x" : index === 1 ? "+0.3x" : "+1.1x"
-  }));
+  const needsAudit = connectedAccounts.length > 0 && connectedAudits.length < connectedAccounts.filter((account) => !account.reauthRequired).length;
+
   useEffect(() => {
     if (!auditing) {
       setAuditElapsed(0);
@@ -343,23 +349,22 @@ function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: R
     return () => window.clearInterval(timer);
   }, [auditing]);
 
-  async function submitAudit(form: FormData) {
+  useEffect(() => {
+    if (autoAuditRef.current || !needsAudit || auditing) return;
+    autoAuditRef.current = true;
     setAuditing(true);
-    try {
-      await run("runSocialAudit", Object.fromEntries(form.entries()), "Social audit completed");
-    } finally {
-      setAuditing(false);
-    }
-  }
+    run("auditConnectedSocials", {}, "Connected social audits completed").finally(() => setAuditing(false));
+  }, [auditing, needsAudit, run]);
 
-  async function refreshAudit() {
-    if (!latestAudit) return;
-    setAuditing(true);
-    try {
-      await run("runSocialAudit", { url: latestAudit.url }, "Social audit refreshed");
-    } finally {
-      setAuditing(false);
+  async function connectSocialMedia() {
+    setConnectError("");
+    const res = await fetch("/api/integrations/upload-post/connect", { method: "POST" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.access_url) {
+      setConnectError(json.error || "Unable to create Upload-Post connection link.");
+      return;
     }
+    window.open(json.access_url, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -367,28 +372,21 @@ function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: R
       <div className="audit-title-row">
         <div>
           <div className="clbl">Social Audit</div>
-          <h2>{latestAudit ? `${latestAudit.handle} authority dashboard` : "Add your social profile to start the audit"}</h2>
-          <p>{latestAudit ? `${latestAudit.platform} audit for ${data.workspace.name}` : "Paste your TikTok, Instagram, Facebook, LinkedIn, X, or other social URL to run the first audit."}</p>
+          <h2>{connectedAccounts.length ? "Connected social authority dashboard" : "Connect social media to start the audit"}</h2>
+          <p>{connectedAccounts.length ? `${connectedAccounts.length} connected account${connectedAccounts.length === 1 ? "" : "s"} from Upload-Post profile Mariana` : "Connect through Upload-Post first. Only connected accounts are audited and shown here."}</p>
         </div>
-        <span className="last-upd">{latestAudit ? `Last update: ${new Date(latestAudit.createdAt).toLocaleString()}` : "No audit yet"}</span>
+        <button className="primary" onClick={connectSocialMedia}><Megaphone size={14} />Connect social media</button>
       </div>
 
-      <section className="card">
-        <form className="audit-url-form" action={submitAudit}>
-          <label>Social URL<input name="url" type="url" placeholder="https://www.instagram.com/yourbrand or https://www.tiktok.com/@yourbrand" defaultValue={latestAudit?.url || ""} required /></label>
-          <button className="primary" disabled={auditing}><Radar size={14} />{auditing ? "Auditing..." : latestAudit ? "Run new audit" : "Run social audit"}</button>
-        </form>
-        {!latestAudit && <p className="muted">No stored profile URL found for this workspace. Add one here and the latest audit will be saved for future visits.</p>}
-        {auditing && <div className="scan-progress"><span />Running Apify social audit and calculating authority metrics<b>{auditElapsed}s</b></div>}
-        {latestAudit?.error && !auditing && <p className="provider-error">Fallback used: {latestAudit.error}</p>}
-      </section>
+      {connectError && <p className="provider-error">{connectError}</p>}
+      {auditing && <div className="scan-progress"><span />Analysing all connected social accounts with Apify<b>{auditElapsed}s</b></div>}
 
       <section className="card">
         <div className="audit-hero">
-          <div className="score-ring"><div><strong>{latestAudit?.authorityScore || 0}</strong><span>Authority</span></div></div>
+          <div className="score-ring"><div><strong>{averageAuthority}</strong><span>Authority</span></div></div>
           <div className="audit-mets">
-            <div><b>{compact(totalReach)}</b><span>Total reach</span><small className="good">+36% vs previous</small></div>
-            <div><b>{engagementRate.toFixed(1)}%</b><span>Engagement rate</span><small className="good">+0.5 pts</small></div>
+            <div><b>{compact(totalReach)}</b><span>Total reach</span><small className="good">Connected accounts only</small></div>
+            <div><b>{engagementRate.toFixed(1)}%</b><span>Engagement rate</span><small className="good">{connectedAudits.length} audited</small></div>
             <div><b>{postsThisWeek}</b><span>Posts this week</span><small className="warn">Target: 10</small></div>
             <div><b>+{compact(followerEstimate)}</b><span>Follower signal</span><small className="good">Estimated from engagement</small></div>
           </div>
@@ -396,23 +394,25 @@ function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: R
       </section>
 
       <section className="card">
-        <div className="clbl">Engagement trend - last 14 days</div>
+        <div className="clbl">Connected account breakdown</div>
+        {accountRows.length === 0 && <div className="empty-state">No social media accounts connected yet.</div>}
+        {accountRows.map(({ account, audit, score }) => (
+          <div className="pb-row audit-pb account-row" key={`${account.platform}-${account.handle}`}>
+            {account.imageUrl ? <img src={account.imageUrl} alt="" /> : <span className="account-avatar">{account.platform.slice(0, 1)}</span>}
+            <span className="pb-nm">{account.platform}<small>{account.displayName} @{account.handle}</small></span>
+            <div className="pb-tr"><span style={{ width: `${score}%`, background: score < 40 ? "#E24B4A" : score < 55 ? "#EF9F27" : "#378ADD" }} /></div>
+            <span className="pb-sc">{audit ? `${score} / 100` : account.reauthRequired ? "Reconnect" : "Pending"}</span>
+          </div>
+        ))}
+      </section>
+
+      <section className="card">
+        <div className="clbl">Engagement trend - connected accounts</div>
         <svg className="audit-trend" width="100%" height="72" viewBox="0 0 640 72" preserveAspectRatio="none">
           <path d="M0 60 L46 55 L91 50 L137 53 L183 45 L229 40 L274 37 L320 33 L366 30 L411 23 L457 17 L503 13 L549 10 L594 7 L640 4" fill="none" stroke="#378ADD" strokeWidth="2" strokeLinecap="round" />
           <path d="M0 60 L46 55 L91 50 L137 53 L183 45 L229 40 L274 37 L320 33 L366 30 L411 23 L457 17 L503 13 L549 10 L594 7 L640 4 L640 72 L0 72Z" fill="rgba(55,138,221,.12)" />
         </svg>
         <div className="trend-axis"><span>Day 1</span><span>Day 4</span><span>Day 7</span><span>Day 10</span><span>Day 14</span></div>
-      </section>
-
-      <section className="card">
-        <div className="clbl">Platform breakdown <span>click to refresh current profile</span></div>
-        {platformRows.map((item) => (
-          <button className="pb-row audit-pb" key={item.name} onClick={item.name.startsWith(latestAudit?.platform || "none") ? refreshAudit : undefined} disabled={!latestAudit || auditing}>
-            <span className="pb-nm">{item.name}</span>
-            <div className="pb-tr"><span style={{ width: `${item.score}%`, background: item.score < 40 ? "#E24B4A" : item.score < 55 ? "#EF9F27" : "#378ADD" }} /></div>
-            <span className="pb-sc">{item.score} / 100</span>
-          </button>
-        ))}
       </section>
 
       <section className="card">
@@ -426,25 +426,14 @@ function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: R
         ))}
       </section>
 
-      <section className="card">
-        <div className="clbl">Competitor gap analysis <span>{data.competitors.length} competitors tracked</span></div>
-        <table className="audit-table">
-          <thead><tr><th>Competitor</th><th>Followers</th><th>Posts/wk</th><th>Eng. rate</th><th>vs you</th></tr></thead>
-          <tbody>
-            <tr><td><b>You ({latestAudit?.handle || "profile"})</b></td><td>{compact(followerEstimate)}</td><td>{postsThisWeek || "-"}</td><td>{engagementRate.toFixed(1)}%</td><td>-</td></tr>
-            {competitorRows.map((item, index) => <tr key={`${item.name}-${index}`}><td>{item.name}</td><td>{item.followers}</td><td>{item.posts}</td><td>{item.er}</td><td className={item.delta.startsWith("-") ? "bad" : "good"}>{item.delta}</td></tr>)}
-          </tbody>
-        </table>
-      </section>
-
       {auditResults.length > 0 && (
         <section className="card">
-          <div className="clbl">Top posts</div>
+          <div className="clbl">Top posts from connected accounts</div>
           <div className="top-posts">
-            {auditResults.map((item, index) => (
+            {auditResults.slice(0, 8).map((item, index) => (
               <a className="tp-row" key={item.id} href={item.url} target="_blank">
                 <span className="tp-rank">{index + 1}</span>
-                <div className="tp-text">{item.title}<small>{new Date(item.publishedAt).toLocaleString()}</small></div>
+                <div className="tp-text">{item.title}<small>{item.platform} - {new Date(item.publishedAt).toLocaleString()}</small></div>
                 <span className="tp-er">{item.views > 0 ? `${((item.likes / item.views) * 100).toFixed(1)}%` : "0%"}</span>
               </a>
             ))}
@@ -455,15 +444,11 @@ function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: R
       <section className="card">
         <div className="clbl">AI diagnostic</div>
         <div className="diag">
-          {latestAudit ? (
-            <>Your <b>{latestAudit.platform} content</b> is averaging {compact(latestAudit.avgViews)} views and {engagementRate.toFixed(1)}% engagement. Double down on AI automation and practical SME workflow posts, then reduce low-signal industry news sharing. Your strongest posts should be converted into Research references and Content Plans.</>
+          {connectedAudits.length ? (
+            <>Your connected channels average <b>{averageAuthority}/100 authority</b> across {connectedAudits.length} audited account{connectedAudits.length === 1 ? "" : "s"}. TikTok, Facebook, and X results are scraped from the connected handles returned by Upload-Post, then scored from views, likes, posting recency, and top-post engagement.</>
           ) : (
-            <>Run your first audit to calculate authority, reach, engagement, platform strength, content pillars, and next actions.</>
+            <>Connect social media first. Once Upload-Post returns connected accounts, this page automatically scans those social pages and shows only their audit results.</>
           )}
-        </div>
-        <div className="cta-row">
-          <button className="primary" disabled={!latestAudit || auditing} onClick={refreshAudit}>{auditing ? "Auditing..." : "Refresh audit"}</button>
-          <button disabled={!latestAudit}>See competitor content</button>
         </div>
       </section>
     </div>
@@ -1029,14 +1014,13 @@ function GenerationModal({ brief, onClose, onSubmit }: { brief: Brief; onClose: 
 function CreateContentPanel({ run, setScreen }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void }) {
   return (
     <div className="create-page">
-      <section className="create-hero">
+      <div className="create-top">
         <div>
-          <div className="clbl">Create Content</div>
-          <h2>Generate a draft from scratch</h2>
-          <p>Use the same generation fields as Content Plan. Generated and generating assets are added to Publish automatically.</p>
+          <div className="module-kicker">Module 4</div>
+          <h2>Create content</h2>
         </div>
-        <button onClick={() => setScreen("publish")}>View Publish queue</button>
-      </section>
+        <div className="credit-pill">Generated assets move to <b>Publish</b></div>
+      </div>
       <DirectGenerationPanel run={run} setScreen={setScreen} />
     </div>
   );
@@ -1076,22 +1060,50 @@ function DirectGenerationPanel({ run, setScreen }: { run: (a: string, p?: Record
     <form action={submit} className="generation-form create-generation-form">
       <input type="hidden" name="platform" value={kind === "text" ? "LinkedIn" : "TikTok"} />
       <section className="create-card">
-        <div className="create-section-head">
-          <div><b>Model and output</b><span>Select the generation path and required production settings.</span></div>
+        <div className="clbl">Input source</div>
+        <div className="brief-preview">
+          <span>Direct generation</span>
+          <b>Generate from scratch</b>
+          <p>Use this when there is no approved content plan. All outputs are sent to Publish after generation starts.</p>
         </div>
-        <label>Content type<select value={kind} onChange={(event) => changeKind(event.target.value as "video" | "image" | "text")}>
-          <option value="video">Video</option>
-          <option value="image">Image / carousel</option>
-          <option value="text">Text post</option>
-        </select></label>
-        <div className="model-options">
+        <button type="button" className="linkish" onClick={() => setScreen("plan")}>Use a content plan instead</button>
+      </section>
+
+      <section className="create-card">
+        <div className="clbl">Content type & platforms</div>
+        <div className="create-type-grid">
+          <button type="button" className={kind === "video" ? "on" : ""} onClick={() => changeKind("video")}><b>Video</b><span>TikTok, Reels, Shorts</span></button>
+          <button type="button" className={kind === "image" ? "on" : ""} onClick={() => changeKind("image")}><b>Image / carousel</b><span>Instagram, LinkedIn, Facebook</span></button>
+          <button type="button" className={kind === "text" ? "on" : ""} onClick={() => changeKind("text")}><b>Text post</b><span>LinkedIn, X, Threads</span></button>
+        </div>
+        <div className="plat-row">
+          {(kind === "video" ? ["TikTok", "FB/IG Reels", "YouTube Shorts"] : kind === "image" ? ["Instagram", "LinkedIn", "Facebook"] : ["LinkedIn", "X", "Threads"]).map((label) => <span className="pc on" key={label}><span className="pd" />{label}</span>)}
+        </div>
+      </section>
+
+      <section className="create-card">
+        <div className="clbl">Model - quality vs cost</div>
+        <div className="model-options create-model-options">
           {generationModels[kind].map(([value, label, price]) => (
             <button type="button" key={value} className={model === value ? "on" : ""} onClick={() => changeModel(value)}>
+              <span className="mcard-dot" />
               <b>{label}</b>
               <span>{price}</span>
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="create-card">
+        <div className="clbl">Optional assets</div>
+        <div className="upload-pair">
+          <div className="upbox"><Palette size={18} /><b>Product photo</b><span>Optional visual reference</span></div>
+          <div className="upbox"><UserRound size={18} /><b>Override avatar</b><span>Optional persona reference</span></div>
+        </div>
+      </section>
+
+      <section className="create-card">
+        <div className="clbl">Generation settings</div>
         <div className="modal-grid">
           {kind === "video" && (
             <>
@@ -1113,16 +1125,18 @@ function DirectGenerationPanel({ run, setScreen }: { run: (a: string, p?: Record
           )}
         </div>
       </section>
+
       <section className="create-card">
-        <div className="create-section-head">
-          <div><b>Creative inputs</b><span>These fields are passed directly into the generation request and Publish draft.</span></div>
-        </div>
+        <div className="clbl">Creative inputs</div>
         <label>Generation prompt<textarea name="prompt" defaultValue="Create a founder-led social asset for SME owners about using AI automation to remove repetitive manual work. Use a practical hook, concrete workflow example, clean pacing, and a clear CTA." /></label>
         <label>Caption<textarea name="caption" defaultValue="The fastest automation wins usually hide inside the tasks your team repeats every week." /></label>
         <label>Hashtags<input name="hashtags" defaultValue="#SME, #Automation, #AI" /></label>
-        <div className="modal-actions">
-          <button type="button" onClick={() => setScreen("publish")}>Cancel</button>
-          <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? "Generating..." : "Generate"}</button>
+        <div className="ftrow">
+          <div>Selected: <b>{model}</b></div>
+          <div className="row-actions">
+            <button type="button" onClick={() => setScreen("publish")}>View Publish</button>
+            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? "Generating..." : "Generate"}</button>
+          </div>
         </div>
       </section>
     </form>

@@ -26,6 +26,29 @@ function targetPlatforms(platform?: Platform) {
   return defaults.length > 0 ? defaults : platform ? [mapPlatform(platform)] : ["tiktok"];
 }
 
+function platformLabel(platform: string): Platform | "Unknown" {
+  const normalized = platform.toLowerCase();
+  if (normalized === "tiktok") return "TikTok";
+  if (normalized === "instagram") return "Instagram";
+  if (normalized === "youtube") return "YouTube";
+  if (normalized === "linkedin") return "LinkedIn";
+  if (normalized === "facebook") return "Facebook";
+  if (normalized === "x" || normalized === "twitter") return "X";
+  return "Unknown";
+}
+
+function accountUrl(platform: Platform | "Unknown", handle: string) {
+  const clean = handle.trim().replace(/^@/, "");
+  if (!clean) return "";
+  if (platform === "TikTok") return `https://www.tiktok.com/@${clean}`;
+  if (platform === "Instagram") return `https://www.instagram.com/${clean}`;
+  if (platform === "YouTube") return clean.startsWith("http") ? clean : `https://www.youtube.com/@${clean}`;
+  if (platform === "LinkedIn") return clean.startsWith("http") ? clean : `https://www.linkedin.com/in/${clean}`;
+  if (platform === "Facebook") return clean.startsWith("http") ? clean : `https://www.facebook.com/${encodeURIComponent(clean)}`;
+  if (platform === "X") return `https://x.com/${clean}`;
+  return "";
+}
+
 export function hasUploadPost() {
   return Boolean(token());
 }
@@ -47,6 +70,34 @@ export async function verifyUploadPost() {
     activeProfile: profile(),
     activeProfileExists: profiles.some((item: { username?: string }) => item.username === profile())
   };
+}
+
+export async function getConnectedUploadPostAccounts() {
+  if (!token()) return [];
+  const res = await fetch(`${baseUrl}/uploadposts/users`, {
+    headers: { Authorization: `Apikey ${token()}` },
+    cache: "no-store"
+  });
+  if (!res.ok) return [];
+  const json = await res.json().catch(() => ({}));
+  const profiles = Array.isArray(json?.profiles) ? json.profiles : [];
+  const active = profiles.find((item: { username?: string }) => item.username === profile());
+  const socialAccounts = active?.social_accounts || {};
+  return Object.entries(socialAccounts)
+    .map(([key, value]) => {
+      const account = (value || {}) as { display_name?: string; handle?: string; social_images?: string; reauth_required?: boolean };
+      const platform = platformLabel(key);
+      const handle = String(account.handle || "").trim();
+      return {
+        platform,
+        handle,
+        displayName: account.display_name || handle || key,
+        imageUrl: account.social_images || "",
+        reauthRequired: Boolean(account.reauth_required),
+        url: accountUrl(platform, handle)
+      };
+    })
+    .filter((item) => item.platform !== "Unknown" && item.handle && item.url);
 }
 
 export async function ensureUploadPostProfile() {

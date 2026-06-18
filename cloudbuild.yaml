@@ -17,6 +17,22 @@ steps:
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:$COMMIT_SHA
 
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        cat > cloudrun-env.yaml <<'EOF'
+        APIFY_ACTOR_ID: "apify/google-search-scraper"
+        APIFY_KEYWORD_ACTOR_ID: "apify/google-search-scraper"
+        APIFY_TIKTOK_ACTOR_ID: "clockworks/tiktok-scraper"
+        APIFY_INSTAGRAM_ACTOR_ID: "apify/instagram-scraper"
+        APIFY_YOUTUBE_ACTOR_ID: "streamers/youtube-scraper"
+        APIFY_FACEBOOK_ACTOR_ID: "scrapeforge/facebook-search-posts"
+        UPLOAD_POST_PROFILE: "Mariana"
+        UPLOAD_POST_DEFAULT_PLATFORMS: "tiktok,facebook,x"
+        EOF
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
     args:
       - run
@@ -25,7 +41,7 @@ steps:
       - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE}:$COMMIT_SHA
       - --region=${_REGION}
       - --platform=managed
-      - --set-env-vars=APIFY_ACTOR_ID=apify/google-search-scraper,APIFY_KEYWORD_ACTOR_ID=apify/google-search-scraper,APIFY_TIKTOK_ACTOR_ID=clockworks/tiktok-scraper,APIFY_INSTAGRAM_ACTOR_ID=apify/instagram-scraper,APIFY_YOUTUBE_ACTOR_ID=streamers/youtube-scraper,APIFY_FACEBOOK_ACTOR_ID=scrapeforge/facebook-search-posts,UPLOAD_POST_PROFILE=Mariana,UPLOAD_POST_DEFAULT_PLATFORMS=tiktok,facebook,x
+      - --env-vars-file=cloudrun-env.yaml
       - --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest
       - --quiet
 

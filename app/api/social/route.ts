@@ -790,6 +790,58 @@ export async function POST(req: Request) {
       return { asset, publishItem: item };
     }
 
+    if (action === "generateDirectContent") {
+      const generationType = (String(body.generationType || "video") as "video" | "image" | "text");
+      const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "nanobanana-pro" : "gemini-3.5-flash"));
+      const duration = Number(body.duration || 0) || (generationType === "video" ? 8 : undefined);
+      const prompt = String(body.prompt || "Create a practical founder-led social post about SME AI automation.");
+      const caption = String(body.caption || "A practical reminder for SME teams: automate repeatable work first.");
+      const hashtags = parseList(body.hashtags || "#SME, #Automation, #AI");
+      const platform = (String(body.platform || "TikTok") as Platform);
+      const now = new Date().toISOString();
+      const title = prompt.split(/\n|\.|\?/)[0].slice(0, 96) || "Direct content draft";
+      const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? "image" : "text";
+      const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
+      const asset: Asset = {
+        id: id("ast"),
+        workspaceId,
+        briefId: "direct",
+        title,
+        type,
+        status: isKieVideo ? "queued" : "ready",
+        progress: isKieVideo ? 10 : 100,
+        createdAt: now,
+        provider: isKieVideo ? "kie" : "local",
+        generationModel: model,
+        prompt,
+        assetUrl: isKieVideo ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
+      };
+      db.assets.push(asset);
+      const item: PublishItem = {
+        id: id("pub"),
+        workspaceId,
+        assetId: asset.id,
+        title,
+        platform,
+        scheduledAt: now,
+        status: isKieVideo ? "generating" : "done",
+        provider: isKieVideo ? "kie" : "local",
+        caption,
+        hashtags,
+        generationModel: model,
+        generationType,
+        duration,
+        prompt,
+        assetUrl: asset.assetUrl,
+        createdAt: now
+      };
+      db.publishQueue.push(item);
+      const ws = db.workspaces.find((entry) => entry.id === workspaceId);
+      if (ws) ws.credits = Math.max(0, ws.credits - (generationType === "video" ? 8 : generationType === "image" ? 3 : 1));
+      activity(isKieVideo ? `Queued ${model} direct generation.` : `Generated ${model} direct draft.`);
+      return { asset, publishItem: item };
+    }
+
     if (action === "deleteBrief") {
       const brief = db.briefs.find((item) => item.id === body.id && item.workspaceId === workspaceId);
       if (!brief) return null;
@@ -846,8 +898,8 @@ export async function POST(req: Request) {
 
   if (!data) return NextResponse.json({ error: "Action failed" }, { status: 400 });
 
-  const generatedAsset = action === "generateDraftFromPlan" ? (data as { asset?: Asset }).asset : data as Asset;
-  if ((action === "renderAsset" || action === "generateUgc" || action === "generateDraftFromPlan") && generatedAsset?.provider === "kie") {
+  const generatedAsset = action === "generateDraftFromPlan" || action === "generateDirectContent" ? (data as { asset?: Asset }).asset : data as Asset;
+  if ((action === "renderAsset" || action === "generateUgc" || action === "generateDraftFromPlan" || action === "generateDirectContent") && generatedAsset?.provider === "kie") {
     try {
       const model = generatedAsset.generationModel || String(body.generationModel || "veo-fast");
       const taskId = model === "seedance-2.0"
@@ -867,7 +919,7 @@ export async function POST(req: Request) {
             item.providerRequestId = taskId;
           });
         db.activity.push({ id: id("act"), workspaceId, message: `Kie task started: ${taskId}`, createdAt: new Date().toISOString() });
-        return action === "generateDraftFromPlan" ? { asset, publishItem: db.publishQueue.find((item) => item.assetId === asset.id && item.workspaceId === workspaceId) } : asset;
+        return action === "generateDraftFromPlan" || action === "generateDirectContent" ? { asset, publishItem: db.publishQueue.find((item) => item.assetId === asset.id && item.workspaceId === workspaceId) } : asset;
       });
       return NextResponse.json(updated);
     } catch (error) {

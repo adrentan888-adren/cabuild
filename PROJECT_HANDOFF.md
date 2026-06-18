@@ -68,6 +68,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Generate opens a modal with prefilled prompt, caption, hashtags, content type, model, and duration.
 - Generate modal content type is a dropdown and no longer includes publishing placement.
 - Generate modal prefill has fallbacks for older/incomplete content plans that do not have prompt, caption, hashtags, hooks, or outline.
+- Create Content tab has the same direct generation fields as the Content Plan Generate popup: model options, content type, duration/aspect ratio or image/text options, generation prompt, caption, and hashtags.
 - Video generation model options:
   - VEO Fast: duration dropdown limited to 8 seconds.
   - Seedance 2.0: duration dropdown supports 4 to 15 seconds.
@@ -110,6 +111,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+- 2026-06-18: Rebuilt Create Content tab to match the Content Plan Generate popup fields. Added direct generation backend action `generateDirectContent`, which creates the same Asset/Publish entries as content-plan generation and queues Kie video jobs for VEO Fast or Seedance 2.0. Local `npm run build` passed.
 - 2026-06-18: Fixed Research keyword scan feedback so the Search button greys out immediately, label changes to `Scanning...`, and progress/loading rows appear as soon as the form is submitted. Replaced form action handling with explicit submit handlers plus immediate pending state. Local `npm run build` passed.
 - 2026-06-18: Second GitHub Actions deployment built and pushed the Docker image successfully, but `gcloud run deploy` failed because comma-separated `UPLOAD_POST_DEFAULT_PLATFORMS` broke `--set-env-vars` parsing. Updated GitHub Actions and Cloud Build deploy recipes to write/use `cloudrun-env.yaml` via `--env-vars-file`.
 - 2026-06-18: First GitHub Actions deployment ran and authenticated successfully, but Docker build failed because `data/*.json` is gitignored and the Dockerfile tried to copy `/app/data`. Fixed Dockerfile to create a writable `data` directory instead; app seed data is created at runtime when `data/app.json` is absent.

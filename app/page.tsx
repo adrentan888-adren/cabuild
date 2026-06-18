@@ -914,13 +914,8 @@ function CreateContentPanel({ data, run }: { data: AppData; run: (a: string, p?:
   return (
     <div className="mock-wrap">
       <div className="split">
-        <PanelCard title="What do you want to create?">
-          <div className="ct-wrap">
-            <button className="choice on"><Film size={16} /> Short video</button>
-            <button className="choice"><FileText size={16} /> LinkedIn post</button>
-            <button className="choice"><Palette size={16} /> Carousel</button>
-          </div>
-          <UgcPanel run={run} />
+        <PanelCard title="Create content">
+          <DirectGenerationPanel run={run} />
         </PanelCard>
         <PanelCard title="Generated assets">
           <ProductionPanel data={data} run={run} />
@@ -934,8 +929,77 @@ function ProductionPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
   return <div className="asset-list">{data.assets.map((asset) => <section className="asset-card" key={asset.id}><div className={`asset-preview ${asset.type}`}>{asset.assetUrl ? <video src={asset.assetUrl} controls /> : <><Bot size={34} /><span>{asset.type.toUpperCase()}</span></>}</div><div><b>{asset.title}</b><p className="muted">Status: {asset.status}{asset.provider ? ` ﾂｷ ${asset.provider}` : ""}{asset.providerTaskId ? ` ﾂｷ ${asset.providerTaskId}` : ""}</p><div className="progress"><span style={{ width: `${asset.progress}%` }} /></div>{asset.error && <p className="provider-error">{asset.error}</p>}{asset.assetUrl && <a className="asset-link" href={asset.assetUrl} target="_blank">Open generated asset</a>}<div className="row-actions">{asset.providerTaskId && asset.status !== "ready" && <button onClick={() => run("pollAsset", { id: asset.id }, "Kie status refreshed")}>Poll Kie</button>}<button onClick={() => run("scheduleAsset", { id: asset.id, platform: "TikTok" }, "Scheduled for Mariana accounts")}>Schedule Mariana all accounts</button><button onClick={() => run("scheduleAsset", { id: asset.id, platform: "Facebook" }, "Asset scheduled")}>Schedule Facebook</button><button onClick={() => run("scheduleAsset", { id: asset.id, platform: "X" }, "Asset scheduled")}>Schedule X</button></div></div></section>)}</div>;
 }
 
-function UgcPanel({ run }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
-  return <PanelCard title="Generate UGC video"><form className="ugc-form" action={(form) => run("generateUgc", Object.fromEntries(form.entries()), "UGC video generated")}><label>Product / subject<input name="product" placeholder="AI automation audit" required /></label><label>Key selling points<textarea name="sellingPoints" placeholder="Save time, reduce manual reporting, improve follow-up speed" /></label><label>Style<select name="style"><option>Talking Head</option><option>Product Showcase</option><option>Lifestyle Demo</option><option>Testimonial</option></select></label><label>Duration<select name="duration"><option value="30">30 seconds ﾂｷ 15 credits</option><option value="60">60 seconds ﾂｷ 25 credits</option></select></label><button className="primary"><Film size={15} />Generate UGC job</button></form></PanelCard>;
+function DirectGenerationPanel({ run }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+  const [kind, setKind] = useState<"video" | "image" | "text">("video");
+  const [model, setModel] = useState<string>(generationModels.video[0][0]);
+  const [duration, setDuration] = useState(closestDuration(8, durationOptionsForModel(generationModels.video[0][0])));
+  const [busy, setBusy] = useState(false);
+  const durationOptions = durationOptionsForModel(model);
+  const changeKind = (next: "video" | "image" | "text") => {
+    const nextModel = generationModels[next][0][0];
+    setKind(next);
+    setModel(nextModel);
+    setDuration(closestDuration(8, durationOptionsForModel(nextModel)));
+  };
+  const changeModel = (next: string) => {
+    setModel(next);
+    setDuration(closestDuration(duration || 8, durationOptionsForModel(next)));
+  };
+  const submit = async (form: FormData) => {
+    setBusy(true);
+    try {
+      await run("generateDirectContent", {
+        ...Object.fromEntries(form.entries()),
+        generationType: kind,
+        generationModel: model,
+        duration: kind === "video" ? duration : undefined
+      }, "Generation queued in Publish");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form action={submit} className="generation-form create-generation-form">
+      <input type="hidden" name="platform" value={kind === "text" ? "LinkedIn" : "TikTok"} />
+      <div className="model-options">
+        {generationModels[kind].map(([value, label, price]) => (
+          <button type="button" key={value} className={model === value ? "on" : ""} onClick={() => changeModel(value)}>
+            <b>{label}</b>
+            <span>{price}</span>
+          </button>
+        ))}
+      </div>
+      <div className="modal-grid">
+        <label>Content type<select value={kind} onChange={(event) => changeKind(event.target.value as "video" | "image" | "text")}>
+          <option value="video">Video</option>
+          <option value="image">Image / carousel</option>
+          <option value="text">Text post</option>
+        </select></label>
+        {kind === "video" && (
+          <>
+            <label>Duration (seconds)<select name="duration" value={duration} onChange={(event) => setDuration(event.target.value)}>{durationOptions.map((option) => <option key={option} value={option}>{option} seconds</option>)}</select></label>
+            <label>Aspect ratio<select name="aspectRatio" defaultValue="9:16"><option value="9:16">9:16 vertical</option><option value="16:9">16:9 landscape</option><option value="1:1">1:1 square</option></select></label>
+          </>
+        )}
+        {kind === "image" && (
+          <>
+            <label>Image size<select name="imageSize" defaultValue="1080x1350"><option>1080x1350</option><option>1080x1080</option><option>1920x1080</option></select></label>
+            <label>Variants<input name="variants" type="number" min="1" max="4" defaultValue="1" /></label>
+          </>
+        )}
+        {kind === "text" && (
+          <>
+            <label>Tone<select name="tone" defaultValue="Practical founder-led"><option>Practical founder-led</option><option>Educational</option><option>Contrarian</option><option>Executive concise</option></select></label>
+            <label>Length<select name="length" defaultValue="Medium"><option>Short</option><option>Medium</option><option>Long</option></select></label>
+          </>
+        )}
+      </div>
+      <label>Generation prompt<textarea name="prompt" defaultValue="Create a founder-led social asset for SME owners about using AI automation to remove repetitive manual work. Use a practical hook, concrete workflow example, clean pacing, and a clear CTA." /></label>
+      <label>Caption<textarea name="caption" defaultValue="The fastest automation wins usually hide inside the tasks your team repeats every week." /></label>
+      <label>Hashtags<input name="hashtags" defaultValue="#SME, #Automation, #AI" /></label>
+      <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? "Generating..." : "Generate"}</button>
+    </form>
+  );
 }
 
 function PublishPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {

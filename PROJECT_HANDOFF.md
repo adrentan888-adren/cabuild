@@ -110,6 +110,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+- 2026-06-18: Fixed Research keyword scan feedback so the Search button greys out immediately, label changes to `Scanning...`, and progress/loading rows appear as soon as the form is submitted. Replaced form action handling with explicit submit handlers plus immediate pending state. Local `npm run build` passed.
 - 2026-06-18: Second GitHub Actions deployment built and pushed the Docker image successfully, but `gcloud run deploy` failed because comma-separated `UPLOAD_POST_DEFAULT_PLATFORMS` broke `--set-env-vars` parsing. Updated GitHub Actions and Cloud Build deploy recipes to write/use `cloudrun-env.yaml` via `--env-vars-file`.
 - 2026-06-18: First GitHub Actions deployment ran and authenticated successfully, but Docker build failed because `data/*.json` is gitignored and the Dockerfile tried to copy `/app/data`. Fixed Dockerfile to create a writable `data` directory instead; app seed data is created at runtime when `data/app.json` is absent.
 - 2026-06-18: Set up keyless GitHub Actions deployment to Cloud Run using GCP Workload Identity Federation. Created pool `github-contentagent`, provider `github-cabuild`, deployer service account `github-cloud-run-deployer@content-agent-2-499616.iam.gserviceaccount.com`, and granted deploy roles. Added `.github/workflows/deploy-cloud-run.yml` so future pushes to `main` build and deploy to Cloud Run from GitHub.

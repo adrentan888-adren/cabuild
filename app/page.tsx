@@ -426,8 +426,10 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
   const [actorSource, setActorSource] = useState("instagram");
   const [uploadDate, setUploadDate] = useState("");
   const [scanStatus, setScanStatus] = useState<"url" | "keywords" | null>(null);
+  const [pendingScan, setPendingScan] = useState<"url" | "keywords" | null>(null);
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
   const [scanElapsed, setScanElapsed] = useState(0);
+  const activeScanStatus = scanStatus || pendingScan;
   const activeScan = data.researchScans.find((scan) => scan.id === activeScanId) || data.researchScans[0];
   const visibleResults = activeScan
     ? data.competitorResults.filter((item) => activeScan.resultIds.includes(item.id))
@@ -442,7 +444,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
   const totalViews = sortedResults.reduce((sum, item) => sum + item.views, 0);
   const topResult = sortedResults[0];
   useEffect(() => {
-    if (!scanStatus || !scanStartedAt) {
+    if (!activeScanStatus || !scanStartedAt) {
       setScanElapsed(0);
       return;
     }
@@ -450,7 +452,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [scanStatus, scanStartedAt]);
+  }, [activeScanStatus, scanStartedAt]);
   const chooseSort = (next: "views" | "likes" | "date") => {
     if (next === sortBy) setSortDir((dir) => (dir === "desc" ? "asc" : "desc"));
     else {
@@ -460,6 +462,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
     setSortOpen(false);
   };
   const scanUrl = async (form: FormData) => {
+    setPendingScan("url");
     setScanStatus("url");
     setScanStartedAt(Date.now());
     try {
@@ -467,10 +470,12 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
       if (result?.id) setActiveScanId(result.id);
     } finally {
       setScanStatus(null);
+      setPendingScan(null);
       setScanStartedAt(null);
     }
   };
   const scanKeywords = async (form: FormData) => {
+    setPendingScan("keywords");
     setScanStatus("keywords");
     setScanStartedAt(Date.now());
     try {
@@ -482,6 +487,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
       if (result?.id) setActiveScanId(result.id);
     } finally {
       setScanStatus(null);
+      setPendingScan(null);
       setScanStartedAt(null);
     }
   };
@@ -531,23 +537,23 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
         <Metric label="Top post" value={topResult ? compact(topResult.views) : "-"} />
       </div>
 
-      <section className={`research-card ${scanStatus ? "loading" : ""}`}>
+      <section className={`research-card ${activeScanStatus ? "loading" : ""}`}>
         <div className="research-mode">
           <button className={searchMode === "url" ? "on" : ""} onClick={() => setSearchMode("url")}><Radar size={14} />Search by URL</button>
           <button className={searchMode === "keywords" ? "on" : ""} onClick={() => setSearchMode("keywords")}><Search size={14} />Search by keywords</button>
         </div>
         {searchMode === "url" ? (
-          <form action={scanUrl} className="research-form">
+          <form onSubmit={(event) => { event.preventDefault(); if (!activeScanStatus) void scanUrl(new FormData(event.currentTarget)); }} className="research-form">
             <label>Social URL<input name="url" type="url" placeholder="https://www.tiktok.com/@brand/video/123 or Instagram/Reels/Facebook/X URL" required /></label>
             <label>Minimum views<input name="minViews" type="number" min="0" step="1000" defaultValue="10000" /></label>
-            <button className="primary" disabled={scanStatus !== null} aria-busy={scanStatus === "url"}><Radar size={14} />{scanStatus === "url" ? "Scanning..." : "Scan"}</button>
+            <button className="primary" disabled={activeScanStatus !== null} aria-busy={activeScanStatus === "url"}><Radar size={14} />{activeScanStatus === "url" ? "Scanning..." : "Scan"}</button>
           </form>
         ) : (
-          <form action={scanKeywords} className="keyword-form">
+          <form onSubmit={(event) => { event.preventDefault(); if (!activeScanStatus) void scanKeywords(new FormData(event.currentTarget)); }} className="keyword-form">
             <div className="keyword-input-row">
               <label>Keywords<input value={keywordText} onChange={(event) => setKeywordText(event.target.value)} placeholder="AI automation, founder productivity, n8n workflows" required /></label>
               <label>Minimum views<input name="minViews" type="number" min="0" step="1000" defaultValue="10000" /></label>
-              <button className="primary" disabled={scanStatus !== null} aria-busy={scanStatus === "keywords"}><Search size={14} />{scanStatus === "keywords" ? "Scanning..." : "Search"}</button>
+              <button className="primary" disabled={activeScanStatus !== null} aria-busy={activeScanStatus === "keywords"}><Search size={14} />{activeScanStatus === "keywords" ? "Scanning..." : "Search"}</button>
             </div>
             <div className="suggested-keywords">
               {suggestedResearchKeywords.map(([keyword, score]) => (
@@ -568,8 +574,8 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
             </div>
           </form>
         )}
-        {scanStatus && <div className="scan-progress"><span />{scanStatus === "keywords" ? "Searching Apify for matching content" : "Scanning URL with Apify"}<b>{scanElapsed}s</b></div>}
-        {!scanStatus && activeScan && (
+        {activeScanStatus && <div className="scan-progress"><span />{activeScanStatus === "keywords" ? "Searching Apify for matching content" : "Scanning URL with Apify"}<b>{scanElapsed}s</b></div>}
+        {!activeScanStatus && activeScan && (
           <div className={`scan-outcome ${activeScan.source}`}>
             {activeScan.source === "apify" ? "Apify search completed" : "Fallback results shown"}
             <b>{activeScanResultCount}</b>
@@ -579,7 +585,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
         {activeScan?.error && <p className="provider-error">Apify fallback used: {activeScan.error}</p>}
       </section>
 
-      <section className={`research-card results-card ${scanStatus ? "loading" : ""}`} aria-busy={scanStatus ? "true" : "false"}>
+      <section className={`research-card results-card ${activeScanStatus ? "loading" : ""}`} aria-busy={activeScanStatus ? "true" : "false"}>
         <div className="research-head">
           <div>
             <h3>Qualified competitor results</h3>
@@ -597,14 +603,14 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
           </div>
         </div>
         <div className="result-list">
-          {scanStatus && (
+          {activeScanStatus && (
             <div className="result-loading">
-              <b>{scanStatus === "keywords" ? "Searching content sources" : "Scanning source URL"}</b>
+              <b>{activeScanStatus === "keywords" ? "Searching content sources" : "Scanning source URL"}</b>
               <p>Apify is collecting and filtering results. This can take 10-30 seconds depending on the source.</p>
               <div><span /></div>
             </div>
           )}
-          <div className={scanStatus ? "stale-results" : "fresh-results"}>
+          <div className={activeScanStatus ? "stale-results" : "fresh-results"}>
           {sortedResults.map((item) => (
             <article className="result-row" key={item.id}>
               <div className="result-thumb">{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" /> : <span>{item.platform.slice(0, 2).toUpperCase()}</span>}</div>

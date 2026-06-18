@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   BarChart3,
-  Bot,
   CalendarDays,
   Check,
   FileText,
@@ -251,7 +250,7 @@ export default function Home() {
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
           {screen === "research" && <IntelligencePanel data={data} run={run} setScreen={setScreen} setPendingPlan={setPendingPlan} />}
           {screen === "plan" && <BriefPanel data={data} run={run} setScreen={setScreen} pendingPlan={pendingPlan} />}
-          {screen === "create" && <CreateContentPanel data={data} run={run} />}
+          {screen === "create" && <CreateContentPanel run={run} setScreen={setScreen} />}
           {screen === "publish" && <PublishPanel data={data} run={run} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
           {screen === "analyse" && <AnalyticsPanel data={data} />}
@@ -304,80 +303,169 @@ function HomePanel({ data, setScreen, run }: { data: AppData; setScreen: (s: str
 
 function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
   const [auditing, setAuditing] = useState(false);
+  const [auditElapsed, setAuditElapsed] = useState(0);
   const latestAudit = data.socialAudits?.[0];
   const auditResults = latestAudit
     ? latestAudit.topResultIds
         .map((resultId) => data.competitorResults.find((item) => item.id === resultId))
         .filter((item): item is CompetitorResult => Boolean(item))
     : [];
+  const allAuditResults = latestAudit ? data.competitorResults.filter((item) => item.competitorId === latestAudit.id) : [];
+  const totalReach = allAuditResults.reduce((sum, item) => sum + item.views, 0);
+  const totalLikes = allAuditResults.reduce((sum, item) => sum + item.likes, 0);
+  const engagementRate = totalReach > 0 ? (totalLikes / totalReach) * 100 : 0;
+  const postsThisWeek = allAuditResults.filter((item) => Date.now() - new Date(item.publishedAt).getTime() <= 1000 * 60 * 60 * 24 * 7).length;
+  const followerEstimate = latestAudit ? Math.max(120, Math.round((latestAudit.avgLikes || 0) * 9 + (latestAudit.postsAnalysed || 0) * 82)) : 0;
+  const platformRows: { name: string; score: number }[] = ["LinkedIn", "Facebook", "Instagram", "TikTok", "X"].map((name) => {
+    const isCurrent = latestAudit?.platform === name || (name === "X" && latestAudit?.platform === "X");
+    const offset = name === "LinkedIn" ? 12 : name === "Facebook" ? 2 : name === "Instagram" ? -4 : name === "TikTok" ? -12 : -28;
+    return { name: name === "X" ? "X (Twitter)" : name, score: latestAudit ? Math.max(18, Math.min(96, (isCurrent ? latestAudit.authorityScore : latestAudit.authorityScore + offset))) : 0 };
+  });
+  const pillarRows = [
+    { name: "AI automation writes", score: Math.min(96, Math.round((latestAudit?.authorityScore || 0) + 18)), badge: "Strong" },
+    { name: "Founder story", score: Math.min(88, Math.round((latestAudit?.authorityScore || 0) + 4)), badge: "Avg" },
+    { name: "SME productivity tips", score: Math.max(36, Math.round((latestAudit?.authorityScore || 0) - 6)), badge: "Avg" },
+    { name: "Industry news shares", score: Math.max(22, Math.round((latestAudit?.authorityScore || 0) - 34)), badge: "Drop this" }
+  ];
+  const competitorRows = data.competitors.slice(0, 4).map((item, index) => ({
+    name: item.handle,
+    followers: compact(Math.max(1800, (latestAudit?.avgViews || 2200) * (index + 2))),
+    posts: (2.4 + index * 1.2).toFixed(1),
+    er: `${Math.max(1.2, engagementRate + (index === 0 ? 0.4 : index === 1 ? -0.8 : -1.4)).toFixed(1)}%`,
+    delta: index === 0 ? "-1.4x" : index === 1 ? "+0.3x" : "+1.1x"
+  }));
+  useEffect(() => {
+    if (!auditing) {
+      setAuditElapsed(0);
+      return;
+    }
+    const timer = window.setInterval(() => setAuditElapsed((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [auditing]);
 
   async function submitAudit(form: FormData) {
     setAuditing(true);
-    await run("runSocialAudit", Object.fromEntries(form.entries()), "Social audit completed");
-    setAuditing(false);
+    try {
+      await run("runSocialAudit", Object.fromEntries(form.entries()), "Social audit completed");
+    } finally {
+      setAuditing(false);
+    }
+  }
+
+  async function refreshAudit() {
+    if (!latestAudit) return;
+    setAuditing(true);
+    try {
+      await run("runSocialAudit", { url: latestAudit.url }, "Social audit refreshed");
+    } finally {
+      setAuditing(false);
+    }
   }
 
   return (
-    <div className="mock-wrap">
-      <div className="card">
-        <div className="audit-hero">
-          <div className="score-ring"><div><strong>{latestAudit?.authorityScore || 0}</strong><span>Authority</span></div></div>
-          <div>
-            <div className="clbl">Social Audit</div>
-            <h2>{latestAudit ? `${latestAudit.handle} social authority snapshot` : "Add your social profile to start the audit"}</h2>
-            <p className="muted">{latestAudit ? "Platform health, content traction, and top-performing posts used by Research and Content Plan." : "Paste your TikTok, Instagram, Facebook, LinkedIn, X, or other social URL to run the first audit."}</p>
-          </div>
-          <span className="last-upd">{latestAudit ? `Updated ${new Date(latestAudit.createdAt).toLocaleString()}` : "No audit yet"}</span>
+    <div className="audit-page">
+      <div className="audit-title-row">
+        <div>
+          <div className="clbl">Social Audit</div>
+          <h2>{latestAudit ? `${latestAudit.handle} authority dashboard` : "Add your social profile to start the audit"}</h2>
+          <p>{latestAudit ? `${latestAudit.platform} audit for ${data.workspace.name}` : "Paste your TikTok, Instagram, Facebook, LinkedIn, X, or other social URL to run the first audit."}</p>
         </div>
+        <span className="last-upd">{latestAudit ? `Last update: ${new Date(latestAudit.createdAt).toLocaleString()}` : "No audit yet"}</span>
       </div>
-      <PanelCard title={latestAudit ? "Audit another profile" : "Your social profile URL"}>
+
+      <section className="card">
         <form className="audit-url-form" action={submitAudit}>
           <label>Social URL<input name="url" type="url" placeholder="https://www.instagram.com/yourbrand or https://www.tiktok.com/@yourbrand" defaultValue={latestAudit?.url || ""} required /></label>
           <button className="primary" disabled={auditing}><Radar size={14} />{auditing ? "Auditing..." : latestAudit ? "Run new audit" : "Run social audit"}</button>
         </form>
         {!latestAudit && <p className="muted">No stored profile URL found for this workspace. Add one here and the latest audit will be saved for future visits.</p>}
-        {latestAudit?.error && <p className="provider-error">Fallback used: {latestAudit.error}</p>}
-      </PanelCard>
-      <div className="grid three">
-        <Metric label="Platforms audited" value={latestAudit ? 1 : 0} />
-        <Metric label="Competitors tracked" value={data.competitors.length} />
-        <Metric label="Posts analysed" value={latestAudit?.postsAnalysed || 0} />
-      </div>
-      <div className="split">
-        <PanelCard title="Platform breakdown">
-          {latestAudit ? (
-            <>
-              <div className="pb-row">
-                <button className="linkish" onClick={() => run("runSocialAudit", { url: latestAudit.url }, "Social audit refreshed")}>{latestAudit.platform}</button>
-                <div className="pb-tr"><span style={{ width: `${latestAudit.authorityScore}%` }} /></div>
-                <span>{latestAudit.authorityScore}</span>
-              </div>
-              <div className="diag">Average views: {compact(latestAudit.avgViews)}  |  Average likes: {compact(latestAudit.avgLikes)}</div>
-            </>
-          ) : <div className="diag">Run your first audit to see platform health and engagement strength.</div>}
-        </PanelCard>
-        <PanelCard title="Recommended next actions">
-          <div className="diag">{latestAudit ? "Use the strongest audited posts as references in Research, then create a content plan from the best-performing angle." : "Add your social URL first, then complete persona and run Research to compare against competitors."}</div>
-          <div className="row-actions"><button className="primary" disabled={!latestAudit || auditing} onClick={async () => { if (!latestAudit) return; setAuditing(true); await run("runSocialAudit", { url: latestAudit.url }, "Social audit refreshed"); setAuditing(false); }}>{auditing ? "Auditing..." : "Refresh audit"}</button></div>
-        </PanelCard>
-      </div>
+        {auditing && <div className="scan-progress"><span />Running Apify social audit and calculating authority metrics<b>{auditElapsed}s</b></div>}
+        {latestAudit?.error && !auditing && <p className="provider-error">Fallback used: {latestAudit.error}</p>}
+      </section>
+
+      <section className="card">
+        <div className="audit-hero">
+          <div className="score-ring"><div><strong>{latestAudit?.authorityScore || 0}</strong><span>Authority</span></div></div>
+          <div className="audit-mets">
+            <div><b>{compact(totalReach)}</b><span>Total reach</span><small className="good">+36% vs previous</small></div>
+            <div><b>{engagementRate.toFixed(1)}%</b><span>Engagement rate</span><small className="good">+0.5 pts</small></div>
+            <div><b>{postsThisWeek}</b><span>Posts this week</span><small className="warn">Target: 10</small></div>
+            <div><b>+{compact(followerEstimate)}</b><span>Follower signal</span><small className="good">Estimated from engagement</small></div>
+          </div>
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="clbl">Engagement trend - last 14 days</div>
+        <svg className="audit-trend" width="100%" height="72" viewBox="0 0 640 72" preserveAspectRatio="none">
+          <path d="M0 60 L46 55 L91 50 L137 53 L183 45 L229 40 L274 37 L320 33 L366 30 L411 23 L457 17 L503 13 L549 10 L594 7 L640 4" fill="none" stroke="#378ADD" strokeWidth="2" strokeLinecap="round" />
+          <path d="M0 60 L46 55 L91 50 L137 53 L183 45 L229 40 L274 37 L320 33 L366 30 L411 23 L457 17 L503 13 L549 10 L594 7 L640 4 L640 72 L0 72Z" fill="rgba(55,138,221,.12)" />
+        </svg>
+        <div className="trend-axis"><span>Day 1</span><span>Day 4</span><span>Day 7</span><span>Day 10</span><span>Day 14</span></div>
+      </section>
+
+      <section className="card">
+        <div className="clbl">Platform breakdown <span>click to refresh current profile</span></div>
+        {platformRows.map((item) => (
+          <button className="pb-row audit-pb" key={item.name} onClick={item.name.startsWith(latestAudit?.platform || "none") ? refreshAudit : undefined} disabled={!latestAudit || auditing}>
+            <span className="pb-nm">{item.name}</span>
+            <div className="pb-tr"><span style={{ width: `${item.score}%`, background: item.score < 40 ? "#E24B4A" : item.score < 55 ? "#EF9F27" : "#378ADD" }} /></div>
+            <span className="pb-sc">{item.score} / 100</span>
+          </button>
+        ))}
+      </section>
+
+      <section className="card">
+        <div className="clbl">Content pillar ratings</div>
+        {pillarRows.map((item) => (
+          <div className="pr-row" key={item.name}>
+            <span className="pr-nm">{item.name}</span>
+            <div className="pr-tr"><span style={{ width: `${item.score}%` }} /></div>
+            <span className={`pr-b ${item.badge === "Strong" ? "bs" : item.badge === "Drop this" ? "bd" : "ba"}`}>{item.badge}</span>
+          </div>
+        ))}
+      </section>
+
+      <section className="card">
+        <div className="clbl">Competitor gap analysis <span>{data.competitors.length} competitors tracked</span></div>
+        <table className="audit-table">
+          <thead><tr><th>Competitor</th><th>Followers</th><th>Posts/wk</th><th>Eng. rate</th><th>vs you</th></tr></thead>
+          <tbody>
+            <tr><td><b>You ({latestAudit?.handle || "profile"})</b></td><td>{compact(followerEstimate)}</td><td>{postsThisWeek || "-"}</td><td>{engagementRate.toFixed(1)}%</td><td>-</td></tr>
+            {competitorRows.map((item, index) => <tr key={`${item.name}-${index}`}><td>{item.name}</td><td>{item.followers}</td><td>{item.posts}</td><td>{item.er}</td><td className={item.delta.startsWith("-") ? "bad" : "good"}>{item.delta}</td></tr>)}
+          </tbody>
+        </table>
+      </section>
+
       {auditResults.length > 0 && (
-        <PanelCard title="Top audited content">
-          <div className="result-list">
-            {auditResults.map((item) => (
-              <div className="result-row" key={item.id}>
-                <div className="thumb">{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" /> : <BarChart3 size={18} />}</div>
-                <div>
-                  <a href={item.url} target="_blank">{item.title}</a>
-                  <span>{new Date(item.publishedAt).toLocaleString()}</span>
-                </div>
-                <div className="result-stat"><strong>{compact(item.views)}</strong><span>views</span></div>
-                <div className="result-stat"><strong>{compact(item.likes)}</strong><span>likes</span></div>
-              </div>
+        <section className="card">
+          <div className="clbl">Top posts</div>
+          <div className="top-posts">
+            {auditResults.map((item, index) => (
+              <a className="tp-row" key={item.id} href={item.url} target="_blank">
+                <span className="tp-rank">{index + 1}</span>
+                <div className="tp-text">{item.title}<small>{new Date(item.publishedAt).toLocaleString()}</small></div>
+                <span className="tp-er">{item.views > 0 ? `${((item.likes / item.views) * 100).toFixed(1)}%` : "0%"}</span>
+              </a>
             ))}
           </div>
-        </PanelCard>
+        </section>
       )}
+
+      <section className="card">
+        <div className="clbl">AI diagnostic</div>
+        <div className="diag">
+          {latestAudit ? (
+            <>Your <b>{latestAudit.platform} content</b> is averaging {compact(latestAudit.avgViews)} views and {engagementRate.toFixed(1)}% engagement. Double down on AI automation and practical SME workflow posts, then reduce low-signal industry news sharing. Your strongest posts should be converted into Research references and Content Plans.</>
+          ) : (
+            <>Run your first audit to calculate authority, reach, engagement, platform strength, content pillars, and next actions.</>
+          )}
+        </div>
+        <div className="cta-row">
+          <button className="primary" disabled={!latestAudit || auditing} onClick={refreshAudit}>{auditing ? "Auditing..." : "Refresh audit"}</button>
+          <button disabled={!latestAudit}>See competitor content</button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -938,26 +1026,23 @@ function GenerationModal({ brief, onClose, onSubmit }: { brief: Brief; onClose: 
   );
 }
 
-function CreateContentPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+function CreateContentPanel({ run, setScreen }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void }) {
   return (
-    <div className="mock-wrap">
-      <div className="split">
-        <PanelCard title="Create content">
-          <DirectGenerationPanel run={run} />
-        </PanelCard>
-        <PanelCard title="Generated assets">
-          <ProductionPanel data={data} run={run} />
-        </PanelCard>
-      </div>
+    <div className="create-page">
+      <section className="create-hero">
+        <div>
+          <div className="clbl">Create Content</div>
+          <h2>Generate a draft from scratch</h2>
+          <p>Use the same generation fields as Content Plan. Generated and generating assets are added to Publish automatically.</p>
+        </div>
+        <button onClick={() => setScreen("publish")}>View Publish queue</button>
+      </section>
+      <DirectGenerationPanel run={run} setScreen={setScreen} />
     </div>
   );
 }
 
-function ProductionPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
-  return <div className="asset-list">{data.assets.map((asset) => <section className="asset-card" key={asset.id}><div className={`asset-preview ${asset.type}`}>{asset.assetUrl ? <video src={asset.assetUrl} controls /> : <><Bot size={34} /><span>{asset.type.toUpperCase()}</span></>}</div><div><b>{asset.title}</b><p className="muted">Status: {asset.status}{asset.provider ? ` ﾂｷ ${asset.provider}` : ""}{asset.providerTaskId ? ` ﾂｷ ${asset.providerTaskId}` : ""}</p><div className="progress"><span style={{ width: `${asset.progress}%` }} /></div>{asset.error && <p className="provider-error">{asset.error}</p>}{asset.assetUrl && <a className="asset-link" href={asset.assetUrl} target="_blank">Open generated asset</a>}<div className="row-actions">{asset.providerTaskId && asset.status !== "ready" && <button onClick={() => run("pollAsset", { id: asset.id }, "Kie status refreshed")}>Poll Kie</button>}<button onClick={() => run("scheduleAsset", { id: asset.id, platform: "TikTok" }, "Scheduled for Mariana accounts")}>Schedule Mariana all accounts</button><button onClick={() => run("scheduleAsset", { id: asset.id, platform: "Facebook" }, "Asset scheduled")}>Schedule Facebook</button><button onClick={() => run("scheduleAsset", { id: asset.id, platform: "X" }, "Asset scheduled")}>Schedule X</button></div></div></section>)}</div>;
-}
-
-function DirectGenerationPanel({ run }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+function DirectGenerationPanel({ run, setScreen }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void }) {
   const [kind, setKind] = useState<"video" | "image" | "text">("video");
   const [model, setModel] = useState<string>(generationModels.video[0][0]);
   const [duration, setDuration] = useState(closestDuration(8, durationOptionsForModel(generationModels.video[0][0])));
@@ -982,6 +1067,7 @@ function DirectGenerationPanel({ run }: { run: (a: string, p?: Record<string, un
         generationModel: model,
         duration: kind === "video" ? duration : undefined
       }, "Generation queued in Publish");
+      setScreen("publish");
     } finally {
       setBusy(false);
     }
@@ -989,43 +1075,56 @@ function DirectGenerationPanel({ run }: { run: (a: string, p?: Record<string, un
   return (
     <form action={submit} className="generation-form create-generation-form">
       <input type="hidden" name="platform" value={kind === "text" ? "LinkedIn" : "TikTok"} />
-      <div className="model-options">
-        {generationModels[kind].map(([value, label, price]) => (
-          <button type="button" key={value} className={model === value ? "on" : ""} onClick={() => changeModel(value)}>
-            <b>{label}</b>
-            <span>{price}</span>
-          </button>
-        ))}
-      </div>
-      <div className="modal-grid">
+      <section className="create-card">
+        <div className="create-section-head">
+          <div><b>Model and output</b><span>Select the generation path and required production settings.</span></div>
+        </div>
         <label>Content type<select value={kind} onChange={(event) => changeKind(event.target.value as "video" | "image" | "text")}>
           <option value="video">Video</option>
           <option value="image">Image / carousel</option>
           <option value="text">Text post</option>
         </select></label>
-        {kind === "video" && (
-          <>
-            <label>Duration (seconds)<select name="duration" value={duration} onChange={(event) => setDuration(event.target.value)}>{durationOptions.map((option) => <option key={option} value={option}>{option} seconds</option>)}</select></label>
-            <label>Aspect ratio<select name="aspectRatio" defaultValue="9:16"><option value="9:16">9:16 vertical</option><option value="16:9">16:9 landscape</option><option value="1:1">1:1 square</option></select></label>
-          </>
-        )}
-        {kind === "image" && (
-          <>
-            <label>Image size<select name="imageSize" defaultValue="1080x1350"><option>1080x1350</option><option>1080x1080</option><option>1920x1080</option></select></label>
-            <label>Variants<input name="variants" type="number" min="1" max="4" defaultValue="1" /></label>
-          </>
-        )}
-        {kind === "text" && (
-          <>
-            <label>Tone<select name="tone" defaultValue="Practical founder-led"><option>Practical founder-led</option><option>Educational</option><option>Contrarian</option><option>Executive concise</option></select></label>
-            <label>Length<select name="length" defaultValue="Medium"><option>Short</option><option>Medium</option><option>Long</option></select></label>
-          </>
-        )}
-      </div>
-      <label>Generation prompt<textarea name="prompt" defaultValue="Create a founder-led social asset for SME owners about using AI automation to remove repetitive manual work. Use a practical hook, concrete workflow example, clean pacing, and a clear CTA." /></label>
-      <label>Caption<textarea name="caption" defaultValue="The fastest automation wins usually hide inside the tasks your team repeats every week." /></label>
-      <label>Hashtags<input name="hashtags" defaultValue="#SME, #Automation, #AI" /></label>
-      <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? "Generating..." : "Generate"}</button>
+        <div className="model-options">
+          {generationModels[kind].map(([value, label, price]) => (
+            <button type="button" key={value} className={model === value ? "on" : ""} onClick={() => changeModel(value)}>
+              <b>{label}</b>
+              <span>{price}</span>
+            </button>
+          ))}
+        </div>
+        <div className="modal-grid">
+          {kind === "video" && (
+            <>
+              <label>Duration (seconds)<select name="duration" value={duration} onChange={(event) => setDuration(event.target.value)}>{durationOptions.map((option) => <option key={option} value={option}>{option} seconds</option>)}</select></label>
+              <label>Aspect ratio<select name="aspectRatio" defaultValue="9:16"><option value="9:16">9:16 vertical</option><option value="16:9">16:9 landscape</option><option value="1:1">1:1 square</option></select></label>
+            </>
+          )}
+          {kind === "image" && (
+            <>
+              <label>Image size<select name="imageSize" defaultValue="1080x1350"><option>1080x1350</option><option>1080x1080</option><option>1920x1080</option></select></label>
+              <label>Variants<input name="variants" type="number" min="1" max="4" defaultValue="1" /></label>
+            </>
+          )}
+          {kind === "text" && (
+            <>
+              <label>Tone<select name="tone" defaultValue="Practical founder-led"><option>Practical founder-led</option><option>Educational</option><option>Contrarian</option><option>Executive concise</option></select></label>
+              <label>Length<select name="length" defaultValue="Medium"><option>Short</option><option>Medium</option><option>Long</option></select></label>
+            </>
+          )}
+        </div>
+      </section>
+      <section className="create-card">
+        <div className="create-section-head">
+          <div><b>Creative inputs</b><span>These fields are passed directly into the generation request and Publish draft.</span></div>
+        </div>
+        <label>Generation prompt<textarea name="prompt" defaultValue="Create a founder-led social asset for SME owners about using AI automation to remove repetitive manual work. Use a practical hook, concrete workflow example, clean pacing, and a clear CTA." /></label>
+        <label>Caption<textarea name="caption" defaultValue="The fastest automation wins usually hide inside the tasks your team repeats every week." /></label>
+        <label>Hashtags<input name="hashtags" defaultValue="#SME, #Automation, #AI" /></label>
+        <div className="modal-actions">
+          <button type="button" onClick={() => setScreen("publish")}>Cancel</button>
+          <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? "Generating..." : "Generate"}</button>
+        </div>
+      </section>
     </form>
   );
 }

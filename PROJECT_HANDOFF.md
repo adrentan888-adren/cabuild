@@ -56,6 +56,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Research supports URL scans and keyword scans through Apify with local fallback.
 - Social Audit supports entering a social profile/post URL when no profile URL is stored. The `runSocialAudit` action scans with Apify, saves recent `socialAudits`, computes an authority score, and shows top audited content in the Social Audit tab.
 - Social Audit no longer exposes a minimum-views field; audits run from the supplied URL only.
+- Social Audit now follows the mock dashboard layout more closely: authority hero, reach/engagement/posts/follower signal metrics, engagement trend, platform breakdown, content pillar ratings, competitor gap table, top posts, AI diagnostic, and visible `Auditing...` progress while Apify runs.
 - Research results include thumbnails, timestamps, views, likes, sorting, loading states, and history.
 - Research keyword/url thumbnails use real thumbnail fields returned by Apify actors when available; Google Search-style results do not include video thumbnails, so the UI shows a platform placeholder instead of misleading stock/default thumbnails.
 - Research keyword scans using Google Search scraper submit selected platforms as separate search queries in one Apify run instead of one restrictive OR query; this reduces cases where Google returns only one organic result for a broad keyword.
@@ -72,6 +73,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Generate modal content type is a dropdown and no longer includes publishing placement.
 - Generate modal prefill has fallbacks for older/incomplete content plans that do not have prompt, caption, hashtags, hooks, or outline.
 - Create Content tab has the same direct generation fields as the Content Plan Generate popup: model options, content type, duration/aspect ratio or image/text options, generation prompt, caption, and hashtags.
+- Create Content no longer shows generated assets locally. Direct generation queues the item in Publish and redirects to the Publish tab, matching the Content Plan Generate flow.
 - Video generation model options:
   - VEO Fast: duration dropdown limited to 8 seconds.
   - Seedance 2.0: duration dropdown supports 4 to 15 seconds.

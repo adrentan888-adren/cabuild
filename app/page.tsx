@@ -23,7 +23,7 @@ import {
   UserRound,
   Wand2
 } from "lucide-react";
-import type { Asset, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PublishItem, Workspace } from "@/lib/types";
+import type { Asset, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 
 type AppData = {
   user: { id: string; email: string; name: string; role: string };
@@ -31,6 +31,7 @@ type AppData = {
   brandKit: BrandKit;
   competitors: Competitor[];
   competitorResults: CompetitorResult[];
+  socialAudits: SocialAudit[];
   opportunities: Opportunity[];
   briefs: Brief[];
   assets: Asset[];
@@ -300,43 +301,82 @@ function HomePanel({ data, setScreen, run }: { data: AppData; setScreen: (s: str
 }
 
 function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+  const [auditing, setAuditing] = useState(false);
+  const latestAudit = data.socialAudits?.[0];
+  const auditResults = latestAudit
+    ? latestAudit.topResultIds
+        .map((resultId) => data.competitorResults.find((item) => item.id === resultId))
+        .filter((item): item is CompetitorResult => Boolean(item))
+    : [];
+
+  async function submitAudit(form: FormData) {
+    setAuditing(true);
+    await run("runSocialAudit", Object.fromEntries(form.entries()), "Social audit completed");
+    setAuditing(false);
+  }
+
   return (
     <div className="mock-wrap">
       <div className="card">
         <div className="audit-hero">
-          <div className="score-ring"><div><strong>62</strong><span>Authority</span></div></div>
+          <div className="score-ring"><div><strong>{latestAudit?.authorityScore || 0}</strong><span>Authority</span></div></div>
           <div>
             <div className="clbl">Social Audit</div>
-            <h2>Sean Tan social authority snapshot</h2>
-            <p className="muted">Platform health, persona fit, and competitor gaps used by Research and Content Plan.</p>
+            <h2>{latestAudit ? `${latestAudit.handle} social authority snapshot` : "Add your social profile to start the audit"}</h2>
+            <p className="muted">{latestAudit ? "Platform health, content traction, and top-performing posts used by Research and Content Plan." : "Paste your TikTok, Instagram, Facebook, LinkedIn, X, or other social URL to run the first audit."}</p>
           </div>
-          <span className="last-upd">Updated 2h ago</span>
+          <span className="last-upd">{latestAudit ? `Updated ${new Date(latestAudit.createdAt).toLocaleString()}` : "No audit yet"}</span>
         </div>
       </div>
+      <PanelCard title={latestAudit ? "Audit another profile" : "Your social profile URL"}>
+        <form className="research-form" action={submitAudit}>
+          <label>Social URL<input name="url" type="url" placeholder="https://www.instagram.com/yourbrand or https://www.tiktok.com/@yourbrand" defaultValue={latestAudit?.url || ""} required /></label>
+          <label>Minimum views<input name="minViews" type="number" min="0" step="1000" placeholder="10000" defaultValue="0" /></label>
+          <button className="primary" disabled={auditing}><Radar size={14} />{auditing ? "Auditing..." : latestAudit ? "Run new audit" : "Run social audit"}</button>
+        </form>
+        {!latestAudit && <p className="muted">No stored profile URL found for this workspace. Add one here and the latest audit will be saved for future visits.</p>}
+        {latestAudit?.error && <p className="provider-error">Fallback used: {latestAudit.error}</p>}
+      </PanelCard>
       <div className="grid three">
-        <Metric label="Platforms connected" value="3" />
+        <Metric label="Platforms audited" value={latestAudit ? 1 : 0} />
         <Metric label="Competitors tracked" value={data.competitors.length} />
-        <Metric label="Content gaps" value={data.opportunities.filter((item) => item.status !== "dismissed").length} />
+        <Metric label="Posts analysed" value={latestAudit?.postsAnalysed || 0} />
       </div>
       <div className="split">
         <PanelCard title="Platform breakdown">
-          {[
-            ["TikTok", 69],
-            ["Facebook", 63],
-            ["X", 52]
-          ].map(([name, score]) => (
-            <div className="pb-row" key={name}>
-              <button className="linkish" onClick={() => run("refreshTrends", {}, "Research refreshed")}>{name}</button>
-              <div className="pb-tr"><span style={{ width: `${score}%` }} /></div>
-              <span>{score}</span>
-            </div>
-          ))}
+          {latestAudit ? (
+            <>
+              <div className="pb-row">
+                <button className="linkish" onClick={() => run("runSocialAudit", { url: latestAudit.url }, "Social audit refreshed")}>{latestAudit.platform}</button>
+                <div className="pb-tr"><span style={{ width: `${latestAudit.authorityScore}%` }} /></div>
+                <span>{latestAudit.authorityScore}</span>
+              </div>
+              <div className="diag">Average views: {compact(latestAudit.avgViews)}  |  Average likes: {compact(latestAudit.avgLikes)}</div>
+            </>
+          ) : <div className="diag">Run your first audit to see platform health and engagement strength.</div>}
         </PanelCard>
         <PanelCard title="Recommended next actions">
-          <div className="diag">Complete persona, refresh research, then approve one content plan before generating media.</div>
-          <div className="row-actions"><button className="primary" onClick={() => run("refreshTrends", {}, "Research refreshed")}>Run audit refresh</button></div>
+          <div className="diag">{latestAudit ? "Use the strongest audited posts as references in Research, then create a content plan from the best-performing angle." : "Add your social URL first, then complete persona and run Research to compare against competitors."}</div>
+          <div className="row-actions"><button className="primary" disabled={!latestAudit || auditing} onClick={async () => { if (!latestAudit) return; setAuditing(true); await run("runSocialAudit", { url: latestAudit.url }, "Social audit refreshed"); setAuditing(false); }}>{auditing ? "Auditing..." : "Refresh audit"}</button></div>
         </PanelCard>
       </div>
+      {auditResults.length > 0 && (
+        <PanelCard title="Top audited content">
+          <div className="result-list">
+            {auditResults.map((item) => (
+              <div className="result-row" key={item.id}>
+                <div className="thumb">{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" /> : <BarChart3 size={18} />}</div>
+                <div>
+                  <a href={item.url} target="_blank">{item.title}</a>
+                  <span>{new Date(item.publishedAt).toLocaleString()}</span>
+                </div>
+                <div className="result-stat"><strong>{compact(item.views)}</strong><span>views</span></div>
+                <div className="result-stat"><strong>{compact(item.likes)}</strong><span>likes</span></div>
+              </div>
+            ))}
+          </div>
+        </PanelCard>
+      )}
     </div>
   );
 }

@@ -85,6 +85,7 @@ function seeded(): Database {
       }
     ],
     researchScans: [],
+    socialAudits: [],
     opportunities: [
       {
         id: "opp_automation",

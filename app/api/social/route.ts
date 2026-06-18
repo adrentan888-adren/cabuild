@@ -297,6 +297,84 @@ export async function POST(req: Request) {
     }
   }
 
+  if (action === "runSocialAudit") {
+    const url = String(body.url || "").trim();
+    const minViews = Number(body.minViews || 0);
+    if (!/^https?:\/\/.+\..+/.test(url)) {
+      return NextResponse.json({ error: "Enter a valid social profile or post URL." }, { status: 400 });
+    }
+    const platform = platformFromUrl(url);
+    let normalized: Omit<CompetitorResult, "id" | "workspaceId" | "competitorId" | "platform" | "capturedAt">[];
+    let source: "apify" | "fallback" = "apify";
+    let error = "";
+    try {
+      const apifyItems = await scanSocialUrl(url, minViews);
+      normalized = apifyItems.map((item) => ({
+        url: item.sourceUrl,
+        title: item.title,
+        thumbnailUrl: item.thumbnailUrl,
+        description: item.description,
+        views: item.views,
+        likes: item.likes,
+        comments: item.comments,
+        publishedAt: item.publishedAt
+      }));
+    } catch (err) {
+      source = "fallback";
+      error = err instanceof Error ? err.message : "Apify social audit failed";
+      normalized = mockCompetitorResults({ workspaceId, competitorId: "audit", platform, url, minViews }).map((item) => ({
+        url: item.url,
+        title: item.title,
+        thumbnailUrl: item.thumbnailUrl,
+        description: item.description,
+        views: item.views,
+        likes: item.likes,
+        comments: item.comments,
+        publishedAt: item.publishedAt
+      }));
+    }
+
+    const audit = await mutateDb((db) => {
+      db.competitorResults ||= [];
+      db.socialAudits ||= [];
+      const auditId = id("aud");
+      const results: CompetitorResult[] = normalized.slice(0, 12).map((item) => ({
+        id: id("res"),
+        workspaceId,
+        competitorId: auditId,
+        platform,
+        capturedAt: new Date().toISOString(),
+        ...item
+      }));
+      db.competitorResults.push(...results);
+      const postsAnalysed = results.length;
+      const avgViews = postsAnalysed ? Math.round(results.reduce((sum, item) => sum + item.views, 0) / postsAnalysed) : 0;
+      const avgLikes = postsAnalysed ? Math.round(results.reduce((sum, item) => sum + item.likes, 0) / postsAnalysed) : 0;
+      const engagementRate = avgViews > 0 ? avgLikes / avgViews : 0;
+      const authorityScore = Math.max(20, Math.min(96, Math.round(38 + Math.log10(Math.max(avgViews, 1)) * 9 + engagementRate * 140)));
+      const created = {
+        id: auditId,
+        workspaceId,
+        url,
+        platform,
+        handle: handleFromUrl(url),
+        authorityScore,
+        avgViews,
+        avgLikes,
+        postsAnalysed,
+        topResultIds: results.slice(0, 5).map((item) => item.id),
+        createdAt: new Date().toISOString(),
+        source,
+        error
+      };
+      db.socialAudits.push(created);
+      db.socialAudits = db.socialAudits.filter((item) => item.workspaceId !== workspaceId).concat(db.socialAudits.filter((item) => item.workspaceId === workspaceId).slice(-5));
+      db.activity.push({ id: id("act"), workspaceId, message: `Social audit completed for ${created.handle} using ${source}.`, createdAt: new Date().toISOString() });
+      return created;
+    });
+    return NextResponse.json(audit);
+  }
+
   if (action === "scanResearchUrl") {
     const url = String(body.url || "");
     const minViews = Number(body.minViews || 0);

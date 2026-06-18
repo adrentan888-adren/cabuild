@@ -75,6 +75,22 @@ export type ResearchScan = {
   error?: string;
 };
 
+export type SocialAudit = {
+  id: string;
+  workspaceId: string;
+  url: string;
+  platform: Platform;
+  handle: string;
+  authorityScore: number;
+  avgViews: number;
+  avgLikes: number;
+  postsAnalysed: number;
+  topResultIds: string[];
+  createdAt: string;
+  source: "apify" | "fallback";
+  error?: string;
+};
+
 export type Opportunity = {
   id: string;
   workspaceId: string;
@@ -165,6 +181,7 @@ export type Database = {
   competitors: Competitor[];
   competitorResults: CompetitorResult[];
   researchScans: ResearchScan[];
+  socialAudits: SocialAudit[];
   opportunities: Opportunity[];
   briefs: Brief[];
   assets: Asset[];

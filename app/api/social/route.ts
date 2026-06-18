@@ -713,6 +713,37 @@ export async function POST(req: Request) {
       return brief;
     }
 
+    if (action === "createBrief") {
+      const format = String(body.format || "Short video 9:16");
+      const topic = String(body.topic || "Untitled content plan").trim() || "Untitled content plan";
+      const now = new Date().toISOString();
+      const brief: Brief = {
+        id: id("brf"),
+        workspaceId,
+        topic,
+        format,
+        platforms: [contentKindFromFormat(format) === "text" ? "LinkedIn" : contentKindFromFormat(format) === "image" ? "Instagram" : "TikTok"],
+        description: String(body.description || ""),
+        videoPrompt: String(body.videoPrompt || ""),
+        duration: Number(body.duration || 0) || defaultDuration(format),
+        hooks: parseList(body.hooks),
+        outline: parseList(body.outline),
+        shotList: parseList(body.shotList),
+        creativeNotes: String(body.creativeNotes || ""),
+        caption: String(body.caption || ""),
+        hashtags: parseList(body.hashtags),
+        optimalTime: String(body.optimalTime || ""),
+        expectedPerformance: String(body.expectedPerformance || ""),
+        analysisSummary: "Created manually.",
+        createdAt: now,
+        updatedAt: now,
+        status: "new"
+      };
+      db.briefs.push(brief);
+      activity(`Created content plan: ${brief.topic}`);
+      return brief;
+    }
+
     if (action === "updateBrief") {
       const brief = db.briefs.find((item) => item.id === body.id && item.workspaceId === workspaceId);
       if (!brief) return null;

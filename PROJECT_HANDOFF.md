@@ -55,13 +55,16 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Auth exists with local users and workspace data.
 - Research supports URL scans and keyword scans through Apify with local fallback.
 - Social Audit supports entering a social profile/post URL when no profile URL is stored. The `runSocialAudit` action scans with Apify, saves recent `socialAudits`, computes an authority score, and shows top audited content in the Social Audit tab.
+- Social Audit no longer exposes a minimum-views field; audits run from the supplied URL only.
 - Research results include thumbnails, timestamps, views, likes, sorting, loading states, and history.
 - Research keyword/url thumbnails use real thumbnail fields returned by Apify actors when available; Google Search-style results do not include video thumbnails, so the UI shows a platform placeholder instead of misleading stock/default thumbnails.
 - Research keyword scans using Google Search scraper submit selected platforms as separate search queries in one Apify run instead of one restrictive OR query; this reduces cases where Google returns only one organic result for a broad keyword.
 - Research keyword search now allows one source/platform per search. The backend first tries a platform-specific Apify actor, then falls back to Google Search only if that actor is missing or fails.
 - Platform actor env vars: `APIFY_TIKTOK_ACTOR_ID`, `APIFY_INSTAGRAM_ACTOR_ID`, `APIFY_YOUTUBE_ACTOR_ID`, `APIFY_FACEBOOK_ACTOR_ID`, `APIFY_LINKEDIN_ACTOR_ID`.
 - Research Search/Scan buttons disable and show `Scanning...` while Apify is running.
+- Research loading state keeps the search form layout stable while disabling controls and showing progress.
 - Content Plan cards show only number, title/description, content type, timestamp, and actions.
+- Content Plan has a `New` button in the header. It opens a modal using the same editable fields as existing plan Edit, and saves through the `createBrief` backend action.
 - Creating a plan from Research immediately redirects to Content Plan and shows a temporary `Generating content plan...` row until Gemini returns the full plan.
 - Full plan details are available through Edit.
 - Content Plan `Format` is now a dropdown.

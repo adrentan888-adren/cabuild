@@ -331,9 +331,8 @@ function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: R
         </div>
       </div>
       <PanelCard title={latestAudit ? "Audit another profile" : "Your social profile URL"}>
-        <form className="research-form" action={submitAudit}>
+        <form className="audit-url-form" action={submitAudit}>
           <label>Social URL<input name="url" type="url" placeholder="https://www.instagram.com/yourbrand or https://www.tiktok.com/@yourbrand" defaultValue={latestAudit?.url || ""} required /></label>
-          <label>Minimum views<input name="minViews" type="number" min="0" step="1000" placeholder="10000" defaultValue="0" /></label>
           <button className="primary" disabled={auditing}><Radar size={14} />{auditing ? "Auditing..." : latestAudit ? "Run new audit" : "Run social audit"}</button>
         </form>
         {!latestAudit && <p className="muted">No stored profile URL found for this workspace. Add one here and the latest audit will be saved for future visits.</p>}
@@ -721,9 +720,38 @@ function defaultHashtags(brief: Brief) {
   return ["#SME", "#Automation", "#AI", formatTag].join(", ");
 }
 
+function PlanEditorForm({ brief, onSubmit, onCancel, submitLabel }: { brief?: Brief; onSubmit: (form: FormData) => Promise<void>; onCancel: () => void; submitLabel: string }) {
+  const [format, setFormat] = useState(brief?.format && contentFormatOptions.includes(brief.format) ? brief.format : "Short video 9:16");
+  return (
+    <form action={onSubmit} className="plan-edit">
+      {brief && <input type="hidden" name="id" value={brief.id} />}
+      <label>Topic<input name="topic" defaultValue={brief?.topic || ""} required /></label>
+      <label>Format<select name="format" value={format} onChange={(event) => setFormat(event.target.value)}>{contentFormatOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
+      <label>Description<textarea name="description" defaultValue={brief?.description || ""} /></label>
+      <label>Video prompt<textarea name="videoPrompt" defaultValue={brief?.videoPrompt || ""} /></label>
+      {planContentKind(format) === "video" && <label>Duration (seconds)<input name="duration" type="number" min="1" step="1" defaultValue={brief?.duration || defaultPlanDuration(format)} /></label>}
+      <label>Hooks<textarea name="hooks" defaultValue={(brief?.hooks || []).join("\n")} /></label>
+      <label>Outline<textarea name="outline" defaultValue={(brief?.outline || []).join("\n")} /></label>
+      <label>Shot list<textarea name="shotList" defaultValue={(brief?.shotList || []).join("\n")} /></label>
+      <label>Creative notes<textarea name="creativeNotes" defaultValue={brief?.creativeNotes || ""} /></label>
+      <label>Caption<textarea name="caption" defaultValue={brief?.caption || ""} /></label>
+      <label>Hashtags<input name="hashtags" defaultValue={(brief?.hashtags || []).join(", ")} /></label>
+      <div className="grid two">
+        <label>Optimal time<input name="optimalTime" defaultValue={brief?.optimalTime || ""} /></label>
+        <label>Expected performance<input name="expectedPerformance" defaultValue={brief?.expectedPerformance || ""} /></label>
+      </div>
+      <div className="row-actions">
+        <button className="primary" type="submit"><Check size={14} />{submitLabel}</button>
+        <button type="button" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
 function BriefPanel({ data, run, setScreen, pendingPlan }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; setScreen: (screen: string) => void; pendingPlan: PendingPlan | null }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [generatingBrief, setGeneratingBrief] = useState<Brief | null>(null);
+  const [creatingPlan, setCreatingPlan] = useState(false);
   const planTime = (value?: string) => {
     const time = value ? new Date(value).getTime() : 0;
     return Number.isFinite(time) ? time : 0;
@@ -733,9 +761,27 @@ function BriefPanel({ data, run, setScreen, pendingPlan }: { data: AppData; run:
     await run("updateBrief", Object.fromEntries(form.entries()), "Content plan updated");
     setEditingId(null);
   };
+  const create = async (form: FormData) => {
+    await run("createBrief", Object.fromEntries(form.entries()), "Content plan created");
+    setCreatingPlan(false);
+  };
   const generate = (brief: Brief) => setGeneratingBrief(brief);
   return (
     <div className="plan-page">
+      {creatingPlan && (
+        <div className="modal-backdrop">
+          <div className="generation-modal">
+            <div className="modal-head">
+              <div>
+                <h3>New content plan</h3>
+                <p>Create a plan manually using the same editable fields as generated plans.</p>
+              </div>
+              <button onClick={() => setCreatingPlan(false)}>Close</button>
+            </div>
+            <PlanEditorForm onSubmit={create} onCancel={() => setCreatingPlan(false)} submitLabel="Create plan" />
+          </div>
+        </div>
+      )}
       {generatingBrief && (
         <GenerationModal
           brief={generatingBrief}
@@ -753,7 +799,10 @@ function BriefPanel({ data, run, setScreen, pendingPlan }: { data: AppData; run:
           <h2>Review and refine generated plans</h2>
           <p>Each plan includes Gemini analysis, video prompt, caption, hashtags, and production notes before generating a draft.</p>
         </div>
-        <Metric label="Plans" value={plans.length} />
+        <div className="plan-hero-actions">
+          <Metric label="Plans" value={plans.length} />
+          <button className="primary" onClick={() => setCreatingPlan(true)}><Plus size={14} />New</button>
+        </div>
       </section>
       <div className="plan-list">
         {pendingPlan && (
@@ -771,28 +820,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan }: { data: AppData; run:
         {plans.map((brief, index) => (
           <article className="plan-card" key={brief.id}>
             {editingId === brief.id ? (
-              <form action={save} className="plan-edit">
-                <input type="hidden" name="id" value={brief.id} />
-                <label>Topic<input name="topic" defaultValue={brief.topic} /></label>
-                <label>Format<select name="format" defaultValue={contentFormatOptions.includes(brief.format) ? brief.format : "Short video 9:16"}>{contentFormatOptions.map((format) => <option key={format}>{format}</option>)}</select></label>
-                <label>Description<textarea name="description" defaultValue={brief.description || ""} /></label>
-                <label>Video prompt<textarea name="videoPrompt" defaultValue={brief.videoPrompt || ""} /></label>
-                {planContentKind(brief.format) === "video" && <label>Duration (seconds)<input name="duration" type="number" min="1" step="1" defaultValue={brief.duration || defaultPlanDuration(brief.format)} /></label>}
-                <label>Hooks<textarea name="hooks" defaultValue={brief.hooks.join("\n")} /></label>
-                <label>Outline<textarea name="outline" defaultValue={brief.outline.join("\n")} /></label>
-                <label>Shot list<textarea name="shotList" defaultValue={(brief.shotList || []).join("\n")} /></label>
-                <label>Creative notes<textarea name="creativeNotes" defaultValue={brief.creativeNotes || ""} /></label>
-                <label>Caption<textarea name="caption" defaultValue={brief.caption} /></label>
-                <label>Hashtags<input name="hashtags" defaultValue={brief.hashtags.join(", ")} /></label>
-                <div className="grid two">
-                  <label>Optimal time<input name="optimalTime" defaultValue={brief.optimalTime} /></label>
-                  <label>Expected performance<input name="expectedPerformance" defaultValue={brief.expectedPerformance} /></label>
-                </div>
-                <div className="row-actions">
-                  <button className="primary" type="submit"><Check size={14} />Save</button>
-                  <button type="button" onClick={() => setEditingId(null)}>Cancel</button>
-                </div>
-              </form>
+              <PlanEditorForm brief={brief} onSubmit={save} onCancel={() => setEditingId(null)} submitLabel="Save" />
             ) : (
               <>
                 <div className="plan-card-head compact">

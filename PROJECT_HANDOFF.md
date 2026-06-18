@@ -55,6 +55,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Social Audit supports entering a social profile/post URL when no profile URL is stored. The `runSocialAudit` action scans with Apify, saves recent `socialAudits`, computes an authority score, and shows top audited content in the Social Audit tab.
 - Research results include thumbnails, timestamps, views, likes, sorting, loading states, and history.
 - Research keyword/url thumbnails use real thumbnail fields returned by Apify actors when available; Google Search-style results do not include video thumbnails, so the UI shows a platform placeholder instead of misleading stock/default thumbnails.
+- Research keyword scans using Google Search scraper submit selected platforms as separate search queries in one Apify run instead of one restrictive OR query; this reduces cases where Google returns only one organic result for a broad keyword.
 - Research Search/Scan buttons disable and show `Scanning...` while Apify is running.
 - Content Plan cards show only number, title/description, content type, timestamp, and actions.
 - Creating a plan from Research immediately redirects to Content Plan and shows a temporary `Generating content plan...` row until Gemini returns the full plan.
@@ -103,6 +104,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+- 2026-06-18: Audited recent Apify keyword run `JsAL5ZezDmic0XIwW`: Apify succeeded but Google Search returned one organic result for an over-constrained `igcse tuition` OR query. Changed keyword query construction to send selected platform searches as separate queries with two pages each. Local `npm run build` passed.
 - 2026-06-18: Fixed Research UX and thumbnail handling. Keyword Search now changes to `Scanning...` and disables while running, Create Plan redirects immediately to Content Plan with a pending generation row, Apify thumbnail normalization reads real thumbnail fields when actor output provides them and no longer uses stock defaults for Google Search results. Seedance now requests generated audio. Local `npm run build` passed.
 - 2026-06-18: Fixed Content Plan Generate with Seedance 2.0. It now creates a Kie `bytedance/seedance-2` task instead of attaching the local demo video, stores the selected generation model on the asset, and polls Seedance tasks through Kie Market status until Publish moves from `Generating` to `Done` or `Failed`. Local `npm run build` passed.
 - 2026-06-17: Pushed current deployment code to GitHub private repo `adrentan888-adren/cabuild` on branch `main`.

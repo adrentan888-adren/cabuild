@@ -228,6 +228,21 @@ function uploadDateQuery(value?: string) {
   } as Record<string, string>)[value || ""] || "";
 }
 
+function keywordSearchQueries(keywords: string, actorSources: string[], uploadDate: string) {
+  const dateTerm = uploadDateQuery(uploadDate);
+  const selected = actorSources.length ? actorSources : ["instagram", "tiktok", "youtube"];
+  const queryMap: Record<string, string> = {
+    instagram: "site:instagram.com/reel OR site:instagram.com/p Instagram Reels posts",
+    tiktok: "site:tiktok.com/@ TikTok videos",
+    youtube: "site:youtube.com/shorts OR site:youtube.com/watch YouTube videos Shorts",
+    facebook: "site:facebook.com/reel OR site:facebook.com/watch OR site:facebook.com/posts Facebook Reels posts videos",
+    linkedin: "site:linkedin.com/posts OR site:linkedin.com/pulse LinkedIn posts articles"
+  };
+  return selected
+    .map((source) => `${keywords} ${queryMap[source] || source} ${dateTerm}`.replace(/\s+/g, " ").trim())
+    .join("\n");
+}
+
 export async function scanKeywordsWithApify(keywords: string, dimensions: KeywordDimensions, minViews: number) {
   if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
   const sourceMap: Record<string, string> = {
@@ -249,13 +264,14 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
     : dimensions.formats?.join(" OR ") || "short-form vertical video Instagram Reels TikTok YouTube Shorts";
   const uploadDate = dimensions.uploadDate || "";
   const query = `${keywords} ${sourceTerms} ${uploadDateQuery(uploadDate)}`.replace(/\s+/g, " ").trim();
+  const queries = keywordSearchQueries(keywords, actorSources, uploadDate);
   const actorId = (process.env.APIFY_KEYWORD_ACTOR_ID || process.env.APIFY_ACTOR_ID || "apify/google-search-scraper").replace("/", "~");
   const endpoint = `https://api.apify.com/v2/actors/${actorId}/run-sync-get-dataset-items?token=${token()}&timeout=120`;
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      queries: query,
+      queries,
       uploadDate,
       dateRange: uploadDate,
       filters: {
@@ -263,8 +279,8 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
         contentTypes: dimensions.contentTypes || [],
         uploadDate
       },
-      maxPagesPerQuery: 1,
-      resultsPerPage: 20,
+      maxPagesPerQuery: 2,
+      resultsPerPage: 10,
       countryCode: "us",
       languageCode: "en"
     })

@@ -88,7 +88,7 @@ export async function generateSeedanceVideo(prompt: string, options: { duration?
       model: "bytedance/seedance-2",
       input: {
         prompt,
-        generate_audio: false,
+        generate_audio: true,
         resolution: "720p",
         aspect_ratio: options.aspectRatio || "9:16",
         duration,

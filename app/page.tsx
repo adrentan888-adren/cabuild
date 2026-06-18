@@ -72,6 +72,7 @@ const researchActors = [
   { id: "linkedin", label: "LinkedIn", dimensions: ["Text post (feed)", "Article (editorial)", "Image / carousel (1:1 or 4:5)"] }
 ] as const;
 type IntegrationData = Record<string, { configured?: boolean; ok?: boolean; status?: number; error?: string; baseUrl?: string; actor?: string }>;
+type PendingPlan = { title: string; description: string; startedAt: number };
 
 async function post(action: string, payload: Record<string, unknown> = {}) {
   const res = await fetch("/api/social", {
@@ -90,6 +91,7 @@ export default function Home() {
   const [authError, setAuthError] = useState("");
   const [toast, setToast] = useState("");
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function refresh() {
@@ -247,8 +249,8 @@ export default function Home() {
           {screen === "home" && <HomePanel data={data} setScreen={setScreen} run={run} />}
           {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
-          {screen === "research" && <IntelligencePanel data={data} run={run} setScreen={setScreen} />}
-          {screen === "plan" && <BriefPanel data={data} run={run} setScreen={setScreen} />}
+          {screen === "research" && <IntelligencePanel data={data} run={run} setScreen={setScreen} setPendingPlan={setPendingPlan} />}
+          {screen === "plan" && <BriefPanel data={data} run={run} setScreen={setScreen} pendingPlan={pendingPlan} />}
           {screen === "create" && <CreateContentPanel data={data} run={run} />}
           {screen === "publish" && <PublishPanel data={data} run={run} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
@@ -413,7 +415,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   );
 }
 
-function IntelligencePanel({ data, run, setScreen }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; setScreen: (screen: string) => void }) {
+function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; setScreen: (screen: string) => void; setPendingPlan: (plan: PendingPlan | null) => void }) {
   const [searchMode, setSearchMode] = useState<"url" | "keywords">("url");
   const [sortBy, setSortBy] = useState<"views" | "likes" | "date">("views");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -484,8 +486,13 @@ function IntelligencePanel({ data, run, setScreen }: { data: AppData; run: (a: s
     }
   };
   const createPlan = async (item: CompetitorResult) => {
+    setPendingPlan({ title: item.title, description: item.description || `Analyzing ${item.platform} result with ${compact(item.views)} views.`, startedAt: Date.now() });
     setScreen("plan");
-    await run("createPlanFromResearch", { id: item.id }, "Content plan generated from research");
+    try {
+      await run("createPlanFromResearch", { id: item.id }, "Content plan generated from research");
+    } finally {
+      setPendingPlan(null);
+    }
   };
   const toggleActorSource = (value: string) => {
     setActorSources((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
@@ -536,14 +543,14 @@ function IntelligencePanel({ data, run, setScreen }: { data: AppData; run: (a: s
           <form action={scanUrl} className="research-form">
             <label>Social URL<input name="url" type="url" placeholder="https://www.tiktok.com/@brand/video/123 or Instagram/Reels/Facebook/X URL" required /></label>
             <label>Minimum views<input name="minViews" type="number" min="0" step="1000" defaultValue="10000" /></label>
-            <button className="primary" disabled={scanStatus !== null}><Radar size={14} />{scanStatus === "url" ? "Scanning..." : "Scan"}</button>
+            <button className="primary" disabled={scanStatus !== null} aria-busy={scanStatus === "url"}><Radar size={14} />{scanStatus === "url" ? "Scanning..." : "Scan"}</button>
           </form>
         ) : (
           <form action={scanKeywords} className="keyword-form">
             <div className="keyword-input-row">
               <label>Keywords<input value={keywordText} onChange={(event) => setKeywordText(event.target.value)} placeholder="AI automation, founder productivity, n8n workflows" required /></label>
               <label>Minimum views<input name="minViews" type="number" min="0" step="1000" defaultValue="10000" /></label>
-              <button className="primary" disabled={scanStatus !== null}><Search size={14} />{scanStatus === "keywords" ? "Searching..." : "Search"}</button>
+              <button className="primary" disabled={scanStatus !== null} aria-busy={scanStatus === "keywords"}><Search size={14} />{scanStatus === "keywords" ? "Scanning..." : "Search"}</button>
             </div>
             <div className="suggested-keywords">
               {suggestedResearchKeywords.map(([keyword, score]) => (
@@ -711,7 +718,7 @@ function defaultHashtags(brief: Brief) {
   return ["#SME", "#Automation", "#AI", formatTag].join(", ");
 }
 
-function BriefPanel({ data, run, setScreen }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; setScreen: (screen: string) => void }) {
+function BriefPanel({ data, run, setScreen, pendingPlan }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; setScreen: (screen: string) => void; pendingPlan: PendingPlan | null }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [generatingBrief, setGeneratingBrief] = useState<Brief | null>(null);
   const planTime = (value?: string) => {
@@ -746,6 +753,18 @@ function BriefPanel({ data, run, setScreen }: { data: AppData; run: (a: string, 
         <Metric label="Plans" value={plans.length} />
       </section>
       <div className="plan-list">
+        {pendingPlan && (
+          <article className="plan-card pending-plan">
+            <div className="plan-index"><span /></div>
+            <div className="plan-summary">
+              <h3>Generating content plan...</h3>
+              <p>{pendingPlan.title}</p>
+              <small>{pendingPlan.description}</small>
+              <div className="mini-progress"><span /></div>
+            </div>
+            <span className="status generating">Generating</span>
+          </article>
+        )}
         {plans.map((brief, index) => (
           <article className="plan-card" key={brief.id}>
             {editingId === brief.id ? (

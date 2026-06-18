@@ -24,6 +24,8 @@ type NormalizedSocialItem = {
   publishedAt: string;
 };
 
+type ActorSource = "instagram" | "tiktok" | "youtube" | "facebook" | "linkedin";
+
 function token() {
   return process.env.APIFY_API_TOKEN;
 }
@@ -128,9 +130,9 @@ function normalizeSocialItem(item: Record<string, unknown>, index: number, fallb
     title,
     description: firstString(item.description, item.caption, item.text, item.desc),
     thumbnailUrl: thumbnailFrom(item),
-    views: n(item.views) || n(item.playCount) || n(item.videoViewCount) || n(item.viewCount) || n(item.view_count) || n(stats.views) || n(stats.playCount),
-    likes: n(item.likes) || n(item.likeCount) || n(item.diggCount) || n(item.likesCount) || n(item.likes_count) || n(stats.likes),
-    comments: n(item.comments) || n(item.commentCount) || n(item.commentsCount) || n(item.comment_count) || n(stats.comments),
+    views: n(item.views) || n(item.playCount) || n(item.videoViewCount) || n(item.viewCount) || n(item.view_count) || n(item.playCountText) || n(stats.views) || n(stats.playCount),
+    likes: n(item.likes) || n(item.likeCount) || n(item.diggCount) || n(item.likesCount) || n(item.likes_count) || n(item.likesCountText) || n(stats.likes),
+    comments: n(item.comments) || n(item.commentCount) || n(item.commentsCount) || n(item.comment_count) || n(item.commentsCountText) || n(stats.comments),
     publishedAt: firstString(item.timestamp, item.createTimeISO, item.takenAt, item.publishedAt, item.date, item.createdAt) || new Date().toISOString()
   };
 }
@@ -162,6 +164,7 @@ export async function scanSocialUrl(url: string, minViews: number) {
 function platformFromText(value: string): Platform {
   const lower = value.toLowerCase();
   if (lower.includes("instagram") || lower.includes("reel")) return "Instagram";
+  if (lower.includes("youtube") || lower.includes("youtu.be")) return "YouTube";
   if (lower.includes("linkedin")) return "LinkedIn";
   if (lower.includes("facebook")) return "Facebook";
   if (lower.includes("twitter") || lower.includes("x.com") || lower.includes("threads")) return "X";
@@ -243,8 +246,122 @@ function keywordSearchQueries(keywords: string, actorSources: string[], uploadDa
     .join("\n");
 }
 
+function selectedSource(dimensions: KeywordDimensions): ActorSource {
+  const source = dimensions.actorSources?.[0] || dimensions.contentTypes?.[0] || "instagram";
+  return ["instagram", "tiktok", "youtube", "facebook", "linkedin"].includes(source) ? source as ActorSource : "instagram";
+}
+
+function sourceActorId(source: ActorSource) {
+  const envMap: Record<ActorSource, string | undefined> = {
+    instagram: process.env.APIFY_INSTAGRAM_ACTOR_ID,
+    tiktok: process.env.APIFY_TIKTOK_ACTOR_ID,
+    youtube: process.env.APIFY_YOUTUBE_ACTOR_ID,
+    facebook: process.env.APIFY_FACEBOOK_ACTOR_ID,
+    linkedin: process.env.APIFY_LINKEDIN_ACTOR_ID
+  };
+  const defaultMap: Record<ActorSource, string> = {
+    instagram: "apify/instagram-scraper",
+    tiktok: "clockworks/tiktok-scraper",
+    youtube: "streamers/youtube-scraper",
+    facebook: "scrapeforge/facebook-search-posts",
+    linkedin: ""
+  };
+  return envMap[source] || defaultMap[source];
+}
+
+function sourcePlatform(source: ActorSource): Platform {
+  return ({
+    instagram: "Instagram",
+    tiktok: "TikTok",
+    youtube: "YouTube",
+    facebook: "Facebook",
+    linkedin: "LinkedIn"
+  } as Record<ActorSource, Platform>)[source];
+}
+
+function platformSearchInput(source: ActorSource, keywords: string, uploadDate: string) {
+  const maxItems = 30;
+  const dateTerm = uploadDateQuery(uploadDate);
+  const query = `${keywords} ${dateTerm}`.replace(/\s+/g, " ").trim();
+  if (source === "tiktok") {
+    return {
+      searchQueries: [query],
+      resultsPerPage: maxItems,
+      maxItems,
+      scrapeRelatedVideos: false,
+      shouldDownloadVideos: false,
+      shouldDownloadCovers: false
+    };
+  }
+  if (source === "instagram") {
+    return {
+      search: query,
+      searchType: "hashtag",
+      resultsType: "posts",
+      resultsLimit: maxItems,
+      maxItems,
+      addParentData: false,
+      enhanceUserSearchWithFacebookPage: false
+    };
+  }
+  if (source === "youtube") {
+    return {
+      searchQueries: [query],
+      maxResults: maxItems,
+      maxResultsShorts: maxItems,
+      sort: "relevance",
+      startUrls: []
+    };
+  }
+  if (source === "facebook") {
+    return {
+      query,
+      queries: [query],
+      maxItems,
+      resultsLimit: maxItems
+    };
+  }
+  return {
+    queries: keywordSearchQueries(keywords, [source], uploadDate),
+    maxPagesPerQuery: 2,
+    resultsPerPage: 10,
+    countryCode: "us",
+    languageCode: "en"
+  };
+}
+
+async function runApifyActor(actorId: string, input: Record<string, unknown>) {
+  const endpoint = `https://api.apify.com/v2/actors/${actorId.replace("/", "~")}/run-sync-get-dataset-items?token=${token()}&timeout=180`;
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Apify actor ${actorId} failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
+  return JSON.parse(text) as Array<Record<string, unknown>>;
+}
+
+function normalizeActorItems(items: Array<Record<string, unknown>>, source: ActorSource, minViews: number) {
+  return items
+    .map((item, index) => ({ ...normalizeSocialItem(item, index), platform: sourcePlatform(source) }))
+    .filter((item) => item.views >= minViews);
+}
+
 export async function scanKeywordsWithApify(keywords: string, dimensions: KeywordDimensions, minViews: number) {
   if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
+  const source = selectedSource(dimensions);
+  const actorId = sourceActorId(source);
+  const uploadDate = dimensions.uploadDate || "";
+  if (actorId) {
+    try {
+      const actorItems = await runApifyActor(actorId, platformSearchInput(source, keywords, uploadDate));
+      const directItems = normalizeActorItems(actorItems, source, minViews);
+      if (directItems.length) return directItems;
+    } catch {
+      // Fall through to Google search fallback for sources whose actor schema or search support differs.
+    }
+  }
   const sourceMap: Record<string, string> = {
     "google-search": "web search social content",
     tiktok: "site:tiktok.com TikTok videos captions public metrics",
@@ -262,11 +379,10 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
   const sourceTerms = actorSources.length
     ? actorSources.map((item) => sourceMap[item] || item).join(" OR ")
     : dimensions.formats?.join(" OR ") || "short-form vertical video Instagram Reels TikTok YouTube Shorts";
-  const uploadDate = dimensions.uploadDate || "";
   const query = `${keywords} ${sourceTerms} ${uploadDateQuery(uploadDate)}`.replace(/\s+/g, " ").trim();
   const queries = keywordSearchQueries(keywords, actorSources, uploadDate);
-  const actorId = (process.env.APIFY_KEYWORD_ACTOR_ID || process.env.APIFY_ACTOR_ID || "apify/google-search-scraper").replace("/", "~");
-  const endpoint = `https://api.apify.com/v2/actors/${actorId}/run-sync-get-dataset-items?token=${token()}&timeout=120`;
+  const fallbackActorId = (process.env.APIFY_KEYWORD_ACTOR_ID || process.env.APIFY_ACTOR_ID || "apify/google-search-scraper").replace("/", "~");
+  const endpoint = `https://api.apify.com/v2/actors/${fallbackActorId}/run-sync-get-dataset-items?token=${token()}&timeout=120`;
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

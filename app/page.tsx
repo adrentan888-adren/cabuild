@@ -423,7 +423,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
   const [historyOpen, setHistoryOpen] = useState(false);
   const [activeScanId, setActiveScanId] = useState<string | null>(data.researchScans[0]?.id || null);
   const [keywordText, setKeywordText] = useState("AI automation, n8n workflows");
-  const [actorSources, setActorSources] = useState<string[]>(["instagram"]);
+  const [actorSource, setActorSource] = useState("instagram");
   const [uploadDate, setUploadDate] = useState("");
   const [scanStatus, setScanStatus] = useState<"url" | "keywords" | null>(null);
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
@@ -477,7 +477,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
       const result = await run("scanKeywordResearch", {
         keywords: keywordText,
         minViews: Number(form.get("minViews") || 0),
-        dimensions: { actorSources, uploadDate }
+        dimensions: { actorSources: [actorSource], uploadDate }
       }, "Keyword research complete");
       if (result?.id) setActiveScanId(result.id);
     } finally {
@@ -493,9 +493,6 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
     } finally {
       setPendingPlan(null);
     }
-  };
-  const toggleActorSource = (value: string) => {
-    setActorSources((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
   };
   const addKeyword = (keyword: string) => {
     const parts = keywordText.split(",").map((item) => item.trim()).filter(Boolean);
@@ -567,7 +564,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
                 <option value="this-month">This Month</option>
                 <option value="this-year">This Year</option>
               </select></label>
-              <ActorSourceSelector selected={actorSources} onToggle={toggleActorSource} />
+              <ActorSourceSelector selected={actorSource} onSelect={setActorSource} />
             </div>
           </form>
         )}
@@ -630,14 +627,14 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
   );
 }
 
-function ActorSourceSelector({ selected, onToggle }: { selected: string[]; onToggle: (item: string) => void }) {
+function ActorSourceSelector({ selected, onSelect }: { selected: string; onSelect: (item: string) => void }) {
   return (
     <div className="content-type-group">
-      <b>Sources</b>
+      <b>Source</b>
       <div>
         {researchActors.map((item) => (
-          <button type="button" key={item.id} className={selected.includes(item.id) ? "on" : ""} onClick={() => onToggle(item.id)}>
-            <span><input type="checkbox" checked={selected.includes(item.id)} readOnly tabIndex={-1} />{item.label}</span>
+          <button type="button" key={item.id} className={selected === item.id ? "on" : ""} onClick={() => onSelect(item.id)}>
+            <span><input type="radio" checked={selected === item.id} readOnly tabIndex={-1} />{item.label}</span>
             <small>{item.dimensions.join(", ")}</small>
           </button>
         ))}

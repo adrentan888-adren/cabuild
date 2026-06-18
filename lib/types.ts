@@ -1,4 +1,4 @@
-export type Platform = "TikTok" | "Instagram" | "LinkedIn" | "Facebook" | "X";
+export type Platform = "TikTok" | "Instagram" | "YouTube" | "LinkedIn" | "Facebook" | "X";
 
 export type User = {
   id: string;

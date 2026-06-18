@@ -56,6 +56,8 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Research results include thumbnails, timestamps, views, likes, sorting, loading states, and history.
 - Research keyword/url thumbnails use real thumbnail fields returned by Apify actors when available; Google Search-style results do not include video thumbnails, so the UI shows a platform placeholder instead of misleading stock/default thumbnails.
 - Research keyword scans using Google Search scraper submit selected platforms as separate search queries in one Apify run instead of one restrictive OR query; this reduces cases where Google returns only one organic result for a broad keyword.
+- Research keyword search now allows one source/platform per search. The backend first tries a platform-specific Apify actor, then falls back to Google Search only if that actor is missing or fails.
+- Platform actor env vars: `APIFY_TIKTOK_ACTOR_ID`, `APIFY_INSTAGRAM_ACTOR_ID`, `APIFY_YOUTUBE_ACTOR_ID`, `APIFY_FACEBOOK_ACTOR_ID`, `APIFY_LINKEDIN_ACTOR_ID`.
 - Research Search/Scan buttons disable and show `Scanning...` while Apify is running.
 - Content Plan cards show only number, title/description, content type, timestamp, and actions.
 - Creating a plan from Research immediately redirects to Content Plan and shows a temporary `Generating content plan...` row until Gemini returns the full plan.
@@ -104,6 +106,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+- 2026-06-18: Changed Research keyword source selection from multi-select checkboxes to a single platform radio-style selector. Added platform-specific Apify actor routing with defaults for TikTok (`clockworks/tiktok-scraper`), Instagram (`apify/instagram-scraper`), YouTube (`streamers/youtube-scraper`), and Facebook search (`scrapeforge/facebook-search-posts`), with Google Search retained only as fallback. Added YouTube to the shared `Platform` type and updated `.env.example`. Local `npm run build` passed. Cloud Run deployment still needs `sean@gigwave.tech` Google reauthentication.
 - 2026-06-18: Audited recent Apify keyword run `JsAL5ZezDmic0XIwW`: Apify succeeded but Google Search returned one organic result for an over-constrained `igcse tuition` OR query. Changed keyword query construction to send selected platform searches as separate queries with two pages each. Local `npm run build` passed.
 - 2026-06-18: Fixed Research UX and thumbnail handling. Keyword Search now changes to `Scanning...` and disables while running, Create Plan redirects immediately to Content Plan with a pending generation row, Apify thumbnail normalization reads real thumbnail fields when actor output provides them and no longer uses stock defaults for Google Search results. Seedance now requests generated audio. Local `npm run build` passed.
 - 2026-06-18: Fixed Content Plan Generate with Seedance 2.0. It now creates a Kie `bytedance/seedance-2` task instead of attaching the local demo video, stores the selected generation model on the asset, and polls Seedance tasks through Kie Market status until Publish moves from `Generating` to `Done` or `Failed`. Local `npm run build` passed.

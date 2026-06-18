@@ -15,6 +15,7 @@ ContentAgent Social is a local Next.js prototype for research, content planning,
 - Private repo: `https://github.com/adrentan888-adren/cabuild`
 - Branch: `main`
 - Current deployment commit pushed: `0477adc Prepare ContentAgent for GCP deployment`
+- CI/CD path: repo now includes `Dockerfile`, `.dockerignore`, and `cloudbuild.yaml` so GCP can deploy from GitHub via a Cloud Build trigger. Once that trigger is connected, future deploys should only require `git push` to `main`.
 
 Before builds, stop old project-local Node processes if `.next/trace` is locked:
 ```powershell
@@ -92,6 +93,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 
 ## GCP Deployment Access
 - Preferred deployment target: Cloud Run + Artifact Registry + Secret Manager.
+- Preferred ongoing deploy path: Cloud Build trigger connected to GitHub `adrentan888-adren/cabuild`, branch `main`, using `cloudbuild.yaml`. This avoids manual `gcloud run deploy` after each code push.
 - Production persistence needs Cloud SQL/Postgres or another managed database; current local JSON storage is not production-safe on Cloud Run.
 - If temporary operator access is needed, create a dedicated deploy service account and place its JSON key in an ignored local file such as `.gcp-deploy-key.local.json`; do not paste raw keys into chat or commit them.
 - Minimum practical deployment roles usually include Cloud Run Admin, Cloud Build Editor, Artifact Registry Admin or Writer, Secret Manager Admin, Service Account User, and Cloud SQL Admin if creating Cloud SQL.
@@ -106,6 +108,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+- 2026-06-18: Added GitHub-to-GCP CI/CD files: `Dockerfile`, `.dockerignore`, and `cloudbuild.yaml`. Next.js now builds with `output: "standalone"`. Cloud Build recipe builds an Artifact Registry image and deploys Cloud Run with existing Secret Manager secrets and non-secret env vars, then reapplies `--no-invoker-iam-check`. Local `npm run build` passed; local Docker is unavailable, so container build must be verified by Cloud Build. One-time GitHub Cloud Build trigger setup still needs GCP reauthentication.
 - 2026-06-18: Changed Research keyword source selection from multi-select checkboxes to a single platform radio-style selector. Added platform-specific Apify actor routing with defaults for TikTok (`clockworks/tiktok-scraper`), Instagram (`apify/instagram-scraper`), YouTube (`streamers/youtube-scraper`), and Facebook search (`scrapeforge/facebook-search-posts`), with Google Search retained only as fallback. Added YouTube to the shared `Platform` type and updated `.env.example`. Local `npm run build` passed. Cloud Run deployment still needs `sean@gigwave.tech` Google reauthentication.
 - 2026-06-18: Audited recent Apify keyword run `JsAL5ZezDmic0XIwW`: Apify succeeded but Google Search returned one organic result for an over-constrained `igcse tuition` OR query. Changed keyword query construction to send selected platform searches as separate queries with two pages each. Local `npm run build` passed.
 - 2026-06-18: Fixed Research UX and thumbnail handling. Keyword Search now changes to `Scanning...` and disables while running, Create Plan redirects immediately to Content Plan with a pending generation row, Apify thumbnail normalization reads real thumbnail fields when actor output provides them and no longer uses stock defaults for Google Search results. Seedance now requests generated audio. Local `npm run build` passed.

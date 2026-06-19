@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   Activity,
   BarChart3,
@@ -759,6 +760,23 @@ const generationModels = {
   ]
 } as const;
 
+type GenerationKind = "video" | "image" | "text";
+type AssetReference = { role: "product photo" | "avatar/persona" | "logo"; fileName: string };
+type CreateContentInitial = {
+  sourceLabel: string;
+  sourceTitle: string;
+  sourceDescription: string;
+  kind: GenerationKind;
+  model?: string;
+  duration?: number | string;
+  aspectRatio?: string;
+  imageSize?: string;
+  prompt: string;
+  caption: string;
+  hashtags: string;
+  platform?: Platform;
+};
+
 function durationOptionsForModel(model: string) {
   if (model === "veo-fast") return [8];
   if (model === "seedance-2.0") return Array.from({ length: 12 }, (_, index) => index + 4);
@@ -792,6 +810,31 @@ function defaultHashtags(brief: Brief) {
   if (brief.hashtags?.length) return brief.hashtags.join(", ");
   const formatTag = planContentKind(brief.format) === "video" ? "#VideoContent" : planContentKind(brief.format) === "image" ? "#Carousel" : "#ContentStrategy";
   return ["#SME", "#Automation", "#AI", formatTag].join(", ");
+}
+
+function defaultPlatformForKind(kind: GenerationKind): Platform {
+  if (kind === "text") return "LinkedIn";
+  if (kind === "image") return "Instagram";
+  return "TikTok";
+}
+
+function placementsForKind(kind: GenerationKind) {
+  if (kind === "video") return ["TikTok", "FB/IG Reels", "YouTube Shorts"];
+  if (kind === "image") return ["Instagram", "LinkedIn", "Facebook"];
+  return ["LinkedIn", "X", "Threads"];
+}
+
+function enrichPromptForSocialConversion(basePrompt: string, kind: GenerationKind, refs: AssetReference[]) {
+  const mediaLabel = kind === "image" ? "image" : kind === "video" ? "video" : "post";
+  const conversionDirection = `Optimize this ${mediaLabel} for high-conversion, high-quality social media publishing: use a strong opening hook, platform-native pacing or layout, clear visual hierarchy, specific benefit language, and a direct CTA.`;
+  if (kind === "text" || refs.length === 0) return [basePrompt, conversionDirection].filter(Boolean).join("\n\n");
+  const lines = refs.map((ref) => `- Use the selected ${ref.role} reference (${ref.fileName}) as visual guidance.`);
+  const visualDirection = [
+    `For this ${mediaLabel}, use the selected/attached references naturally in the generated ${mediaLabel}:`,
+    ...lines,
+    "Place the logo and product/persona references so they are easy to recognize without looking pasted on. Add appropriate stroke, outline, shadow, or contrast treatment so the photo and logo remain distinct from the background."
+  ].join("\n");
+  return [basePrompt, visualDirection, conversionDirection].filter(Boolean).join("\n\n");
 }
 
 function PlanEditorForm({ brief, onSubmit, onCancel, submitLabel }: { brief?: Brief; onSubmit: (form: FormData) => Promise<void>; onCancel: () => void; submitLabel: string }) {
@@ -921,19 +964,48 @@ function BriefPanel({ data, run, setScreen, pendingPlan }: { data: AppData; run:
   );
 }
 
-function GenerationModal({ brief, onClose, onSubmit }: { brief: Brief; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
-  const initialKind = planContentKind(brief.format);
-  const [kind, setKind] = useState<"video" | "image" | "text">(initialKind);
-  const [model, setModel] = useState<string>(generationModels[initialKind][0][0]);
-  const [duration, setDuration] = useState(closestDuration(brief.duration || defaultPlanDuration(brief.format) || 8, durationOptionsForModel(generationModels[initialKind][0][0])));
+function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, submitLabel = "Generate" }: { initial: CreateContentInitial; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; submitLabel?: string }) {
+  const [kind, setKind] = useState<GenerationKind>(initial.kind);
+  const [model, setModel] = useState<string>(initial.model || generationModels[initial.kind][0][0]);
+  const [duration, setDuration] = useState(closestDuration(initial.duration || 8, durationOptionsForModel(initial.model || generationModels[initial.kind][0][0])));
+  const [platform, setPlatform] = useState<Platform>(initial.platform || defaultPlatformForKind(initial.kind));
   const [busy, setBusy] = useState(false);
+  const [assetRefs, setAssetRefs] = useState<AssetReference[]>([]);
   const durationOptions = durationOptionsForModel(model);
+  const visualAssetsEnabled = kind === "video" || kind === "image";
+  const changeKind = (next: GenerationKind) => {
+    const nextModel = generationModels[next][0][0];
+    setKind(next);
+    setModel(nextModel);
+    setPlatform(defaultPlatformForKind(next));
+    setDuration(closestDuration(initial.duration || 8, durationOptionsForModel(nextModel)));
+  };
+  const changeModel = (next: string) => {
+    setModel(next);
+    setDuration(closestDuration(duration || initial.duration || 8, durationOptionsForModel(next)));
+  };
+  const updateAssetRef = (role: AssetReference["role"], file?: File | null) => {
+    setAssetRefs((current) => {
+      const rest = current.filter((item) => item.role !== role);
+      return file?.name ? [...rest, { role, fileName: file.name }] : rest;
+    });
+  };
   const submit = async (form: FormData) => {
     setBusy(true);
     try {
+      const selectedPlatform = String(form.get("platform") || platform || defaultPlatformForKind(kind));
+      const prompt = enrichPromptForSocialConversion(String(form.get("prompt") || ""), kind, visualAssetsEnabled ? assetRefs : []);
       await onSubmit({
-        ...Object.fromEntries(form.entries()),
-        id: brief.id,
+        platform: selectedPlatform,
+        prompt,
+        caption: String(form.get("caption") || ""),
+        hashtags: String(form.get("hashtags") || ""),
+        aspectRatio: String(form.get("aspectRatio") || ""),
+        imageSize: String(form.get("imageSize") || ""),
+        variants: String(form.get("variants") || ""),
+        tone: String(form.get("tone") || ""),
+        length: String(form.get("length") || ""),
+        assetReferences: visualAssetsEnabled ? assetRefs : [],
         generationType: kind,
         generationModel: model,
         duration: kind === "video" ? duration : undefined
@@ -942,143 +1014,38 @@ function GenerationModal({ brief, onClose, onSubmit }: { brief: Brief; onClose: 
       setBusy(false);
     }
   };
-  const changeKind = (next: "video" | "image" | "text") => {
-    const nextModel = generationModels[next][0][0];
-    setKind(next);
-    setModel(nextModel);
-    setDuration(closestDuration(brief.duration || defaultPlanDuration(brief.format) || 8, durationOptionsForModel(nextModel)));
-  };
-  const changeModel = (next: string) => {
-    setModel(next);
-    setDuration(closestDuration(duration || brief.duration || defaultPlanDuration(brief.format) || 8, durationOptionsForModel(next)));
-  };
-  const defaultPrompt = defaultGenerationPrompt(brief, kind);
-  return (
-    <div className="modal-backdrop">
-      <section className="generation-modal">
-        <div className="modal-head">
-          <div>
-            <div className="clbl">Generate Draft</div>
-            <h3>{brief.topic}</h3>
-            <p>{brief.format}</p>
-          </div>
-          <button type="button" className="icon-btn" onClick={onClose}>x</button>
-        </div>
-        <form action={submit} className="generation-form">
-          <input type="hidden" name="platform" value={brief.platforms[0] || "TikTok"} />
-          <div className="model-options">
-            {generationModels[kind].map(([value, label, price]) => (
-              <button type="button" key={value} className={model === value ? "on" : ""} onClick={() => changeModel(value)}>
-                <b>{label}</b>
-                <span>{price}</span>
-              </button>
-            ))}
-          </div>
-          <div className="modal-grid">
-            <label>Content type<select value={kind} onChange={(event) => changeKind(event.target.value as "video" | "image" | "text")}>
-              <option value="video">Video</option>
-              <option value="image">Image / carousel</option>
-              <option value="text">Text post</option>
-            </select></label>
-            {kind === "video" && (
-              <>
-                <label>Duration (seconds)<select name="duration" value={duration} onChange={(event) => setDuration(event.target.value)}>{durationOptions.map((option) => <option key={option} value={option}>{option} seconds</option>)}</select></label>
-                <label>Aspect ratio<select name="aspectRatio" defaultValue={brief.format.includes("16:9") ? "16:9" : "9:16"}><option value="9:16">9:16 vertical</option><option value="16:9">16:9 landscape</option><option value="1:1">1:1 square</option></select></label>
-              </>
-            )}
-            {kind === "image" && (
-              <>
-                <label>Image size<select name="imageSize" defaultValue="1080x1350"><option>1080x1350</option><option>1080x1080</option><option>1920x1080</option></select></label>
-                <label>Variants<input name="variants" type="number" min="1" max="4" defaultValue="1" /></label>
-              </>
-            )}
-            {kind === "text" && (
-              <>
-                <label>Tone<select name="tone" defaultValue="Practical founder-led"><option>Practical founder-led</option><option>Educational</option><option>Contrarian</option><option>Executive concise</option></select></label>
-                <label>Length<select name="length" defaultValue="Medium"><option>Short</option><option>Medium</option><option>Long</option></select></label>
-              </>
-            )}
-          </div>
-          <label>Generation prompt<textarea name="prompt" defaultValue={defaultPrompt} /></label>
-          <label>Caption<textarea name="caption" defaultValue={defaultCaption(brief)} /></label>
-          <label>Hashtags<input name="hashtags" defaultValue={defaultHashtags(brief)} /></label>
-          <div className="modal-actions">
-            <button type="button" onClick={onClose}>Cancel</button>
-            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? "Generating..." : "Generate"}</button>
-          </div>
-        </form>
-      </section>
-    </div>
-  );
-}
-
-function CreateContentPanel({ run, setScreen }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void }) {
-  return (
-    <div className="create-page">
-      <div className="create-top">
-        <div>
-          <div className="module-kicker">Module 4</div>
-          <h2>Create content</h2>
-        </div>
-        <div className="credit-pill">Generated assets move to <b>Publish</b></div>
-      </div>
-      <DirectGenerationPanel run={run} setScreen={setScreen} />
-    </div>
-  );
-}
-
-function DirectGenerationPanel({ run, setScreen }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void }) {
-  const [kind, setKind] = useState<"video" | "image" | "text">("video");
-  const [model, setModel] = useState<string>(generationModels.video[0][0]);
-  const [duration, setDuration] = useState(closestDuration(8, durationOptionsForModel(generationModels.video[0][0])));
-  const [busy, setBusy] = useState(false);
-  const durationOptions = durationOptionsForModel(model);
-  const changeKind = (next: "video" | "image" | "text") => {
-    const nextModel = generationModels[next][0][0];
-    setKind(next);
-    setModel(nextModel);
-    setDuration(closestDuration(8, durationOptionsForModel(nextModel)));
-  };
-  const changeModel = (next: string) => {
-    setModel(next);
-    setDuration(closestDuration(duration || 8, durationOptionsForModel(next)));
-  };
-  const submit = async (form: FormData) => {
-    setBusy(true);
-    try {
-      await run("generateDirectContent", {
-        ...Object.fromEntries(form.entries()),
-        generationType: kind,
-        generationModel: model,
-        duration: kind === "video" ? duration : undefined
-      }, "Generation queued in Publish");
-      setScreen("publish");
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <form action={submit} className="generation-form create-generation-form">
-      <input type="hidden" name="platform" value={kind === "text" ? "LinkedIn" : "TikTok"} />
       <section className="create-card">
         <div className="clbl">Input source</div>
         <div className="brief-preview">
-          <span>Direct generation</span>
-          <b>Generate from scratch</b>
-          <p>Use this when there is no approved content plan. All outputs are sent to Publish after generation starts.</p>
+          <span>{initial.sourceLabel}</span>
+          <b>{initial.sourceTitle}</b>
+          <p>{initial.sourceDescription}</p>
         </div>
-        <button type="button" className="linkish" onClick={() => setScreen("plan")}>Use a content plan instead</button>
+        {onUsePlan && <button type="button" className="linkish" onClick={onUsePlan}>Use a content plan instead</button>}
       </section>
 
       <section className="create-card">
         <div className="clbl">Content type & platforms</div>
+        <div className="modal-grid">
+          <label>Content type<select value={kind} onChange={(event) => changeKind(event.target.value as GenerationKind)}>
+            <option value="video">Video</option>
+            <option value="image">Image / carousel</option>
+            <option value="text">Text post</option>
+          </select></label>
+          <label>Primary platform<select name="platform" value={platform} onChange={(event) => setPlatform(event.target.value as Platform)}>
+            {platforms.map((platform) => <option key={platform} value={platform}>{platform}</option>)}
+            <option value="YouTube">YouTube</option>
+          </select></label>
+        </div>
         <div className="create-type-grid">
           <button type="button" className={kind === "video" ? "on" : ""} onClick={() => changeKind("video")}><b>Video</b><span>TikTok, Reels, Shorts</span></button>
           <button type="button" className={kind === "image" ? "on" : ""} onClick={() => changeKind("image")}><b>Image / carousel</b><span>Instagram, LinkedIn, Facebook</span></button>
           <button type="button" className={kind === "text" ? "on" : ""} onClick={() => changeKind("text")}><b>Text post</b><span>LinkedIn, X, Threads</span></button>
         </div>
         <div className="plat-row">
-          {(kind === "video" ? ["TikTok", "FB/IG Reels", "YouTube Shorts"] : kind === "image" ? ["Instagram", "LinkedIn", "Facebook"] : ["LinkedIn", "X", "Threads"]).map((label) => <span className="pc on" key={label}><span className="pd" />{label}</span>)}
+          {placementsForKind(kind).map((label) => <span className="pc on" key={label}><span className="pd" />{label}</span>)}
         </div>
       </section>
 
@@ -1095,13 +1062,16 @@ function DirectGenerationPanel({ run, setScreen }: { run: (a: string, p?: Record
         </div>
       </section>
 
-      <section className="create-card">
-        <div className="clbl">Optional assets</div>
-        <div className="upload-pair">
-          <div className="upbox"><Palette size={18} /><b>Product photo</b><span>Optional visual reference</span></div>
-          <div className="upbox"><UserRound size={18} /><b>Override avatar</b><span>Optional persona reference</span></div>
-        </div>
-      </section>
+      {visualAssetsEnabled && (
+        <section className="create-card">
+          <div className="clbl">Optional assets</div>
+          <div className="upload-pair three">
+            <AssetUploadBox icon={<Palette size={18} />} title="Product photo" helper="Optional visual reference" role="product photo" refs={assetRefs} onChange={updateAssetRef} />
+            <AssetUploadBox icon={<UserRound size={18} />} title="Override avatar" helper="Optional persona reference" role="avatar/persona" refs={assetRefs} onChange={updateAssetRef} />
+            <AssetUploadBox icon={<Sparkles size={18} />} title="Logo" helper="Optional brand mark" role="logo" refs={assetRefs} onChange={updateAssetRef} />
+          </div>
+        </section>
+      )}
 
       <section className="create-card">
         <div className="clbl">Generation settings</div>
@@ -1109,12 +1079,12 @@ function DirectGenerationPanel({ run, setScreen }: { run: (a: string, p?: Record
           {kind === "video" && (
             <>
               <label>Duration (seconds)<select name="duration" value={duration} onChange={(event) => setDuration(event.target.value)}>{durationOptions.map((option) => <option key={option} value={option}>{option} seconds</option>)}</select></label>
-              <label>Aspect ratio<select name="aspectRatio" defaultValue="9:16"><option value="9:16">9:16 vertical</option><option value="16:9">16:9 landscape</option><option value="1:1">1:1 square</option></select></label>
+              <label>Aspect ratio<select name="aspectRatio" defaultValue={initial.aspectRatio || "9:16"}><option value="9:16">9:16 vertical</option><option value="16:9">16:9 landscape</option><option value="1:1">1:1 square</option></select></label>
             </>
           )}
           {kind === "image" && (
             <>
-              <label>Image size<select name="imageSize" defaultValue="1080x1350"><option>1080x1350</option><option>1080x1080</option><option>1920x1080</option></select></label>
+              <label>Image size<select name="imageSize" defaultValue={initial.imageSize || "1080x1350"}><option>1080x1350</option><option>1080x1080</option><option>1920x1080</option></select></label>
               <label>Variants<input name="variants" type="number" min="1" max="4" defaultValue="1" /></label>
             </>
           )}
@@ -1129,18 +1099,95 @@ function DirectGenerationPanel({ run, setScreen }: { run: (a: string, p?: Record
 
       <section className="create-card">
         <div className="clbl">Creative inputs</div>
-        <label>Generation prompt<textarea name="prompt" defaultValue="Create a founder-led social asset for SME owners about using AI automation to remove repetitive manual work. Use a practical hook, concrete workflow example, clean pacing, and a clear CTA." /></label>
-        <label>Caption<textarea name="caption" defaultValue="The fastest automation wins usually hide inside the tasks your team repeats every week." /></label>
-        <label>Hashtags<input name="hashtags" defaultValue="#SME, #Automation, #AI" /></label>
+        <label>Generation prompt<textarea name="prompt" defaultValue={initial.prompt} /></label>
+        <label>Caption<textarea name="caption" defaultValue={initial.caption} /></label>
+        <label>Hashtags<input name="hashtags" defaultValue={initial.hashtags} /></label>
         <div className="ftrow">
           <div>Selected: <b>{model}</b></div>
           <div className="row-actions">
-            <button type="button" onClick={() => setScreen("publish")}>View Publish</button>
-            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? "Generating..." : "Generate"}</button>
+            {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
+            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? "Generating..." : submitLabel}</button>
           </div>
         </div>
       </section>
     </form>
+  );
+}
+
+function AssetUploadBox({ icon, title, helper, role, refs, onChange }: { icon: ReactNode; title: string; helper: string; role: AssetReference["role"]; refs: AssetReference[]; onChange: (role: AssetReference["role"], file?: File | null) => void }) {
+  const selected = refs.find((item) => item.role === role);
+  return (
+    <label className={`upbox ${selected ? "selected" : ""}`}>
+      <input type="file" accept="image/*" onChange={(event) => onChange(role, event.currentTarget.files?.[0])} />
+      {icon}
+      <b>{title}</b>
+      <span>{selected?.fileName || helper}</span>
+    </label>
+  );
+}
+
+function GenerationModal({ brief, onClose, onSubmit }: { brief: Brief; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+  const kind = planContentKind(brief.format);
+  const initial: CreateContentInitial = {
+    sourceLabel: "Content plan",
+    sourceTitle: brief.topic,
+    sourceDescription: brief.description || brief.hooks?.[0] || brief.format,
+    kind,
+    duration: brief.duration || defaultPlanDuration(brief.format) || 8,
+    aspectRatio: brief.format.includes("16:9") ? "16:9" : "9:16",
+    prompt: defaultGenerationPrompt(brief, kind),
+    caption: defaultCaption(brief),
+    hashtags: defaultHashtags(brief),
+    platform: brief.platforms[0] || defaultPlatformForKind(kind)
+  };
+  return (
+    <div className="modal-backdrop">
+      <section className="generation-modal">
+        <div className="modal-head">
+          <div>
+            <div className="clbl">Generate Draft</div>
+            <h3>{brief.topic}</h3>
+            <p>{brief.format}</p>
+          </div>
+          <button type="button" className="icon-btn" onClick={onClose}>x</button>
+        </div>
+        <CreateContentModule initial={initial} onCancel={onClose} submitLabel="Generate" onSubmit={(payload) => onSubmit({ ...payload, id: brief.id })} />
+      </section>
+    </div>
+  );
+}
+
+function CreateContentPanel({ run, setScreen }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void }) {
+  const initial: CreateContentInitial = {
+    sourceLabel: "Direct generation",
+    sourceTitle: "Generate from scratch",
+    sourceDescription: "Use this when there is no approved content plan. All outputs are sent to Publish after generation starts.",
+    kind: "video",
+    duration: 8,
+    aspectRatio: "9:16",
+    prompt: "Create a founder-led social asset for SME owners about using AI automation to remove repetitive manual work. Use a practical hook, concrete workflow example, clean pacing, and a clear CTA.",
+    caption: "The fastest automation wins usually hide inside the tasks your team repeats every week.",
+    hashtags: "#SME, #Automation, #AI",
+    platform: "TikTok"
+  };
+  return (
+    <div className="create-page">
+      <div className="create-top">
+        <div>
+          <div className="module-kicker">Module 4</div>
+          <h2>Create content</h2>
+        </div>
+        <div className="credit-pill">Generated assets move to <b>Publish</b></div>
+      </div>
+      <CreateContentModule
+        initial={initial}
+        onUsePlan={() => setScreen("plan")}
+        onSubmit={async (payload) => {
+          await run("generateDirectContent", payload, "Generation queued in Publish");
+          setScreen("publish");
+        }}
+      />
+    </div>
   );
 }
 

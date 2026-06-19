@@ -622,6 +622,11 @@ export async function POST(req: Request) {
     const resultId = String(body.id || "");
     const result = await mutateDb((db) => (db.competitorResults || []).find((item) => item.id === resultId && item.workspaceId === workspaceId) || null);
     if (!result) return NextResponse.json({ error: "Research result not found" }, { status: 404 });
+    const sourceTitle = String(body.sourceTitle || "");
+    const sourceUrl = String(body.sourceUrl || "");
+    if ((sourceTitle && sourceTitle !== result.title) || (sourceUrl && sourceUrl !== result.url)) {
+      return NextResponse.json({ error: "Selected research result changed before the plan could be created. Please click Create plan on the result again." }, { status: 409 });
+    }
     let plan;
     try {
       plan = await generateContentPlanWithGemini(result);

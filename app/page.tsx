@@ -567,7 +567,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
     setPendingPlan({ title: item.title, description: item.description || `Analyzing ${item.platform} result with ${compact(item.views)} views.`, startedAt: Date.now() });
     setScreen("plan");
     try {
-      await run("createPlanFromResearch", { id: item.id }, "Content plan generated from research");
+      await run("createPlanFromResearch", { id: item.id, sourceTitle: item.title, sourceUrl: item.url, sourcePlatform: item.platform }, "Content plan generated from research");
     } finally {
       setPendingPlan(null);
     }
@@ -683,8 +683,9 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
             </div>
           )}
           <div className={activeScanStatus ? "stale-results" : "fresh-results"}>
-          {sortedResults.map((item) => (
+          {sortedResults.map((item, index) => (
             <article className="result-row" key={item.id}>
+              <div className="result-rank">{index + 1}</div>
               <div className="result-thumb">{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" /> : <span>{item.platform.slice(0, 2).toUpperCase()}</span>}</div>
               <div className="result-main">
                 <a href={item.url} target="_blank">{item.title}</a>

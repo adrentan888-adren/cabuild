@@ -64,6 +64,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Platform actor env vars: `APIFY_TIKTOK_ACTOR_ID`, `APIFY_INSTAGRAM_ACTOR_ID`, `APIFY_YOUTUBE_ACTOR_ID`, `APIFY_FACEBOOK_ACTOR_ID`, `APIFY_LINKEDIN_ACTOR_ID`.
 - Research Search/Scan buttons disable and show `Scanning...` while Apify is running.
 - Research loading state keeps the search form layout stable while disabling controls and showing progress.
+- Research results are visibly numbered. `Create plan` sends the selected result id, title, URL, and platform; the backend rejects the request if the id no longer matches the clicked title/URL, preventing stale or wrong-result plan creation.
 - Content Plan cards show only number, title/description, content type, timestamp, and actions.
 - Content Plan has a `New` button in the header. It opens a modal using the same editable fields as existing plan Edit, and saves through the `createBrief` backend action.
 - Creating a plan from Research immediately redirects to Content Plan and shows a temporary `Generating content plan...` row until Gemini returns the full plan.

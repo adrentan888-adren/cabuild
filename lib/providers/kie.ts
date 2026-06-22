@@ -41,6 +41,12 @@ type KieMarketStatusResponse = {
 
 const baseUrl = "https://api.kie.ai";
 
+export type KieReferenceAsset = {
+  role?: string;
+  fileName?: string;
+  url?: string;
+};
+
 function token() {
   return process.env.KIE_API_TOKEN;
 }
@@ -49,8 +55,15 @@ export function hasKie() {
   return Boolean(token());
 }
 
-export async function generateVeoVideo(prompt: string, options: { duration?: number; aspectRatio?: string } = {}) {
+function referenceUrls(refs?: KieReferenceAsset[]) {
+  return (refs || [])
+    .map((ref) => ref.url?.trim())
+    .filter((url): url is string => Boolean(url));
+}
+
+export async function generateVeoVideo(prompt: string, options: { duration?: number; aspectRatio?: string; references?: KieReferenceAsset[] } = {}) {
   if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const imageUrls = referenceUrls(options.references).slice(0, 3);
   const res = await fetch(`${baseUrl}/api/v1/veo/generate`, {
     method: "POST",
     headers: {
@@ -60,7 +73,7 @@ export async function generateVeoVideo(prompt: string, options: { duration?: num
     body: JSON.stringify({
       prompt,
       model: "veo3_fast",
-      generationType: "TEXT_2_VIDEO",
+      ...(imageUrls.length ? { imageUrls, generationType: "REFERENCE_2_VIDEO" } : { generationType: "TEXT_2_VIDEO" }),
       aspect_ratio: options.aspectRatio || "9:16",
       resolution: "720p",
       duration: options.duration || 8,
@@ -75,9 +88,10 @@ export async function generateVeoVideo(prompt: string, options: { duration?: num
   return json.data.taskId;
 }
 
-export async function generateSeedanceVideo(prompt: string, options: { duration?: number; aspectRatio?: string } = {}) {
+export async function generateSeedanceVideo(prompt: string, options: { duration?: number; aspectRatio?: string; references?: KieReferenceAsset[] } = {}) {
   if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
   const duration = Math.max(4, Math.min(15, Math.round(options.duration || 8)));
+  const imageUrls = referenceUrls(options.references).slice(0, 2);
   const res = await fetch(`${baseUrl}/api/v1/jobs/createTask`, {
     method: "POST",
     headers: {
@@ -88,6 +102,7 @@ export async function generateSeedanceVideo(prompt: string, options: { duration?
       model: "bytedance/seedance-2",
       input: {
         prompt,
+        ...(imageUrls.length ? { reference_image_urls: imageUrls } : {}),
         generate_audio: true,
         resolution: "720p",
         aspect_ratio: options.aspectRatio || "9:16",
@@ -103,13 +118,18 @@ export async function generateSeedanceVideo(prompt: string, options: { duration?
   return json.data.taskId;
 }
 
-export async function generateImage(prompt: string, options: { model?: string; aspectRatio?: string; imageSize?: string } = {}) {
+export async function generateImage(prompt: string, options: { model?: string; aspectRatio?: string; imageSize?: string; references?: KieReferenceAsset[] } = {}) {
   if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
-  const model = options.model === "gpt-image-2" ? "gpt-image-2-text-to-image" : "nano-banana-pro";
+  const imageUrls = referenceUrls(options.references);
+  const model = options.model === "gpt-image-2"
+    ? imageUrls.length ? "gpt-image-2-image-to-image" : "gpt-image-2-text-to-image"
+    : "nano-banana-pro";
   const aspectRatio = options.aspectRatio || imageSizeToAspectRatio(options.imageSize) || "1:1";
   const input = model === "nano-banana-pro"
-    ? { prompt, image_input: [], aspect_ratio: aspectRatio, resolution: "1K", output_format: "png" }
-    : { prompt, aspect_ratio: aspectRatio };
+    ? { prompt, image_input: imageUrls, aspect_ratio: aspectRatio, resolution: "1K", output_format: "png" }
+    : model === "gpt-image-2-image-to-image"
+      ? { prompt, input_urls: imageUrls, aspect_ratio: aspectRatio }
+      : { prompt, aspect_ratio: aspectRatio };
   const res = await fetch(`${baseUrl}/api/v1/jobs/createTask`, {
     method: "POST",
     headers: {

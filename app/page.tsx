@@ -761,8 +761,8 @@ const generationModels = {
 } as const;
 
 type GenerationKind = "video" | "image" | "text";
-type AssetReference = { role: "product photo" | "avatar/persona" | "logo"; fileName: string; previewUrl: string };
-type GenerationAssetReference = Pick<AssetReference, "role" | "fileName">;
+type AssetReference = { role: "product photo" | "avatar/persona" | "logo"; fileName: string; previewUrl: string; file: File };
+type GenerationAssetReference = Pick<AssetReference, "role" | "fileName"> & { url?: string; storageKey?: string; contentType?: string };
 type CreateContentInitial = {
   sourceLabel: string;
   sourceTitle: string;
@@ -819,10 +819,34 @@ function defaultPlatformForKind(kind: GenerationKind): Platform {
   return "TikTok";
 }
 
+async function uploadAssetReferences(refs: AssetReference[]): Promise<GenerationAssetReference[]> {
+  const uploaded: GenerationAssetReference[] = [];
+  for (const ref of refs) {
+    const form = new FormData();
+    form.set("role", ref.role);
+    form.set("file", ref.file);
+    const res = await fetch("/api/uploads", { method: "POST", body: form });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `Upload failed for ${ref.fileName}`);
+    uploaded.push({
+      role: ref.role,
+      fileName: ref.fileName,
+      url: String(json.url || ""),
+      storageKey: String(json.storageKey || ""),
+      contentType: String(json.contentType || ref.file.type || "")
+    });
+  }
+  return uploaded;
+}
+
 function placementsForKind(kind: GenerationKind) {
   if (kind === "video") return ["TikTok", "FB/IG Reels", "YouTube Shorts"];
   if (kind === "image") return ["Instagram", "LinkedIn", "Facebook"];
   return ["LinkedIn", "X", "Threads"];
+}
+
+function referenceLabel(ref: GenerationAssetReference) {
+  return `"${ref.fileName}"${ref.url ? ` at ${ref.url}` : ""}`;
 }
 
 function enrichPromptForSocialConversion(basePrompt: string, kind: GenerationKind, refs: GenerationAssetReference[]) {
@@ -833,9 +857,9 @@ function enrichPromptForSocialConversion(basePrompt: string, kind: GenerationKin
   const avatarRef = refs.find((ref) => ref.role === "avatar/persona");
   const logoRef = refs.find((ref) => ref.role === "logo");
   const lines = [
-    productRef ? `- Product photo reference "${productRef.fileName}": include the product/photo visibly as a main visual element. Preserve its important details and integrate it naturally into the scene/composition.` : "",
-    avatarRef ? `- Avatar/persona reference "${avatarRef.fileName}": use this as the on-screen person/creator/persona reference. Keep the face/persona recognizable and consistent with the uploaded reference.` : "",
-    logoRef ? `- Logo reference "${logoRef.fileName}": include this exact brand logo clearly in the ${mediaLabel}, preferably in a clean corner, product lockup, end frame, or brand-safe area. Do not replace it with generic text or an invented logo.` : ""
+    productRef ? `- Product photo reference ${referenceLabel(productRef)}: include the product/photo visibly as a main visual element. Preserve its important details and integrate it naturally into the scene/composition.` : "",
+    avatarRef ? `- Avatar/persona reference ${referenceLabel(avatarRef)}: use this as the on-screen person/creator/persona reference. Keep the face/persona recognizable and consistent with the uploaded reference.` : "",
+    logoRef ? `- Logo reference ${referenceLabel(logoRef)}: include this exact brand logo clearly in the ${mediaLabel}, preferably in a clean corner, product lockup, end frame, or brand-safe area. Do not replace it with generic text or an invented logo.` : ""
   ].filter(Boolean);
   const visualDirection = [
     `Required uploaded reference usage for this ${mediaLabel}:`,
@@ -1010,14 +1034,14 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, submitLab
       const existing = current.find((item) => item.role === role);
       if (existing) URL.revokeObjectURL(existing.previewUrl);
       const rest = current.filter((item) => item.role !== role);
-      return file?.name ? [...rest, { role, fileName: file.name, previewUrl: URL.createObjectURL(file) }] : rest;
+      return file?.name ? [...rest, { role, fileName: file.name, previewUrl: URL.createObjectURL(file), file }] : rest;
     });
   };
   const submit = async (form: FormData) => {
     setBusy(true);
     try {
       const selectedPlatform = String(form.get("platform") || platform || defaultPlatformForKind(kind));
-      const cleanRefs = visualAssetsEnabled ? assetRefs.map(({ role, fileName }) => ({ role, fileName })) : [];
+      const cleanRefs = visualAssetsEnabled ? await uploadAssetReferences(assetRefs) : [];
       const prompt = enrichPromptForSocialConversion(String(form.get("prompt") || ""), kind, cleanRefs);
       await onSubmit({
         platform: selectedPlatform,

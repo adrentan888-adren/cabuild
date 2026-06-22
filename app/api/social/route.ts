@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { id, mutateDb } from "@/lib/store";
-import type { Asset, Brief, CompetitorResult, Platform, PublishItem } from "@/lib/types";
+import type { Asset, Brief, CompetitorResult, GenerationAssetReference, Platform, PublishItem } from "@/lib/types";
 import { fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl } from "@/lib/providers/apify";
 import { generateContentPlanWithGemini, generateImage, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
@@ -40,8 +40,6 @@ function isKieImageModel(model: string) {
   return model === "nanobanana-pro" || model === "gpt-image-2";
 }
 
-type GenerationAssetReference = { role: string; fileName: string };
-
 function parseAssetReferences(input: unknown): GenerationAssetReference[] {
   if (!Array.isArray(input)) return [];
   return input
@@ -50,7 +48,10 @@ function parseAssetReferences(input: unknown): GenerationAssetReference[] {
       const ref = item as Record<string, unknown>;
       const role = String(ref.role || "").trim();
       const fileName = String(ref.fileName || "").trim();
-      return role && fileName ? { role, fileName } : null;
+      const url = String(ref.url || "").trim();
+      const storageKey = String(ref.storageKey || "").trim();
+      const contentType = String(ref.contentType || "").trim();
+      return role && fileName ? { role, fileName, ...(url ? { url } : {}), ...(storageKey ? { storageKey } : {}), ...(contentType ? { contentType } : {}) } : null;
     })
     .filter((item): item is GenerationAssetReference => Boolean(item));
 }
@@ -61,10 +62,11 @@ function enrichPromptWithAssetReferences(prompt: string, generationType: "video"
   const productRef = refs.find((ref) => ref.role === "product photo");
   const avatarRef = refs.find((ref) => ref.role === "avatar/persona");
   const logoRef = refs.find((ref) => ref.role === "logo");
+  const refLabel = (ref: GenerationAssetReference) => `"${ref.fileName}"${ref.url ? ` at ${ref.url}` : ""}`;
   const lines = [
-    productRef ? `- Product photo reference "${productRef.fileName}": include the product/photo visibly as a main visual element. Preserve important details and integrate it naturally.` : "",
-    avatarRef ? `- Avatar/persona reference "${avatarRef.fileName}": use this as the on-screen person/creator/persona reference and keep it recognizable.` : "",
-    logoRef ? `- Logo reference "${logoRef.fileName}": include this exact brand logo clearly in the ${mediaLabel}. Do not replace it with generic text or an invented logo.` : ""
+    productRef ? `- Product photo reference ${refLabel(productRef)}: include the product/photo visibly as a main visual element. Preserve important details and integrate it naturally.` : "",
+    avatarRef ? `- Avatar/persona reference ${refLabel(avatarRef)}: use this as the on-screen person/creator/persona reference and keep it recognizable.` : "",
+    logoRef ? `- Logo reference ${refLabel(logoRef)}: include this exact brand logo clearly in the ${mediaLabel}. Do not replace it with generic text or an invented logo.` : ""
   ].filter(Boolean);
   return [
     prompt,
@@ -917,7 +919,8 @@ export async function POST(req: Request) {
       const generationType = (String(body.generationType || contentKindFromFormat(brief.format)) as "video" | "image" | "text");
       const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "nanobanana-pro" : "gemini-3.5-flash"));
       const duration = Number(body.duration || brief.duration || defaultDuration(brief.format) || 0) || undefined;
-      const prompt = enrichPromptWithAssetReferences(String(body.prompt || defaultPromptForBrief(brief, generationType)), generationType, parseAssetReferences(body.assetReferences));
+      const assetReferences = parseAssetReferences(body.assetReferences);
+      const prompt = enrichPromptWithAssetReferences(String(body.prompt || defaultPromptForBrief(brief, generationType)), generationType, assetReferences);
       const caption = String(body.caption || defaultCaptionForBrief(brief));
       const hashtags = parseList(body.hashtags || defaultHashtagsForBrief(brief, generationType).join(", "));
       const platform = (String(body.platform || brief.platforms[0] || "TikTok") as Platform);
@@ -941,6 +944,7 @@ export async function POST(req: Request) {
         provider: isKieGeneration ? "kie" : "local",
         generationModel: model,
         prompt,
+        assetReferences,
         assetUrl: isKieGeneration ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
       };
       db.assets.push(asset);
@@ -959,6 +963,7 @@ export async function POST(req: Request) {
         generationType,
         duration,
         prompt,
+        assetReferences,
         assetUrl: asset.assetUrl,
         createdAt: now
       };
@@ -973,7 +978,8 @@ export async function POST(req: Request) {
       const generationType = (String(body.generationType || "video") as "video" | "image" | "text");
       const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "nanobanana-pro" : "gemini-3.5-flash"));
       const duration = Number(body.duration || 0) || (generationType === "video" ? 8 : undefined);
-      const prompt = enrichPromptWithAssetReferences(String(body.prompt || "Create a practical founder-led social post about SME AI automation."), generationType, parseAssetReferences(body.assetReferences));
+      const assetReferences = parseAssetReferences(body.assetReferences);
+      const prompt = enrichPromptWithAssetReferences(String(body.prompt || "Create a practical founder-led social post about SME AI automation."), generationType, assetReferences);
       const caption = String(body.caption || "A practical reminder for SME teams: automate repeatable work first.");
       const hashtags = parseList(body.hashtags || "#SME, #Automation, #AI");
       const platform = (String(body.platform || "TikTok") as Platform);
@@ -995,6 +1001,7 @@ export async function POST(req: Request) {
         provider: isKieGeneration ? "kie" : "local",
         generationModel: model,
         prompt,
+        assetReferences,
         assetUrl: isKieGeneration ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
       };
       db.assets.push(asset);
@@ -1013,6 +1020,7 @@ export async function POST(req: Request) {
         generationType,
         duration,
         prompt,
+        assetReferences,
         assetUrl: asset.assetUrl,
         createdAt: now
       };
@@ -1084,11 +1092,12 @@ export async function POST(req: Request) {
     try {
       const model = generatedAsset.generationModel || String(body.generationModel || "veo-fast");
       const prompt = generatedAsset.prompt || generatedAsset.title;
+      const references = generatedAsset.assetReferences || parseAssetReferences(body.assetReferences);
       const taskId = isKieImageModel(model)
-        ? await generateImage(prompt, { model, aspectRatio: String(body.aspectRatio || ""), imageSize: String(body.imageSize || "") })
+        ? await generateImage(prompt, { model, aspectRatio: String(body.aspectRatio || ""), imageSize: String(body.imageSize || ""), references })
         : model === "seedance-2.0"
-          ? await generateSeedanceVideo(prompt, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16") })
-          : await generateVeoVideo(prompt, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16") });
+          ? await generateSeedanceVideo(prompt, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16"), references })
+          : await generateVeoVideo(prompt, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16"), references });
       const updated = await mutateDb((db) => {
         const asset = db.assets.find((item) => item.id === generatedAsset.id && item.workspaceId === workspaceId);
         if (!asset) return data;

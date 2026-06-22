@@ -144,6 +144,7 @@ export type Asset = {
   generationModel?: string;
   assetUrl?: string;
   prompt?: string;
+  assetReferences?: GenerationAssetReference[];
   error?: string;
 };
 
@@ -164,8 +165,17 @@ export type PublishItem = {
   duration?: number;
   prompt?: string;
   assetUrl?: string;
+  assetReferences?: GenerationAssetReference[];
   createdAt?: string;
   error?: string;
+};
+
+export type GenerationAssetReference = {
+  role: string;
+  fileName: string;
+  url?: string;
+  storageKey?: string;
+  contentType?: string;
 };
 
 export type Activity = {

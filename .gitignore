@@ -4,6 +4,7 @@ out
 .env
 .env*.local
 data/*.json
+data/uploads/
 npm-debug.log*
 
 # Codex migration safety ignores

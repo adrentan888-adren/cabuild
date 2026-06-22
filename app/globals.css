@@ -123,6 +123,8 @@ h2{font-size:22px;margin:0 0 4px;font-weight:600}h3{font-size:14px;margin:0 0 13
 .upbox:hover{border-color:#afa9ec;background:#f6f5ff}
 .upbox.selected{border-style:solid;border-color:#185fa5;background:#eef7ff;box-shadow:inset 0 0 0 1px rgba(24,95,165,.08)}
 .upbox input{display:none}
+.upload-thumb{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:7px;background:#fff;border:1px solid rgba(24,95,165,.16)}
+.upbox.selected span{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#185fa5}
 .generation-modal .create-generation-form{max-height:70vh;overflow:auto;padding-right:4px}
 .generation-modal .create-card{padding:14px}
 @media (max-width:900px){

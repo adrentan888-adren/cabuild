@@ -761,7 +761,8 @@ const generationModels = {
 } as const;
 
 type GenerationKind = "video" | "image" | "text";
-type AssetReference = { role: "product photo" | "avatar/persona" | "logo"; fileName: string };
+type AssetReference = { role: "product photo" | "avatar/persona" | "logo"; fileName: string; previewUrl: string };
+type GenerationAssetReference = Pick<AssetReference, "role" | "fileName">;
 type CreateContentInitial = {
   sourceLabel: string;
   sourceTitle: string;
@@ -824,7 +825,7 @@ function placementsForKind(kind: GenerationKind) {
   return ["LinkedIn", "X", "Threads"];
 }
 
-function enrichPromptForSocialConversion(basePrompt: string, kind: GenerationKind, refs: AssetReference[]) {
+function enrichPromptForSocialConversion(basePrompt: string, kind: GenerationKind, refs: GenerationAssetReference[]) {
   const mediaLabel = kind === "image" ? "image" : kind === "video" ? "video" : "post";
   const conversionDirection = `Optimize this ${mediaLabel} for high-conversion, high-quality social media publishing: use a strong opening hook, platform-native pacing or layout, clear visual hierarchy, specific benefit language, and a direct CTA.`;
   if (kind === "text" || refs.length === 0) return [basePrompt, conversionDirection].filter(Boolean).join("\n\n");
@@ -971,8 +972,17 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, submitLab
   const [platform, setPlatform] = useState<Platform>(initial.platform || defaultPlatformForKind(initial.kind));
   const [busy, setBusy] = useState(false);
   const [assetRefs, setAssetRefs] = useState<AssetReference[]>([]);
+  const assetRefsRef = useRef<AssetReference[]>([]);
   const durationOptions = durationOptionsForModel(model);
   const visualAssetsEnabled = kind === "video" || kind === "image";
+  useEffect(() => {
+    assetRefsRef.current = assetRefs;
+  }, [assetRefs]);
+  useEffect(() => {
+    return () => {
+      assetRefsRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    };
+  }, []);
   const changeKind = (next: GenerationKind) => {
     const nextModel = generationModels[next][0][0];
     setKind(next);
@@ -986,15 +996,18 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, submitLab
   };
   const updateAssetRef = (role: AssetReference["role"], file?: File | null) => {
     setAssetRefs((current) => {
+      const existing = current.find((item) => item.role === role);
+      if (existing) URL.revokeObjectURL(existing.previewUrl);
       const rest = current.filter((item) => item.role !== role);
-      return file?.name ? [...rest, { role, fileName: file.name }] : rest;
+      return file?.name ? [...rest, { role, fileName: file.name, previewUrl: URL.createObjectURL(file) }] : rest;
     });
   };
   const submit = async (form: FormData) => {
     setBusy(true);
     try {
       const selectedPlatform = String(form.get("platform") || platform || defaultPlatformForKind(kind));
-      const prompt = enrichPromptForSocialConversion(String(form.get("prompt") || ""), kind, visualAssetsEnabled ? assetRefs : []);
+      const cleanRefs = visualAssetsEnabled ? assetRefs.map(({ role, fileName }) => ({ role, fileName })) : [];
+      const prompt = enrichPromptForSocialConversion(String(form.get("prompt") || ""), kind, cleanRefs);
       await onSubmit({
         platform: selectedPlatform,
         prompt,
@@ -1005,7 +1018,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, submitLab
         variants: String(form.get("variants") || ""),
         tone: String(form.get("tone") || ""),
         length: String(form.get("length") || ""),
-        assetReferences: visualAssetsEnabled ? assetRefs : [],
+        assetReferences: cleanRefs,
         generationType: kind,
         generationModel: model,
         duration: kind === "video" ? duration : undefined
@@ -1119,7 +1132,7 @@ function AssetUploadBox({ icon, title, helper, role, refs, onChange }: { icon: R
   return (
     <label className={`upbox ${selected ? "selected" : ""}`}>
       <input type="file" accept="image/*" onChange={(event) => onChange(role, event.currentTarget.files?.[0])} />
-      {icon}
+      {selected ? <img className="upload-thumb" src={selected.previewUrl} alt={`${title} preview`} /> : icon}
       <b>{title}</b>
       <span>{selected?.fileName || helper}</span>
     </label>

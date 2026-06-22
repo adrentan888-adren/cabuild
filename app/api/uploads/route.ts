@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
+import { id, mutateDb } from "@/lib/store";
 import { encodeUploadKey, saveUpload, uploadKey } from "@/lib/providers/uploads";
 
 const maxUploadBytes = 10 * 1024 * 1024;
@@ -22,6 +23,21 @@ export async function POST(req: NextRequest) {
   const stored = await saveUpload(key, Buffer.from(await file.arrayBuffer()), file.type || "application/octet-stream");
   const token = encodeUploadKey(stored.key);
   const origin = publicOrigin(req);
+  const url = `${origin}/api/public-uploads/${token}`;
+
+  await mutateDb((db) => {
+    db.debugLogs ||= [];
+    db.debugLogs.push({
+      id: id("log"),
+      workspaceId: user.workspaceId,
+      action: "uploadReferenceAsset",
+      label: `Uploaded ${role}: ${file.name}`,
+      status: "success",
+      provider: "system",
+      details: { role, fileName: file.name, contentType: stored.contentType, size: stored.size, storageKey: stored.key, url },
+      createdAt: new Date().toISOString()
+    });
+  });
 
   return NextResponse.json({
     role,
@@ -29,7 +45,7 @@ export async function POST(req: NextRequest) {
     contentType: stored.contentType,
     size: stored.size,
     storageKey: stored.key,
-    url: `${origin}/api/public-uploads/${token}`
+    url
   });
 }
 

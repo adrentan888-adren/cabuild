@@ -220,9 +220,8 @@ function extractJson(text: string) {
   return JSON.parse(raw);
 }
 
-export async function generateContentPlanWithGemini(input: PlanInput) {
-  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
-  const prompt = `You are ContentAgent's social content strategist. Analyze this competitor post and return ONLY valid JSON.
+export function buildContentPlanPrompt(input: PlanInput) {
+  return `You are ContentAgent's social content strategist. Analyze this competitor post and return ONLY valid JSON.
 
 Competitor post:
 Title: ${input.title}
@@ -252,6 +251,10 @@ Create a content plan for a founder-led SME AI automation brand. Return this JSO
   "expectedPerformance": "estimated engagement range",
   "analysisSummary": "why this angle should work"
 }`;
+}
+
+export async function generateContentPlanWithGemini(input: PlanInput, prompt = buildContentPlanPrompt(input)) {
+  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
 
   const res = await fetch(`${baseUrl}/gemini/v1/models/gemini-3-5-flash:streamGenerateContent`, {
     method: "POST",

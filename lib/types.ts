@@ -142,6 +142,7 @@ export type Asset = {
   provider?: "local" | "kie";
   providerTaskId?: string;
   generationModel?: string;
+  generationSettings?: Record<string, unknown>;
   assetUrl?: string;
   prompt?: string;
   assetReferences?: GenerationAssetReference[];
@@ -162,6 +163,7 @@ export type PublishItem = {
   hashtags?: string[];
   generationModel?: string;
   generationType?: "video" | "image" | "text";
+  generationSettings?: Record<string, unknown>;
   duration?: number;
   prompt?: string;
   assetUrl?: string;
@@ -185,6 +187,19 @@ export type Activity = {
   createdAt: string;
 };
 
+export type DebugLog = {
+  id: string;
+  workspaceId: string;
+  action: string;
+  label: string;
+  status: "started" | "success" | "failed" | "info";
+  provider?: "apify" | "kie" | "upload-post" | "local" | "system";
+  prompt?: string;
+  details?: Record<string, unknown>;
+  error?: string;
+  createdAt: string;
+};
+
 export type Database = {
   users: User[];
   workspaces: Workspace[];
@@ -198,4 +213,5 @@ export type Database = {
   assets: Asset[];
   publishQueue: PublishItem[];
   activity: Activity[];
+  debugLogs: DebugLog[];
 };

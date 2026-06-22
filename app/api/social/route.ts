@@ -3,7 +3,7 @@ import { currentUser } from "@/lib/session";
 import { id, mutateDb } from "@/lib/store";
 import type { Asset, Brief, CompetitorResult, GenerationAssetReference, Platform, PublishItem } from "@/lib/types";
 import { fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl } from "@/lib/providers/apify";
-import { generateContentPlanWithGemini, generateImage, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
+import { buildContentPlanPrompt, generateContentPlanWithGemini, generateImage, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 
 async function requireUser() {
@@ -38,6 +38,30 @@ function handleFromUrl(url: string) {
 
 function isKieImageModel(model: string) {
   return model === "nanobanana-pro" || model === "gpt-image-2";
+}
+
+function summarizePayload(body: Record<string, unknown>) {
+  const omitted = new Set(["prompt", "videoPrompt", "caption", "hashtags"]);
+  return Object.fromEntries(
+    Object.entries(body)
+      .filter(([key]) => !omitted.has(key) && !key.toLowerCase().includes("token") && !key.toLowerCase().includes("password"))
+      .map(([key, value]) => {
+        if (typeof value === "string") return [key, value.length > 240 ? `${value.slice(0, 240)}...` : value];
+        return [key, value];
+      })
+  );
+}
+
+async function debugLog(workspaceId: string, entry: { action: string; label: string; status: "started" | "success" | "failed" | "info"; provider?: "apify" | "kie" | "upload-post" | "local" | "system"; prompt?: string; details?: Record<string, unknown>; error?: string }) {
+  await mutateDb((db) => {
+    db.debugLogs ||= [];
+    db.debugLogs.push({ id: id("log"), workspaceId, createdAt: new Date().toISOString(), ...entry });
+    const scoped = db.debugLogs.filter((item) => item.workspaceId === workspaceId);
+    if (scoped.length > 500) {
+      const keep = new Set(scoped.slice(-500).map((item) => item.id));
+      db.debugLogs = db.debugLogs.filter((item) => item.workspaceId !== workspaceId || keep.has(item.id));
+    }
+  });
 }
 
 function parseAssetReferences(input: unknown): GenerationAssetReference[] {
@@ -265,9 +289,17 @@ export async function POST(req: Request) {
   } catch {
     return unauthorized();
   }
-  const body = await req.json();
+  const body = await req.json() as Record<string, unknown>;
   const action = body.action as string;
   const workspaceId = user.workspaceId;
+  await debugLog(workspaceId, {
+    action,
+    label: `Action requested: ${action}`,
+    status: "started",
+    provider: "system",
+    prompt: typeof body.prompt === "string" ? body.prompt : typeof body.videoPrompt === "string" ? body.videoPrompt : undefined,
+    details: summarizePayload(body)
+  });
 
   if (action === "refreshTrends") {
     try {
@@ -672,10 +704,34 @@ export async function POST(req: Request) {
     if ((sourceTitle && sourceTitle !== result.title) || (sourceUrl && sourceUrl !== result.url)) {
       return NextResponse.json({ error: "Selected research result changed before the plan could be created. Please click Create plan on the result again." }, { status: 409 });
     }
+    const geminiPrompt = buildContentPlanPrompt(result);
+    await debugLog(workspaceId, {
+      action,
+      label: `Prompt sent to Gemini for research result: ${result.title}`,
+      status: "started",
+      provider: "kie",
+      prompt: geminiPrompt,
+      details: { model: "gemini-3.5-flash", resultId: result.id, sourceUrl: result.url, platform: result.platform }
+    });
     let plan;
     try {
-      plan = await generateContentPlanWithGemini(result);
-    } catch {
+      plan = await generateContentPlanWithGemini(result, geminiPrompt);
+      await debugLog(workspaceId, {
+        action,
+        label: `Gemini content plan returned for: ${result.title}`,
+        status: "success",
+        provider: "kie",
+        details: { model: "gemini-3.5-flash", topic: String(plan.topic || ""), format: String(plan.format || "") }
+      });
+    } catch (error) {
+      await debugLog(workspaceId, {
+        action,
+        label: `Gemini content plan failed; local fallback used for: ${result.title}`,
+        status: "failed",
+        provider: "kie",
+        prompt: geminiPrompt,
+        error: error instanceof Error ? error.message : "Gemini content plan failed"
+      });
       plan = {
         topic: `Turn "${result.title}" into an SME automation lesson`,
         format: result.platform === "LinkedIn" || result.platform === "X" ? "Text post" : "Short video 9:16",
@@ -738,6 +794,14 @@ export async function POST(req: Request) {
         return { item, asset: db.assets.find((asset) => asset.id === item.assetId && asset.workspaceId === workspaceId) };
       });
       const description = [snapshot.item.caption, ...(snapshot.item.hashtags || [])].filter(Boolean).join("\n\n") || snapshot.asset?.prompt;
+      await debugLog(workspaceId, {
+        action,
+        label: `Publish payload sent to Upload-Post: ${snapshot.item.title}`,
+        status: "started",
+        provider: "upload-post",
+        prompt: description,
+        details: { publishId: snapshot.item.id, platform: snapshot.item.platform, hasAssetUrl: Boolean(snapshot.asset?.assetUrl) }
+      });
       const result = snapshot.asset?.assetUrl
         ? await publishVideoPost({
             title: snapshot.item.title,
@@ -760,6 +824,13 @@ export async function POST(req: Request) {
         db.activity.push({ id: id("act"), workspaceId, message: `Upload-Post accepted "${item.title}".`, createdAt: new Date().toISOString() });
         return item;
       });
+      await debugLog(workspaceId, {
+        action,
+        label: `Upload-Post accepted: ${snapshot.item.title}`,
+        status: "success",
+        provider: "upload-post",
+        details: { requestId: result.request_id, platform: snapshot.item.platform }
+      });
       return NextResponse.json(updated);
     } catch (error) {
       const updated = await mutateDb((db) => {
@@ -771,7 +842,102 @@ export async function POST(req: Request) {
         db.activity.push({ id: id("act"), workspaceId, message: `Upload-Post failed: ${item.error}`, createdAt: new Date().toISOString() });
         return item;
       });
+      await debugLog(workspaceId, {
+        action,
+        label: "Upload-Post publish failed",
+        status: "failed",
+        provider: "upload-post",
+        error: error instanceof Error ? error.message : "Upload-Post publish failed"
+      });
       return NextResponse.json(updated || { error: "Publish failed" }, { status: 502 });
+    }
+  }
+
+  if (action === "startAssetGeneration") {
+    const assetId = String(body.id || "");
+    const snapshot = await mutateDb((db) => {
+      const asset = db.assets.find((item) => item.id === assetId && item.workspaceId === workspaceId);
+      if (!asset) throw new Error("Asset not found.");
+      if (asset.provider !== "kie") throw new Error("Asset is not a Kie generation.");
+      if (asset.providerTaskId) return { asset, alreadyStarted: true };
+      const publishItem = db.publishQueue.find((item) => item.assetId === asset.id && item.workspaceId === workspaceId);
+      return { asset, publishItem, alreadyStarted: false };
+    });
+    if (snapshot.alreadyStarted) return NextResponse.json(snapshot.asset);
+    const asset = snapshot.asset;
+    const settings = (asset.generationSettings || snapshot.publishItem?.generationSettings || {}) as Record<string, unknown>;
+    const model = asset.generationModel || String(body.generationModel || "veo-fast");
+    const prompt = asset.prompt || asset.title;
+    const references = asset.assetReferences || [];
+    await debugLog(workspaceId, {
+      action,
+      label: `Prompt sent to Kie ${model}`,
+      status: "started",
+      provider: "kie",
+      prompt,
+      details: {
+        assetId: asset.id,
+        model,
+        duration: settings.duration || snapshot.publishItem?.duration,
+        aspectRatio: settings.aspectRatio,
+        imageSize: settings.imageSize,
+        references
+      }
+    });
+    try {
+      const taskId = isKieImageModel(model)
+        ? await generateImage(prompt, { model, aspectRatio: String(settings.aspectRatio || ""), imageSize: String(settings.imageSize || ""), references })
+        : model === "seedance-2.0"
+          ? await generateSeedanceVideo(prompt, { duration: Number(settings.duration || snapshot.publishItem?.duration || 8), aspectRatio: String(settings.aspectRatio || "9:16"), references })
+          : await generateVeoVideo(prompt, { duration: Number(settings.duration || snapshot.publishItem?.duration || 8), aspectRatio: String(settings.aspectRatio || "9:16"), references });
+      const updated = await mutateDb((db) => {
+        const existing = db.assets.find((item) => item.id === asset.id && item.workspaceId === workspaceId);
+        if (!existing) return asset;
+        existing.status = "rendering";
+        existing.progress = 35;
+        existing.providerTaskId = taskId;
+        existing.generationModel = model;
+        db.publishQueue
+          .filter((item) => item.assetId === existing.id && item.workspaceId === workspaceId)
+          .forEach((item) => {
+            item.status = "generating";
+            item.providerRequestId = taskId;
+          });
+        db.activity.push({ id: id("act"), workspaceId, message: `Kie task started: ${taskId}`, createdAt: new Date().toISOString() });
+        return existing;
+      });
+      await debugLog(workspaceId, {
+        action,
+        label: `Kie task started: ${taskId}`,
+        status: "success",
+        provider: "kie",
+        prompt,
+        details: { assetId: asset.id, model, taskId }
+      });
+      return NextResponse.json(updated);
+    } catch (error) {
+      const updated = await mutateDb((db) => {
+        const existing = db.assets.find((item) => item.id === asset.id && item.workspaceId === workspaceId);
+        if (!existing) return asset;
+        existing.status = "failed";
+        existing.error = error instanceof Error ? error.message : "Kie generation failed";
+        db.publishQueue
+          .filter((item) => item.assetId === existing.id && item.workspaceId === workspaceId)
+          .forEach((item) => {
+            item.status = "failed";
+            item.error = existing.error;
+          });
+        return existing;
+      });
+      await debugLog(workspaceId, {
+        action,
+        label: `Kie generation failed for: ${asset.title}`,
+        status: "failed",
+        provider: "kie",
+        prompt,
+        error: error instanceof Error ? error.message : "Kie generation failed"
+      });
+      return NextResponse.json(updated, { status: 502 });
     }
   }
 
@@ -801,7 +967,8 @@ export async function POST(req: Request) {
       const url = String(body.url || body.handle || "");
       const minViews = Number(body.minViews || 0);
       const platform = url ? platformFromUrl(url) : (body.platform as Platform);
-      const item = { id: id("cmp"), workspaceId, platform, handle: handleFromUrl(url || String(body.handle || "")), url, minViews, cadence: body.cadence || "weekly", lastScraped: new Date().toISOString() };
+      const cadence: "daily" | "weekly" = body.cadence === "daily" ? "daily" : "weekly";
+      const item = { id: id("cmp"), workspaceId, platform, handle: handleFromUrl(url || String(body.handle || "")), url, minViews, cadence, lastScraped: new Date().toISOString() };
       db.competitors.push(item);
       db.competitorResults ||= [];
       db.competitorResults.push(...mockCompetitorResults({ workspaceId, competitorId: item.id, platform, url, minViews }));
@@ -924,6 +1091,14 @@ export async function POST(req: Request) {
       const caption = String(body.caption || defaultCaptionForBrief(brief));
       const hashtags = parseList(body.hashtags || defaultHashtagsForBrief(brief, generationType).join(", "));
       const platform = (String(body.platform || brief.platforms[0] || "TikTok") as Platform);
+      const generationSettings = {
+        aspectRatio: String(body.aspectRatio || ""),
+        imageSize: String(body.imageSize || ""),
+        variants: String(body.variants || ""),
+        tone: String(body.tone || ""),
+        length: String(body.length || ""),
+        duration
+      };
       const now = new Date().toISOString();
       const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? (brief.format.toLowerCase().includes("carousel") ? "carousel" : "image") : "text";
       const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
@@ -943,6 +1118,7 @@ export async function POST(req: Request) {
         createdAt: now,
         provider: isKieGeneration ? "kie" : "local",
         generationModel: model,
+        generationSettings,
         prompt,
         assetReferences,
         assetUrl: isKieGeneration ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
@@ -961,6 +1137,7 @@ export async function POST(req: Request) {
         hashtags,
         generationModel: model,
         generationType,
+        generationSettings,
         duration,
         prompt,
         assetReferences,
@@ -983,6 +1160,14 @@ export async function POST(req: Request) {
       const caption = String(body.caption || "A practical reminder for SME teams: automate repeatable work first.");
       const hashtags = parseList(body.hashtags || "#SME, #Automation, #AI");
       const platform = (String(body.platform || "TikTok") as Platform);
+      const generationSettings = {
+        aspectRatio: String(body.aspectRatio || ""),
+        imageSize: String(body.imageSize || ""),
+        variants: String(body.variants || ""),
+        tone: String(body.tone || ""),
+        length: String(body.length || ""),
+        duration
+      };
       const now = new Date().toISOString();
       const title = prompt.split(/\n|\.|\?/)[0].slice(0, 96) || "Direct content draft";
       const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? "image" : "text";
@@ -1000,6 +1185,7 @@ export async function POST(req: Request) {
         createdAt: now,
         provider: isKieGeneration ? "kie" : "local",
         generationModel: model,
+        generationSettings,
         prompt,
         assetReferences,
         assetUrl: isKieGeneration ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
@@ -1018,6 +1204,7 @@ export async function POST(req: Request) {
         hashtags,
         generationModel: model,
         generationType,
+        generationSettings,
         duration,
         prompt,
         assetReferences,
@@ -1056,7 +1243,7 @@ export async function POST(req: Request) {
     if (action === "scheduleAsset") {
       const asset = db.assets.find((item) => item.id === body.id && item.workspaceId === workspaceId);
       if (!asset) return null;
-      const item: PublishItem = { id: id("pub"), workspaceId, assetId: asset.id, title: asset.title, platform: body.platform as Platform, scheduledAt: body.scheduledAt || new Date(Date.now() + 86400000).toISOString(), status: "scheduled" };
+      const item: PublishItem = { id: id("pub"), workspaceId, assetId: asset.id, title: asset.title, platform: body.platform as Platform, scheduledAt: String(body.scheduledAt || new Date(Date.now() + 86400000).toISOString()), status: "scheduled" };
       db.publishQueue.push(item);
       activity(`Scheduled "${asset.title}" for ${item.platform}.`);
       return item;
@@ -1088,11 +1275,42 @@ export async function POST(req: Request) {
   if (!data) return NextResponse.json({ error: "Action failed" }, { status: 400 });
 
   const generatedAsset = action === "generateDraftFromPlan" || action === "generateDirectContent" ? (data as { asset?: Asset }).asset : data as Asset;
-  if ((action === "renderAsset" || action === "generateUgc" || action === "generateDraftFromPlan" || action === "generateDirectContent") && generatedAsset?.provider === "kie") {
+  if (action === "generateDraftFromPlan" || action === "generateDirectContent" || action === "renderAsset" || action === "generateUgc") {
+    await debugLog(workspaceId, {
+      action,
+      label: `Generation asset created: ${generatedAsset?.title || action}`,
+      status: "success",
+      provider: generatedAsset?.provider || "local",
+      prompt: generatedAsset?.prompt,
+      details: {
+        assetId: generatedAsset?.id,
+        type: generatedAsset?.type,
+        model: generatedAsset?.generationModel,
+        referenceCount: generatedAsset?.assetReferences?.length || 0,
+        status: generatedAsset?.status
+      }
+    });
+  }
+  if ((action === "renderAsset" || action === "generateUgc") && generatedAsset?.provider === "kie") {
     try {
       const model = generatedAsset.generationModel || String(body.generationModel || "veo-fast");
       const prompt = generatedAsset.prompt || generatedAsset.title;
       const references = generatedAsset.assetReferences || parseAssetReferences(body.assetReferences);
+      await debugLog(workspaceId, {
+        action,
+        label: `Prompt sent to Kie ${model}`,
+        status: "started",
+        provider: "kie",
+        prompt,
+        details: {
+          assetId: generatedAsset.id,
+          model,
+          duration: body.duration,
+          aspectRatio: body.aspectRatio,
+          imageSize: body.imageSize,
+          references
+        }
+      });
       const taskId = isKieImageModel(model)
         ? await generateImage(prompt, { model, aspectRatio: String(body.aspectRatio || ""), imageSize: String(body.imageSize || ""), references })
         : model === "seedance-2.0"
@@ -1112,7 +1330,15 @@ export async function POST(req: Request) {
             item.providerRequestId = taskId;
           });
         db.activity.push({ id: id("act"), workspaceId, message: `Kie task started: ${taskId}`, createdAt: new Date().toISOString() });
-        return action === "generateDraftFromPlan" || action === "generateDirectContent" ? { asset, publishItem: db.publishQueue.find((item) => item.assetId === asset.id && item.workspaceId === workspaceId) } : asset;
+        return asset;
+      });
+      await debugLog(workspaceId, {
+        action,
+        label: `Kie task started: ${taskId}`,
+        status: "success",
+        provider: "kie",
+        prompt,
+        details: { assetId: generatedAsset.id, model, taskId }
       });
       return NextResponse.json(updated);
     } catch (error) {
@@ -1128,6 +1354,14 @@ export async function POST(req: Request) {
             item.error = asset.error;
           });
         return asset;
+      });
+      await debugLog(workspaceId, {
+        action,
+        label: `Kie generation failed for: ${generatedAsset.title}`,
+        status: "failed",
+        provider: "kie",
+        prompt: generatedAsset.prompt,
+        error: error instanceof Error ? error.message : "Kie generation failed"
       });
       return NextResponse.json(updated, { status: 502 });
     }

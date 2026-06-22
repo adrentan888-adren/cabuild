@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import {
   Activity,
   BarChart3,
+  Bug,
   CalendarDays,
   Check,
   FileText,
@@ -62,6 +63,17 @@ type AppData = {
     error?: string;
   }[];
   activity: { id: string; message: string; createdAt: string }[];
+  debugLogs: {
+    id: string;
+    action: string;
+    label: string;
+    status: "started" | "success" | "failed" | "info";
+    provider?: "apify" | "kie" | "upload-post" | "local" | "system";
+    prompt?: string;
+    details?: Record<string, unknown>;
+    error?: string;
+    createdAt: string;
+  }[];
 };
 
 const platforms: Platform[] = ["TikTok", "Instagram", "LinkedIn", "Facebook", "X"];
@@ -201,7 +213,8 @@ export default function Home() {
     ["create", "Create Content", Wand2],
     ["publish", "Publish", CalendarDays],
     ["automation", "Automation", RefreshCcw],
-    ["analyse", "Analyse", BarChart3]
+    ["analyse", "Analyse", BarChart3],
+    ["logs", "Logs", Bug]
   ] as const;
 
   return (
@@ -263,6 +276,7 @@ export default function Home() {
           {screen === "publish" && <PublishPanel data={data} run={run} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
           {screen === "analyse" && <AnalyticsPanel data={data} />}
+          {screen === "logs" && <LogPanel data={data} />}
           {screen === "settings" && <SettingsPanel integrations={integrations} />}
         </section>
       </main>
@@ -271,7 +285,7 @@ export default function Home() {
 }
 
 function title(screen: string) {
-  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", plan: "Content Plan", create: "Create Content", publish: "Publish", automation: "Automation", analyse: "Analyse", settings: "Settings" } as Record<string, string>)[screen];
+  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", plan: "Content Plan", create: "Create Content", publish: "Publish", automation: "Automation", analyse: "Analyse", logs: "Logs", settings: "Settings" } as Record<string, string>)[screen];
 }
 
 function HomePanel({ data, setScreen, run }: { data: AppData; setScreen: (s: string) => void; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
@@ -940,9 +954,9 @@ function BriefPanel({ data, run, setScreen, pendingPlan }: { data: AppData; run:
           brief={generatingBrief}
           onClose={() => setGeneratingBrief(null)}
           onSubmit={async (payload) => {
-            await run("generateDraftFromPlan", payload, "Generation queued in Publish");
             setGeneratingBrief(null);
             setScreen("publish");
+            await run("generateDraftFromPlan", payload, "Generation queued in Publish");
           }}
         />
       )}
@@ -1231,8 +1245,8 @@ function CreateContentPanel({ run, setScreen }: { run: (a: string, p?: Record<st
         initial={initial}
         onUsePlan={() => setScreen("plan")}
         onSubmit={async (payload) => {
-          await run("generateDirectContent", payload, "Generation queued in Publish");
           setScreen("publish");
+          await run("generateDirectContent", payload, "Generation queued in Publish");
         }}
       />
     </div>
@@ -1246,6 +1260,13 @@ function PublishPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
     runRef.current = run;
   }, [run]);
   const queue = [...data.publishQueue].sort((a, b) => new Date(b.createdAt || b.scheduledAt).getTime() - new Date(a.createdAt || a.scheduledAt).getTime());
+  const startIds = queue
+    .map((item) => {
+      const asset = data.assets.find((entry) => entry.id === item.assetId);
+      return item.status === "generating" && asset?.provider === "kie" && !asset.providerTaskId ? asset.id : "";
+    })
+    .filter(Boolean)
+    .join(",");
   const pollIds = queue
     .map((item) => {
       const asset = data.assets.find((entry) => entry.id === item.assetId);
@@ -1253,6 +1274,11 @@ function PublishPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
     })
     .filter(Boolean)
     .join(",");
+  useEffect(() => {
+    const ids = startIds.split(",").filter(Boolean);
+    if (ids.length === 0) return;
+    ids.forEach((id) => runRef.current("startAssetGeneration", { id }, ""));
+  }, [startIds]);
   useEffect(() => {
     const ids = pollIds.split(",").filter(Boolean);
     if (ids.length === 0) return;
@@ -1286,6 +1312,7 @@ function PublishPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
           const isImage = item.generationType === "image" || asset?.type === "image" || asset?.type === "carousel";
           const videoUrl = isVideo ? item.assetUrl || asset?.assetUrl : "";
           const imageUrl = isImage ? item.assetUrl || asset?.assetUrl : "";
+          const startingProvider = item.status === "generating" && asset?.provider === "kie" && !asset.providerTaskId;
           return (
             <article className={`publish-card ${isVideo || isImage ? "with-video" : ""}`} key={item.id}>
               {isVideo && (
@@ -1319,7 +1346,7 @@ function PublishPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
               </div>
               <div className="publish-actions">
                 <span className={`status ${item.status}`}>{item.status === "done" ? "Done" : item.status}</span>
-                {item.status === "generating" && <span className="auto-poll"><RefreshCcw size={13} />Auto-checking</span>}
+                {item.status === "generating" && <span className="auto-poll"><RefreshCcw size={13} />{startingProvider ? "Starting provider" : "Auto-checking"}</span>}
                 {item.status === "done" && <button className="primary" onClick={() => run("publishNow", { id: item.id }, "Upload-Post publish requested for Mariana accounts")}><Send size={14} />Publish now</button>}
               </div>
             </article>
@@ -1353,6 +1380,70 @@ function VideoPlayerModal({ asset, onClose }: { asset: Asset; onClose: () => voi
 }
 function AnalyticsPanel({ data }: { data: AppData }) {
   return <div className="grid three"><Metric label="Engagement forecast" value="4.8%" /><Metric label="Published posts" value={data.publishQueue.filter((p) => p.status === "published").length} /><Metric label="Avg gap score" value={Math.round(data.opportunities.reduce((sum, item) => sum + item.gapScore, 0) / Math.max(1, data.opportunities.length))} /><PanelCard title="Feedback loop"><p>Published assets retain their originating brief, template, platform, and score so future recommendations can learn from performance results.</p></PanelCard></div>;
+}
+
+function LogPanel({ data }: { data: AppData }) {
+  const [provider, setProvider] = useState("all");
+  const [status, setStatus] = useState("all");
+  const providers = Array.from(new Set((data.debugLogs || []).map((item) => item.provider).filter(Boolean))) as string[];
+  const logs = (data.debugLogs || []).filter((item) => (provider === "all" || item.provider === provider) && (status === "all" || item.status === status));
+  return (
+    <div className="log-page">
+      <section className="log-hero">
+        <div>
+          <div className="clbl">Debug log</div>
+          <h2>Actions, prompts, and provider calls</h2>
+          <p>Audit what happened, which prompt was sent, and what provider task or error came back.</p>
+        </div>
+        <div className="log-filters">
+          <label>Provider<select value={provider} onChange={(event) => setProvider(event.target.value)}>
+            <option value="all">All providers</option>
+            {providers.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select></label>
+          <label>Status<select value={status} onChange={(event) => setStatus(event.target.value)}>
+            <option value="all">All statuses</option>
+            <option value="started">Started</option>
+            <option value="success">Success</option>
+            <option value="failed">Failed</option>
+            <option value="info">Info</option>
+          </select></label>
+        </div>
+      </section>
+      <div className="log-list">
+        {logs.map((item) => (
+          <article className="log-row" key={item.id}>
+            <div className={`log-status ${item.status}`} />
+            <div className="log-main">
+              <div className="log-head">
+                <div>
+                  <b>{item.label}</b>
+                  <span>{item.action}{item.provider ? ` - ${item.provider}` : ""}</span>
+                </div>
+                <time>{new Date(item.createdAt).toLocaleString()}</time>
+              </div>
+              {item.error && <div className="provider-error inline">{item.error}</div>}
+              {item.prompt && (
+                <details className="log-details">
+                  <summary>Prompt sent</summary>
+                  <pre>{item.prompt}</pre>
+                </details>
+              )}
+              {item.details && Object.keys(item.details).length > 0 && (
+                <details className="log-details">
+                  <summary>Payload / result details</summary>
+                  <pre>{JSON.stringify(item.details, null, 2)}</pre>
+                </details>
+              )}
+            </div>
+          </article>
+        ))}
+        {logs.length === 0 && <div className="empty-state">No logs match the selected filters.</div>}
+      </div>
+      <PanelCard title="Recent activity">
+        {data.activity.map((item) => <div className="activity-row" key={item.id}><Check size={14} />{item.message}</div>)}
+      </PanelCard>
+    </div>
+  );
 }
 
 function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {

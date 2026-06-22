@@ -29,7 +29,8 @@ export async function GET() {
         const missingImage = item.status === "done" && item.generationType === "image" && !(item.assetUrl || asset?.assetUrl);
         return missingImage ? { ...item, status: "failed" as const, error: "Image generation was marked done before the image provider was connected. Regenerate this item." } : item;
       }),
-    activity: db.activity.filter((item) => item.workspaceId === workspace.id).slice(-10).reverse()
+    activity: db.activity.filter((item) => item.workspaceId === workspace.id).slice(-10).reverse(),
+    debugLogs: (db.debugLogs || []).filter((item) => item.workspaceId === workspace.id).slice(-200).reverse()
   };
   return NextResponse.json(scoped);
 }

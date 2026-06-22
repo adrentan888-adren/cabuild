@@ -123,8 +123,18 @@ function seeded(): Database {
     publishQueue: [],
     activity: [
       { id: id("act"), workspaceId, message: "Detected TikTok automation topic crossing high-priority threshold.", createdAt: new Date().toISOString() }
-    ]
+    ],
+    debugLogs: []
   };
+}
+
+function normalizeDb(db: Database): Database {
+  db.competitorResults ||= [];
+  db.researchScans ||= [];
+  db.socialAudits ||= [];
+  db.activity ||= [];
+  db.debugLogs ||= [];
+  return db;
 }
 
 export async function readDb(): Promise<Database> {
@@ -137,7 +147,7 @@ export async function readDb(): Promise<Database> {
   }
   await fs.mkdir(dataDir, { recursive: true });
   try {
-    return JSON.parse(await fs.readFile(dataFile, "utf8")) as Database;
+    return normalizeDb(JSON.parse(await fs.readFile(dataFile, "utf8")) as Database);
   } catch {
     const db = seeded();
     await writeDb(db);
@@ -174,7 +184,7 @@ async function readGcsDb(): Promise<Database> {
     return db;
   }
   if (!res.ok) throw new Error(`Failed to read data store from GCS: HTTP ${res.status} ${await res.text()}`);
-  return (await res.json()) as Database;
+  return normalizeDb((await res.json()) as Database);
 }
 
 async function writeGcsDb(db: Database) {

@@ -829,11 +829,22 @@ function enrichPromptForSocialConversion(basePrompt: string, kind: GenerationKin
   const mediaLabel = kind === "image" ? "image" : kind === "video" ? "video" : "post";
   const conversionDirection = `Optimize this ${mediaLabel} for high-conversion, high-quality social media publishing: use a strong opening hook, platform-native pacing or layout, clear visual hierarchy, specific benefit language, and a direct CTA.`;
   if (kind === "text" || refs.length === 0) return [basePrompt, conversionDirection].filter(Boolean).join("\n\n");
-  const lines = refs.map((ref) => `- Use the selected ${ref.role} reference (${ref.fileName}) as visual guidance.`);
+  const productRef = refs.find((ref) => ref.role === "product photo");
+  const avatarRef = refs.find((ref) => ref.role === "avatar/persona");
+  const logoRef = refs.find((ref) => ref.role === "logo");
+  const lines = [
+    productRef ? `- Product photo reference "${productRef.fileName}": include the product/photo visibly as a main visual element. Preserve its important details and integrate it naturally into the scene/composition.` : "",
+    avatarRef ? `- Avatar/persona reference "${avatarRef.fileName}": use this as the on-screen person/creator/persona reference. Keep the face/persona recognizable and consistent with the uploaded reference.` : "",
+    logoRef ? `- Logo reference "${logoRef.fileName}": include this exact brand logo clearly in the ${mediaLabel}, preferably in a clean corner, product lockup, end frame, or brand-safe area. Do not replace it with generic text or an invented logo.` : ""
+  ].filter(Boolean);
   const visualDirection = [
-    `For this ${mediaLabel}, use the selected/attached references naturally in the generated ${mediaLabel}:`,
+    `Required uploaded reference usage for this ${mediaLabel}:`,
     ...lines,
-    "Place the logo and product/persona references so they are easy to recognize without looking pasted on. Add appropriate stroke, outline, shadow, or contrast treatment so the photo and logo remain distinct from the background."
+    `All selected uploaded elements must appear in the final ${mediaLabel} unless physically impossible. Compose them so they look intentional, premium, and native to social media rather than pasted on.`,
+    `Add appropriate stroke, outline, drop shadow, backing shape, spacing, or contrast treatment so the logo and uploaded photo/persona remain clearly distinguishable from the background.`,
+    kind === "video"
+      ? "For video, keep the logo visible for the opening or ending brand frame and include the product/persona reference in the main scene or B-roll. Maintain visual consistency across shots."
+      : "For image, make the logo and product/persona references readable at mobile feed size. Use a clean layout with enough negative space and avoid covering the logo with text."
   ].join("\n");
   return [basePrompt, visualDirection, conversionDirection].filter(Boolean).join("\n\n");
 }

@@ -40,6 +40,45 @@ function isKieImageModel(model: string) {
   return model === "nanobanana-pro" || model === "gpt-image-2";
 }
 
+type GenerationAssetReference = { role: string; fileName: string };
+
+function parseAssetReferences(input: unknown): GenerationAssetReference[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const ref = item as Record<string, unknown>;
+      const role = String(ref.role || "").trim();
+      const fileName = String(ref.fileName || "").trim();
+      return role && fileName ? { role, fileName } : null;
+    })
+    .filter((item): item is GenerationAssetReference => Boolean(item));
+}
+
+function enrichPromptWithAssetReferences(prompt: string, generationType: "video" | "image" | "text", refs: GenerationAssetReference[]) {
+  if (generationType === "text" || refs.length === 0 || prompt.includes("Required uploaded reference usage")) return prompt;
+  const mediaLabel = generationType === "image" ? "image" : "video";
+  const productRef = refs.find((ref) => ref.role === "product photo");
+  const avatarRef = refs.find((ref) => ref.role === "avatar/persona");
+  const logoRef = refs.find((ref) => ref.role === "logo");
+  const lines = [
+    productRef ? `- Product photo reference "${productRef.fileName}": include the product/photo visibly as a main visual element. Preserve important details and integrate it naturally.` : "",
+    avatarRef ? `- Avatar/persona reference "${avatarRef.fileName}": use this as the on-screen person/creator/persona reference and keep it recognizable.` : "",
+    logoRef ? `- Logo reference "${logoRef.fileName}": include this exact brand logo clearly in the ${mediaLabel}. Do not replace it with generic text or an invented logo.` : ""
+  ].filter(Boolean);
+  return [
+    prompt,
+    [
+      `Required uploaded reference usage for this ${mediaLabel}:`,
+      ...lines,
+      `All selected uploaded elements must appear in the final ${mediaLabel}. Add stroke, outline, drop shadow, backing shape, spacing, or contrast so the uploaded logo/photo/persona are clearly distinguishable from the background.`,
+      generationType === "video"
+        ? "For video, keep the logo visible in the opening or ending brand frame and include the product/persona reference in the main scene or B-roll."
+        : "For image, make the logo and product/persona references readable at mobile feed size with clean negative space."
+    ].join("\n")
+  ].join("\n\n");
+}
+
 function mockCompetitorResults(input: { workspaceId: string; competitorId: string; platform: Platform; url: string; minViews: number }) {
   const base = Math.max(input.minViews, 1000);
   const now = Date.now();
@@ -859,7 +898,7 @@ export async function POST(req: Request) {
       const generationType = (String(body.generationType || contentKindFromFormat(brief.format)) as "video" | "image" | "text");
       const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "nanobanana-pro" : "gemini-3.5-flash"));
       const duration = Number(body.duration || brief.duration || defaultDuration(brief.format) || 0) || undefined;
-      const prompt = String(body.prompt || defaultPromptForBrief(brief, generationType));
+      const prompt = enrichPromptWithAssetReferences(String(body.prompt || defaultPromptForBrief(brief, generationType)), generationType, parseAssetReferences(body.assetReferences));
       const caption = String(body.caption || defaultCaptionForBrief(brief));
       const hashtags = parseList(body.hashtags || defaultHashtagsForBrief(brief, generationType).join(", "));
       const platform = (String(body.platform || brief.platforms[0] || "TikTok") as Platform);
@@ -915,7 +954,7 @@ export async function POST(req: Request) {
       const generationType = (String(body.generationType || "video") as "video" | "image" | "text");
       const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "nanobanana-pro" : "gemini-3.5-flash"));
       const duration = Number(body.duration || 0) || (generationType === "video" ? 8 : undefined);
-      const prompt = String(body.prompt || "Create a practical founder-led social post about SME AI automation.");
+      const prompt = enrichPromptWithAssetReferences(String(body.prompt || "Create a practical founder-led social post about SME AI automation."), generationType, parseAssetReferences(body.assetReferences));
       const caption = String(body.caption || "A practical reminder for SME teams: automate repeatable work first.");
       const hashtags = parseList(body.hashtags || "#SME, #Automation, #AI");
       const platform = (String(body.platform || "TikTok") as Platform);

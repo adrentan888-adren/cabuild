@@ -313,6 +313,15 @@ function title(screen: string) {
   return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", plan: "Content Plan", create: "Create Content", publish: "Publish", automation: "Automation", analyse: "Analyse", logs: "Logs", settings: "Settings" } as Record<string, string>)[screen];
 }
 
+function AnimatedDots({ label }: { label: string }) {
+  const [count, setCount] = useState(1);
+  useEffect(() => {
+    const timer = window.setInterval(() => setCount((value) => value % 3 + 1), 420);
+    return () => window.clearInterval(timer);
+  }, []);
+  return <span className="animated-dots">{label}<span className="dot-slot">{".".repeat(count)}</span></span>;
+}
+
 function HomePanel({ data, setScreen, run }: { data: AppData; setScreen: (s: string) => void; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
   const lead = data.opportunities.filter((item) => item.status !== "dismissed").sort((a, b) => b.gapScore - a.gapScore)[0];
   return (
@@ -1022,7 +1031,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
                   </label>
                   {aiError && <div className="provider-error">{aiError}</div>}
                   <div className="row-actions">
-                    <button className="primary" type="submit" disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? "Generating..." : "Generate"}</button>
+                    <button className="primary" type="submit" disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Generating" /> : "Generate"}</button>
                     <button type="button" onClick={() => setAiPromptOpen(false)} disabled={aiGenerating}>Cancel</button>
                   </div>
                 </form>
@@ -1065,12 +1074,12 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
           <article className="plan-card pending-plan">
             <div className="plan-index"><span /></div>
             <div className="plan-summary">
-              <h3>Generating content plan...</h3>
+              <h3><AnimatedDots label="Generating content plan" /></h3>
               <p>{pendingPlan.title}</p>
               <small>{pendingPlan.description}</small>
               <div className="mini-progress"><span /></div>
             </div>
-            <span className="status generating">Generating</span>
+            <span className="status generating"><AnimatedDots label="Generating" /></span>
           </article>
         )}
         {plans.map((brief, index) => (
@@ -1263,7 +1272,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
           <div>Selected: <b>{model}</b></div>
           <div className="row-actions">
             {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
-            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? "Generating..." : submitLabel}</button>
+            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? <AnimatedDots label="Generating" /> : submitLabel}</button>
           </div>
         </div>
       </section>
@@ -1412,7 +1421,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
           <article className="publish-card with-video pending-publish-card">
             <div className="image-thumb pending">
               {pendingGeneration.kind === "video" ? <Film size={22} /> : pendingGeneration.kind === "image" ? <Palette size={22} /> : <FileText size={22} />}
-              <span>Preparing generation</span>
+              <span><AnimatedDots label="Preparing generation" /></span>
             </div>
             <div className="publish-main">
               <div className="publish-icon">{pendingGeneration.kind === "video" ? <Film size={18} /> : pendingGeneration.kind === "image" ? <Palette size={18} /> : <FileText size={18} />}</div>
@@ -1427,8 +1436,8 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
               </div>
             </div>
             <div className="publish-actions">
-              <span className="status generating">Generating</span>
-              <span className="auto-poll"><RefreshCcw size={13} />Preparing</span>
+              <span className="status generating"><AnimatedDots label="Generating" /></span>
+              <span className="auto-poll"><RefreshCcw size={13} /><AnimatedDots label="Preparing" /></span>
             </div>
           </article>
         )}
@@ -1444,13 +1453,13 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
               {isVideo && (
                 <button className={`video-thumb ${videoUrl ? "" : "pending"}`} type="button" disabled={!videoUrl} onClick={() => asset?.assetUrl && setPreviewAsset(asset)}>
                   {videoUrl ? <video src={videoUrl} muted preload="metadata" playsInline /> : <Film size={22} />}
-                  <span>{videoUrl ? "Preview video" : "Generating video"}</span>
+                  <span>{videoUrl ? "Preview video" : <AnimatedDots label="Generating video" />}</span>
                 </button>
               )}
               {!isVideo && isImage && (
                 <a className={`image-thumb ${imageUrl ? "" : "pending"}`} href={imageUrl || undefined} target="_blank" aria-disabled={!imageUrl}>
                   {imageUrl ? <img src={imageUrl} alt={`${item.title} generated preview`} /> : <Palette size={22} />}
-                  <span>{imageUrl ? "Open image" : item.status === "failed" ? "No image generated" : "Generating image"}</span>
+                  <span>{imageUrl ? "Open image" : item.status === "failed" ? "No image generated" : <AnimatedDots label="Generating image" />}</span>
                 </a>
               )}
               <div className="publish-main">
@@ -1472,7 +1481,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
               </div>
               <div className="publish-actions">
                 <span className={`status ${item.status}`}>{item.status === "done" ? "Done" : item.status}</span>
-                {item.status === "generating" && <span className="auto-poll"><RefreshCcw size={13} />{startingProvider ? "Starting provider" : "Auto-checking"}</span>}
+                {item.status === "generating" && <span className="auto-poll"><RefreshCcw size={13} /><AnimatedDots label={startingProvider ? "Starting provider" : "Auto-checking"} /></span>}
                 {item.status === "done" && <button className="primary" onClick={() => run("publishNow", { id: item.id }, "Upload-Post publish requested for Mariana accounts")}><Send size={14} />Publish now</button>}
               </div>
             </article>

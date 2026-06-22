@@ -43,6 +43,7 @@ code{display:block;padding:12px;border-radius:8px;background:var(--panel-2);font
 .segmented button{border:0;background:transparent;min-height:32px}
 .segmented .on{background:#fff}
 .error{background:var(--danger);color:var(--danger-text);border:1px solid #f7c1c1;border-radius:8px;padding:9px;font-size:12px}
+.animated-dots{display:inline-flex;align-items:baseline;white-space:nowrap}.dot-slot{display:inline-block;width:1.1em;text-align:left}
 .app-shell{height:100vh;display:flex;overflow:hidden}
 .sidebar{width:var(--nav);background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column}
 .sidebar-brand{padding:18px 16px 14px;border-bottom:1px solid var(--line)}

@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
-import type { Database, Platform } from "./types";
+import type { Database, PersonaProfile, Platform } from "./types";
 
 const dataDir = path.join(process.cwd(), "data");
 const dataFile = path.join(dataDir, "app.json");
@@ -20,6 +20,46 @@ export function hashPassword(password: string, salt = crypto.randomBytes(16).toS
 export function verifyPassword(password: string, stored: string) {
   const [salt, hash] = stored.split(":");
   return hashPassword(password, salt).split(":")[1] === hash;
+}
+
+export function defaultPersonaProfile(workspaceId: string): PersonaProfile {
+  return {
+    workspaceId,
+    fullName: "Sean Tan",
+    jobTitle: "CEO",
+    company: "",
+    industry: "Technology",
+    preferredName: "Sean",
+    companyOneLiner: "",
+    yearsExperience: "",
+    pronouns: "I (first person)",
+    credentialTags: [],
+    primaryAudience: "",
+    painPoint: "",
+    contentLanguage: "English only",
+    audienceFear: "",
+    audienceAspiration: "",
+    secondaryAudience: "",
+    includePersonalLife: false,
+    toneFormalCasual: 3,
+    toneSeriousHumorous: 2,
+    toneReservedBold: 4,
+    naturalPhrases: ["Here's the thing"],
+    bannedVocabulary: ["synergy", "disruptive"],
+    primaryContentGoal: "Thought leadership",
+    ctaStyle: "Soft",
+    approvedTopics: ["AI automation"],
+    offLimitsTopics: [],
+    strongOpinions: "",
+    writingSamples: [],
+    faceReferenceFileName: "",
+    voiceSampleFileName: "",
+    allowAiFace: false,
+    allowAiVoice: false,
+    autoAiDisclosure: true,
+    sourceUrls: { linkedin: "", website: "", instagram: "", x: "" },
+    updatedAt: new Date().toISOString()
+  };
 }
 
 function seeded(): Database {
@@ -50,6 +90,7 @@ function seeded(): Database {
         watermark: true
       }
     ],
+    personaProfiles: [defaultPersonaProfile(workspaceId)],
     competitors: [
       { id: id("cmp"), workspaceId, platform: "TikTok", handle: "@aioperator", cadence: "daily", lastScraped: new Date().toISOString() },
       { id: id("cmp"), workspaceId, platform: "LinkedIn", handle: "GrowthOps AI", cadence: "weekly", lastScraped: new Date().toISOString() }
@@ -134,6 +175,16 @@ function normalizeDb(db: Database): Database {
   db.socialAudits ||= [];
   db.activity ||= [];
   db.debugLogs ||= [];
+  db.personaProfiles ||= [];
+  for (const workspace of db.workspaces || []) {
+    const existing = db.personaProfiles.find((item) => item.workspaceId === workspace.id);
+    if (existing) {
+      const fallback = defaultPersonaProfile(workspace.id);
+      Object.assign(existing, { ...fallback, ...existing, sourceUrls: { ...fallback.sourceUrls, ...(existing.sourceUrls || {}) } });
+    } else {
+      db.personaProfiles.push(defaultPersonaProfile(workspace.id));
+    }
+  }
   return db;
 }
 

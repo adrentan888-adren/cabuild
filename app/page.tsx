@@ -26,11 +26,13 @@ import {
   Wand2
 } from "lucide-react";
 import type { Asset, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PublishItem, SocialAudit, Workspace } from "@/lib/types";
+import type { PersonaProfile } from "@/lib/types";
 
 type AppData = {
   user: { id: string; email: string; name: string; role: string };
   workspace: Workspace;
   brandKit: BrandKit;
+  personaProfile: PersonaProfile;
   competitors: Competitor[];
   competitorResults: CompetitorResult[];
   socialAudits: SocialAudit[];
@@ -504,34 +506,218 @@ function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: R
   );
 }
 
-function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+const personaSteps = ["Identity", "Audience", "Voice", "Rules", "References"];
+
+function listValue(items?: string[]) {
+  return (items || []).join(", ");
+}
+
+function PersonaChips({ items }: { items?: string[] }) {
+  const values = (items || []).filter(Boolean);
+  if (!values.length) return <span className="persona-empty">No entries yet</span>;
+  return <div className="persona-chip-row">{values.map((item) => <span className="persona-chip" key={item}>{item}</span>)}</div>;
+}
+
+function PersonaRange({ name, left, right, value }: { name: string; left: string; right: string; value: number }) {
+  const [current, setCurrent] = useState(value);
   return (
-    <div className="mock-wrap">
-      <div className="mhdr">
-        <div className="msub">Persona</div>
-        <h2>Founder-led voice profile</h2>
+    <div className="persona-slider">
+      <span>{left}</span>
+      <input name={name} type="range" min="1" max="5" step="1" value={current} onChange={(event) => setCurrent(Number(event.target.value))} />
+      <b>{current}</b>
+      <span>{right}</span>
+    </div>
+  );
+}
+
+function PersonaFileField({ name, title, helper, accept, initial }: { name: string; title: string; helper: string; accept: string; initial?: string }) {
+  const [fileName, setFileName] = useState(initial || "");
+  return (
+    <label className={`persona-upload ${fileName ? "selected" : ""}`}>
+      <input type="file" accept={accept} onChange={(event) => setFileName(event.currentTarget.files?.[0]?.name || "")} />
+      <input type="hidden" name={name} value={fileName} />
+      <UserRound size={20} />
+      <b>{title}</b>
+      <span>{fileName || helper}</span>
+    </label>
+  );
+}
+
+function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+  const [step, setStep] = useState(0);
+  const [showAutofill, setShowAutofill] = useState(false);
+  const persona = data.personaProfile;
+  const save = async (form: FormData) => {
+    await run("updatePersonaProfile", Object.fromEntries(form.entries()), "Persona saved");
+  };
+  return (
+    <div className="persona-page">
+      <div className="drift-banner">
+        <div><b>Persona setup</b> - Store the founder voice, audience, rules, and references for future prompt use.</div>
+        <span className="badge">Saved profile</span>
       </div>
-      <div className="grid two">
-        <PanelCard title="Build path">
-          <div className="path-grid">
-            <div className="path-card featured"><UserRound /><b>Reference persona</b><span>Model voice from top posts and creator examples</span></div>
-            <div className="path-card"><FileText /><b>Manual profile</b><span>Set tone, topics, words to use, and words to avoid</span></div>
-          </div>
-        </PanelCard>
-        <PanelCard title="Voice guidelines">
-          <form className="brand-form" action={(form) => run("updateBrandKit", { brandKit: Object.fromEntries(form.entries()) }, "Persona saved")}>
-            <label>Voice<textarea name="voice" defaultValue={data.brandKit.voice} /></label>
-            <button className="primary">Save persona</button>
-          </form>
-        </PanelCard>
-      </div>
-      <PanelCard title="Tone profile">
-        <div className="tone-grid">
-          <Metric label="Direct" value="82%" />
-          <Metric label="Practical" value="91%" />
-          <Metric label="Contrarian" value="64%" />
+
+      <section className="persona-hero">
+        <div>
+          <div className="msub">Module 1 - Persona</div>
+          <h2>Reference persona</h2>
+          <p>Choose a starting path, then complete the five setup steps. Nothing here is injected into prompts yet.</p>
         </div>
-      </PanelCard>
+        <span className="last-upd">{persona.updatedAt ? `Updated ${new Date(persona.updatedAt).toLocaleString()}` : "Not saved yet"}</span>
+      </section>
+
+      <div className="tabs persona-tabs">
+        <button className="tab on">Discover</button>
+        <button className="tab">Saved references <span>2</span></button>
+      </div>
+
+      <div className="path-grid persona-paths">
+        <button className="path-card featured" onClick={() => setShowAutofill(true)}>
+          <Search size={20} />
+          <b>Learn from a channel</b>
+          <span>Paste public social or website URLs to store as future autofill sources.</span>
+        </button>
+        <button className="path-card" onClick={() => setStep(0)}>
+          <FileText size={20} />
+          <b>Start from scratch</b>
+          <span>Fill in your own persona details manually across 5 steps.</span>
+        </button>
+      </div>
+
+      {showAutofill && (
+        <section className="persona-card">
+          <div className="persona-card-head">
+            <div>
+              <div className="clbl">Auto-fill sources</div>
+              <h3>Online presence URLs</h3>
+            </div>
+            <button type="button" onClick={() => setShowAutofill(false)}>Close</button>
+          </div>
+          <p className="muted">These URLs are only stored for later. No scraping or prompt usage is enabled in this step.</p>
+        </section>
+      )}
+
+      <form action={save} className="persona-setup">
+        <div className="persona-step-head">
+          <h3>Persona setup</h3>
+          <span className="badge">Step {step + 1} of 5</span>
+        </div>
+        <div className="step-nav">
+          {personaSteps.map((label, index) => (
+            <button type="button" key={label} className={`step-dot ${index === step ? "active" : index < step ? "done" : ""}`} onClick={() => setStep(index)} title={label}>{index + 1}</button>
+          ))}
+        </div>
+
+        <section className="persona-card">
+          {step === 0 && (
+            <div className="persona-fields">
+              <div className="autofill-banner"><span className="dot" /><span>Skip the form - store public URLs for later autofill.</span><button type="button" onClick={() => setShowAutofill(true)}>Auto-fill</button></div>
+              <div className="grid two">
+                <label>Full name<input name="fullName" defaultValue={persona.fullName} placeholder="Sean Tan" /></label>
+                <label>Job title<input name="jobTitle" defaultValue={persona.jobTitle} placeholder="CEO" /></label>
+              </div>
+              <label>Company<input name="company" defaultValue={persona.company} placeholder="Acme Ventures" /></label>
+              <label>Industry<select name="industry" defaultValue={persona.industry}><option>Technology</option><option>Finance</option><option>Healthcare</option><option>E-commerce</option><option>Education</option><option>Consulting</option></select></label>
+              <div className="persona-advanced">
+                <div className="clbl">Advanced fields</div>
+                <label>Preferred name<input name="preferredName" defaultValue={persona.preferredName} placeholder="Sean" /></label>
+                <label>Company one-liner<input name="companyOneLiner" defaultValue={persona.companyOneLiner} placeholder="We help SMEs automate ops with AI" /></label>
+                <div className="grid two">
+                  <label>Years of experience<select name="yearsExperience" defaultValue={persona.yearsExperience}><option value="">Select...</option><option>1-3</option><option>4-7</option><option>8-12</option><option>13-20</option><option>20+</option></select></label>
+                  <label>Pronouns<select name="pronouns" defaultValue={persona.pronouns}><option>I (first person)</option><option>We (company voice)</option><option>Both</option></select></label>
+                </div>
+                <label>Credential tags<input name="credentialTags" defaultValue={listValue(persona.credentialTags)} placeholder="Forbes 30u30, Ex-founder" /></label>
+                <PersonaChips items={persona.credentialTags} />
+              </div>
+            </div>
+          )}
+
+          {step === 1 && (
+            <div className="persona-fields">
+              <label>Primary audience<input name="primaryAudience" defaultValue={persona.primaryAudience} placeholder="Mid-market ops managers in SEA" /></label>
+              <label>Their biggest pain point<textarea name="painPoint" defaultValue={persona.painPoint} placeholder="Too many manual processes slowing their team down..." /></label>
+              <label>Content language<select name="contentLanguage" defaultValue={persona.contentLanguage}><option>English only</option><option>English + BM</option><option>English + Mandarin</option><option>Manglish</option><option>Multi-language</option></select></label>
+              <div className="persona-advanced">
+                <div className="clbl">Deeper audience insight</div>
+                <label>Audience's biggest fear<input name="audienceFear" defaultValue={persona.audienceFear} placeholder="Being replaced by AI or falling behind competitors" /></label>
+                <label>Audience's biggest aspiration<input name="audienceAspiration" defaultValue={persona.audienceAspiration} placeholder="Run a leaner, faster, more profitable operation" /></label>
+                <label>Secondary audience<input name="secondaryAudience" defaultValue={persona.secondaryAudience} placeholder="Investors, potential hires..." /></label>
+                <label className="toggle-line"><span>Include personal life in content</span><input name="includePersonalLife" type="checkbox" defaultChecked={persona.includePersonalLife} /></label>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="persona-fields">
+              <div className="clbl">Tone</div>
+              <PersonaRange name="toneFormalCasual" left="Formal" right="Casual" value={persona.toneFormalCasual} />
+              <PersonaRange name="toneSeriousHumorous" left="Serious" right="Humorous" value={persona.toneSeriousHumorous} />
+              <PersonaRange name="toneReservedBold" left="Reserved" right="Bold" value={persona.toneReservedBold} />
+              <div className="persona-advanced">
+                <div className="clbl">Vocabulary control</div>
+                <label>Natural phrases<input name="naturalPhrases" defaultValue={listValue(persona.naturalPhrases)} placeholder="Here's the thing, Real talk" /></label>
+                <PersonaChips items={persona.naturalPhrases} />
+                <label>Banned vocabulary<input name="bannedVocabulary" defaultValue={listValue(persona.bannedVocabulary)} placeholder="synergy, disruptive" /></label>
+                <PersonaChips items={persona.bannedVocabulary} />
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="persona-fields">
+              <label>Primary content goal<select name="primaryContentGoal" defaultValue={persona.primaryContentGoal}><option>Thought leadership</option><option>Lead generation</option><option>Brand awareness</option><option>Hiring</option><option>Investor relations</option></select></label>
+              <label>CTA style<select name="ctaStyle" defaultValue={persona.ctaStyle}><option>Soft</option><option>Hard</option><option>None</option><option>Mixed</option></select></label>
+              <div className="persona-advanced">
+                <div className="clbl">Topic boundaries</div>
+                <label>Approved topics<input name="approvedTopics" defaultValue={listValue(persona.approvedTopics)} placeholder="AI automation, founder productivity" /></label>
+                <PersonaChips items={persona.approvedTopics} />
+                <label>Off-limits topics<input name="offLimitsTopics" defaultValue={listValue(persona.offLimitsTopics)} placeholder="Politics, medical advice" /></label>
+                <PersonaChips items={persona.offLimitsTopics} />
+                <label>Strong opinions<textarea name="strongOpinions" defaultValue={persona.strongOpinions} placeholder="AI will not replace jobs - it replaces tasks." /></label>
+              </div>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="persona-fields">
+              <label>Writing samples<textarea name="writingSamples" defaultValue={listValue(persona.writingSamples)} placeholder="Paste up to 3 samples, separated by a blank line or comma." /></label>
+              <div className="persona-advanced">
+                <div className="clbl">Face & voice AI references</div>
+                <div className="grid two">
+                  <PersonaFileField name="faceReferenceFileName" title="Face reference" helper="Upload photo" accept="image/*" initial={persona.faceReferenceFileName} />
+                  <PersonaFileField name="voiceSampleFileName" title="Voice sample" helper="Upload recording" accept="audio/*" initial={persona.voiceSampleFileName} />
+                </div>
+                <div className="clbl">PDPA consent</div>
+                <label className="toggle-line"><span>Allow AI face generation</span><input name="allowAiFace" type="checkbox" defaultChecked={persona.allowAiFace} /></label>
+                <label className="toggle-line"><span>Allow AI voice cloning</span><input name="allowAiVoice" type="checkbox" defaultChecked={persona.allowAiVoice} /></label>
+                <label className="toggle-line"><span>Auto-apply AI disclosure label</span><input name="autoAiDisclosure" type="checkbox" defaultChecked={persona.autoAiDisclosure} /></label>
+              </div>
+            </div>
+          )}
+
+          <div className="persona-source-fields">
+            <div className="clbl">Stored autofill URLs</div>
+            <div className="grid two">
+              <label>LinkedIn<input name="linkedinUrl" defaultValue={persona.sourceUrls.linkedin} placeholder="linkedin.com/in/yourname" /></label>
+              <label>Website<input name="websiteUrl" defaultValue={persona.sourceUrls.website} placeholder="yourcompany.com" /></label>
+              <label>Instagram<input name="instagramUrl" defaultValue={persona.sourceUrls.instagram} placeholder="instagram.com/yourhandle" /></label>
+              <label>X / Twitter<input name="xUrl" defaultValue={persona.sourceUrls.x} placeholder="x.com/yourhandle" /></label>
+            </div>
+          </div>
+        </section>
+
+        <div className="persona-footer">
+          <button type="button" onClick={() => setStep(Math.max(0, step - 1))} disabled={step === 0}>Back</button>
+          <div className="row-actions">
+            <button type="button" onClick={async (event) => {
+              const form = event.currentTarget.form;
+              if (form) await save(new FormData(form));
+              setStep(Math.min(personaSteps.length - 1, step + 1));
+            }} disabled={step === personaSteps.length - 1}>Continue</button>
+            <button className="primary" type="submit"><Check size={14} />Save persona</button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 }

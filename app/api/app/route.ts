@@ -14,6 +14,7 @@ export async function GET() {
     user: { id: user.id, email: user.email, name: user.name, role: user.role },
     workspace,
     brandKit: db.brandKits.find((item) => item.workspaceId === workspace.id),
+    personaProfile: db.personaProfiles.find((item) => item.workspaceId === workspace.id),
     competitors: db.competitors.filter((item) => item.workspaceId === workspace.id),
     competitorResults: (db.competitorResults || []).filter((item) => item.workspaceId === workspace.id),
     researchScans: (db.researchScans || []).filter((item) => item.workspaceId === workspace.id).slice(-10).reverse(),

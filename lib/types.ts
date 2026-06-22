@@ -29,6 +29,49 @@ export type BrandKit = {
   watermark: boolean;
 };
 
+export type PersonaProfile = {
+  workspaceId: string;
+  fullName: string;
+  jobTitle: string;
+  company: string;
+  industry: string;
+  preferredName: string;
+  companyOneLiner: string;
+  yearsExperience: string;
+  pronouns: string;
+  credentialTags: string[];
+  primaryAudience: string;
+  painPoint: string;
+  contentLanguage: string;
+  audienceFear: string;
+  audienceAspiration: string;
+  secondaryAudience: string;
+  includePersonalLife: boolean;
+  toneFormalCasual: number;
+  toneSeriousHumorous: number;
+  toneReservedBold: number;
+  naturalPhrases: string[];
+  bannedVocabulary: string[];
+  primaryContentGoal: string;
+  ctaStyle: string;
+  approvedTopics: string[];
+  offLimitsTopics: string[];
+  strongOpinions: string;
+  writingSamples: string[];
+  faceReferenceFileName: string;
+  voiceSampleFileName: string;
+  allowAiFace: boolean;
+  allowAiVoice: boolean;
+  autoAiDisclosure: boolean;
+  sourceUrls: {
+    linkedin: string;
+    website: string;
+    instagram: string;
+    x: string;
+  };
+  updatedAt?: string;
+};
+
 export type Competitor = {
   id: string;
   workspaceId: string;
@@ -204,6 +247,7 @@ export type Database = {
   users: User[];
   workspaces: Workspace[];
   brandKits: BrandKit[];
+  personaProfiles: PersonaProfile[];
   competitors: Competitor[];
   competitorResults: CompetitorResult[];
   researchScans: ResearchScan[];

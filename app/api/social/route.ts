@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
-import { id, mutateDb } from "@/lib/store";
-import type { Asset, Brief, CompetitorResult, GenerationAssetReference, Platform, PublishItem } from "@/lib/types";
+import { defaultPersonaProfile, id, mutateDb } from "@/lib/store";
+import type { Asset, Brief, CompetitorResult, GenerationAssetReference, PersonaProfile, Platform, PublishItem } from "@/lib/types";
 import { fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl } from "@/lib/providers/apify";
 import { buildAiBriefPrompt, buildContentPlanPrompt, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateImage, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
@@ -182,6 +182,77 @@ function normalizeDimensions(value: unknown) {
 
 function parseList(value: unknown) {
   return String(value || "").split(/\n|,/).map((item) => item.trim()).filter(Boolean);
+}
+
+function parseBool(value: unknown) {
+  return value === true || value === "true" || value === "on" || value === "1";
+}
+
+function clampTone(value: unknown, fallback: number) {
+  const numeric = Number(value || fallback);
+  return Math.min(5, Math.max(1, Number.isFinite(numeric) ? numeric : fallback));
+}
+
+function hasField(body: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(body, key);
+}
+
+function stringField(body: Record<string, unknown>, key: string, fallback = "") {
+  return hasField(body, key) ? String(body[key] || "").trim() : fallback;
+}
+
+function listField(body: Record<string, unknown>, key: string, fallback: string[]) {
+  return hasField(body, key) ? parseList(body[key]) : fallback;
+}
+
+function boolField(body: Record<string, unknown>, key: string, fallback: boolean) {
+  return hasField(body, key) ? parseBool(body[key]) : fallback;
+}
+
+function personaFromBody(workspaceId: string, body: Record<string, unknown>, previous?: PersonaProfile): PersonaProfile {
+  const fallback = previous || defaultPersonaProfile(workspaceId);
+  return {
+    ...fallback,
+    fullName: stringField(body, "fullName", fallback.fullName),
+    jobTitle: stringField(body, "jobTitle", fallback.jobTitle),
+    company: stringField(body, "company", fallback.company),
+    industry: stringField(body, "industry", fallback.industry),
+    preferredName: stringField(body, "preferredName", fallback.preferredName),
+    companyOneLiner: stringField(body, "companyOneLiner", fallback.companyOneLiner),
+    yearsExperience: stringField(body, "yearsExperience", fallback.yearsExperience),
+    pronouns: stringField(body, "pronouns", fallback.pronouns),
+    credentialTags: listField(body, "credentialTags", fallback.credentialTags),
+    primaryAudience: stringField(body, "primaryAudience", fallback.primaryAudience),
+    painPoint: stringField(body, "painPoint", fallback.painPoint),
+    contentLanguage: stringField(body, "contentLanguage", fallback.contentLanguage),
+    audienceFear: stringField(body, "audienceFear", fallback.audienceFear),
+    audienceAspiration: stringField(body, "audienceAspiration", fallback.audienceAspiration),
+    secondaryAudience: stringField(body, "secondaryAudience", fallback.secondaryAudience),
+    includePersonalLife: boolField(body, "includePersonalLife", fallback.includePersonalLife),
+    toneFormalCasual: hasField(body, "toneFormalCasual") ? clampTone(body.toneFormalCasual, fallback.toneFormalCasual) : fallback.toneFormalCasual,
+    toneSeriousHumorous: hasField(body, "toneSeriousHumorous") ? clampTone(body.toneSeriousHumorous, fallback.toneSeriousHumorous) : fallback.toneSeriousHumorous,
+    toneReservedBold: hasField(body, "toneReservedBold") ? clampTone(body.toneReservedBold, fallback.toneReservedBold) : fallback.toneReservedBold,
+    naturalPhrases: listField(body, "naturalPhrases", fallback.naturalPhrases),
+    bannedVocabulary: listField(body, "bannedVocabulary", fallback.bannedVocabulary),
+    primaryContentGoal: stringField(body, "primaryContentGoal", fallback.primaryContentGoal),
+    ctaStyle: stringField(body, "ctaStyle", fallback.ctaStyle),
+    approvedTopics: listField(body, "approvedTopics", fallback.approvedTopics),
+    offLimitsTopics: listField(body, "offLimitsTopics", fallback.offLimitsTopics),
+    strongOpinions: stringField(body, "strongOpinions", fallback.strongOpinions),
+    writingSamples: listField(body, "writingSamples", fallback.writingSamples).slice(0, 3),
+    faceReferenceFileName: stringField(body, "faceReferenceFileName", fallback.faceReferenceFileName),
+    voiceSampleFileName: stringField(body, "voiceSampleFileName", fallback.voiceSampleFileName),
+    allowAiFace: boolField(body, "allowAiFace", fallback.allowAiFace),
+    allowAiVoice: boolField(body, "allowAiVoice", fallback.allowAiVoice),
+    autoAiDisclosure: boolField(body, "autoAiDisclosure", fallback.autoAiDisclosure),
+    sourceUrls: {
+      linkedin: stringField(body, "linkedinUrl", fallback.sourceUrls.linkedin),
+      website: stringField(body, "websiteUrl", fallback.sourceUrls.website),
+      instagram: stringField(body, "instagramUrl", fallback.sourceUrls.instagram),
+      x: stringField(body, "xUrl", fallback.sourceUrls.x)
+    },
+    updatedAt: new Date().toISOString()
+  };
 }
 
 function contentKindFromFormat(format: string): "video" | "image" | "text" {
@@ -1040,6 +1111,17 @@ export async function POST(req: Request) {
       if (Object.prototype.hasOwnProperty.call(body, "niche")) workspace.niche = String(body.niche || "").trim();
       activity(`Workspace context updated: ${workspace.niche || "No brand/niche set"}`);
       return workspace;
+    }
+
+    if (action === "updatePersonaProfile") {
+      db.personaProfiles ||= [];
+      const existingIndex = db.personaProfiles.findIndex((item) => item.workspaceId === workspaceId);
+      const previous = existingIndex >= 0 ? db.personaProfiles[existingIndex] : undefined;
+      const profile = personaFromBody(workspaceId, body, previous);
+      if (existingIndex >= 0) db.personaProfiles[existingIndex] = profile;
+      else db.personaProfiles.push(profile);
+      activity(`Persona profile saved: ${profile.fullName || profile.preferredName || "Unnamed persona"}`);
+      return profile;
     }
 
     if (action === "addCompetitor") {

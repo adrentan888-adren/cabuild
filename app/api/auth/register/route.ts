@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { hashPassword, id, mutateDb } from "@/lib/store";
+import { defaultPersonaProfile, hashPassword, id, mutateDb } from "@/lib/store";
 import { setSession } from "@/lib/session";
 
 export async function POST(req: Request) {
@@ -24,6 +24,8 @@ export async function POST(req: Request) {
       voice: "Clear, practical, and useful.",
       watermark: true
     });
+    db.personaProfiles ||= [];
+    db.personaProfiles.push(defaultPersonaProfile(workspaceId));
     db.users.push({ id: userId, email, name: name || "Owner", passwordHash: hashPassword(password), role: "owner", workspaceId });
     db.activity.push({ id: id("act"), workspaceId, message: "Workspace created.", createdAt: new Date().toISOString() });
     return { userId };

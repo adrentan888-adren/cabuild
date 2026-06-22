@@ -217,6 +217,7 @@ type PlanInput = {
   comments: number;
   publishedAt: string;
   description?: string;
+  niche?: string;
 };
 
 function extractJson(text: string) {
@@ -232,7 +233,7 @@ User request:
 ${input.idea}
 
 Brand/niche:
-${input.niche}
+${input.niche || "No brand/niche set. Follow the user request exactly and do not assume a niche."}
 
 Create a complete editable content plan. Return ONLY valid JSON with this exact shape:
 {
@@ -298,7 +299,8 @@ Likes: ${input.likes}
 Comments: ${input.comments}
 Published at: ${input.publishedAt}
 
-Create a content plan for a founder-led SME AI automation brand. Return this JSON shape:
+Create a content plan for this brand/niche: ${input.niche || "No brand/niche set. Follow the source post and user context without assuming a niche."}
+Return this JSON shape:
 {
   "topic": "specific content topic",
   "format": "Short video 9:16 or Carousel or Text post",

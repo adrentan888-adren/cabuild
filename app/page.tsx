@@ -297,7 +297,7 @@ export default function Home() {
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
           {screen === "research" && <IntelligencePanel data={data} run={run} setScreen={setScreen} setPendingPlan={setPendingPlan} />}
           {screen === "plan" && <BriefPanel data={data} run={run} setScreen={setScreen} pendingPlan={pendingPlan} setPendingGeneration={setPendingGeneration} />}
-          {screen === "create" && <CreateContentPanel run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
+          {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
           {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
           {screen === "analyse" && <AnalyticsPanel data={data} />}
@@ -1314,7 +1314,8 @@ function GenerationModal({ brief, onClose, onStart, onSubmit }: { brief: Brief; 
   );
 }
 
-function CreateContentPanel({ run, setScreen, setPendingGeneration }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
+function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
+  const context = data.workspace.niche?.trim() || "your brand";
   const initial: CreateContentInitial = {
     sourceLabel: "Direct generation",
     sourceTitle: "Generate from scratch",
@@ -1322,9 +1323,9 @@ function CreateContentPanel({ run, setScreen, setPendingGeneration }: { run: (a:
     kind: "video",
     duration: 8,
     aspectRatio: "9:16",
-    prompt: "Create a founder-led social asset for SME owners about using AI automation to remove repetitive manual work. Use a practical hook, concrete workflow example, clean pacing, and a clear CTA.",
-    caption: "The fastest automation wins usually hide inside the tasks your team repeats every week.",
-    hashtags: "#SME, #Automation, #AI",
+    prompt: `Create a founder-led social asset for ${context}. Use a practical hook, concrete example, clean pacing or layout, and a clear CTA.`,
+    caption: `A practical reminder for ${context}: make the message specific, useful, and easy to act on.`,
+    hashtags: "#ContentStrategy, #SocialMedia, #Creator",
     platform: "TikTok"
   };
   return (

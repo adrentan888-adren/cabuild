@@ -316,7 +316,7 @@ export async function POST(req: Request) {
     try {
       const dbResult = await mutateDb(async (db) => {
         const workspace = db.workspaces.find((item) => item.id === workspaceId);
-        const signals = await fetchTrendSignals(workspace?.niche || "SME AI automation");
+        const signals = await fetchTrendSignals(workspace?.niche?.trim() || "social media content");
         const created = signals.map((signal, index) => {
           const score = 78 + Math.min(12, index * 2);
           const opp = {
@@ -709,13 +709,15 @@ export async function POST(req: Request) {
   if (action === "createPlanFromResearch") {
     const resultId = String(body.id || "");
     const result = await mutateDb((db) => (db.competitorResults || []).find((item) => item.id === resultId && item.workspaceId === workspaceId) || null);
+    const workspace = await mutateDb((db) => db.workspaces.find((item) => item.id === workspaceId) || null);
+    const niche = workspace?.niche?.trim() || "";
     if (!result) return NextResponse.json({ error: "Research result not found" }, { status: 404 });
     const sourceTitle = String(body.sourceTitle || "");
     const sourceUrl = String(body.sourceUrl || "");
     if ((sourceTitle && sourceTitle !== result.title) || (sourceUrl && sourceUrl !== result.url)) {
       return NextResponse.json({ error: "Selected research result changed before the plan could be created. Please click Create plan on the result again." }, { status: 409 });
     }
-    const geminiPrompt = buildContentPlanPrompt(result);
+    const geminiPrompt = buildContentPlanPrompt({ ...result, niche });
     await debugLog(workspaceId, {
       action,
       label: `Prompt sent to Gemini for research result: ${result.title}`,
@@ -726,7 +728,7 @@ export async function POST(req: Request) {
     });
     let plan;
     try {
-      plan = await generateContentPlanWithGemini(result, geminiPrompt);
+      plan = await generateContentPlanWithGemini({ ...result, niche }, geminiPrompt);
       await debugLog(workspaceId, {
         action,
         label: `Gemini content plan returned for: ${result.title}`,
@@ -743,23 +745,24 @@ export async function POST(req: Request) {
         prompt: geminiPrompt,
         error: error instanceof Error ? error.message : "Gemini content plan failed"
       });
+      const context = niche || "the selected brand";
       plan = {
-        topic: `Turn "${result.title}" into an SME automation lesson`,
+        topic: `Turn "${result.title}" into a content lesson`,
         format: result.platform === "LinkedIn" || result.platform === "X" ? "Text post" : "Short video 9:16",
         platforms: [result.platform],
-        description: `Recreate the winning angle from "${result.title}" as founder-led SME AI automation content.`,
-        videoPrompt: `Vertical founder-led social video about ${result.title}. Open with a clear pain point, show a practical AI automation workflow, use clean office or screen-recording visuals, add concise text overlays, and end with a practical CTA for SME founders.`,
+        description: `Recreate the winning angle from "${result.title}" for ${context}.`,
+        videoPrompt: `Vertical founder-led social video about ${result.title}. Open with a clear pain point, show a practical example for ${context}, use clean visuals, add concise text overlays, and end with a practical CTA.`,
         duration: 8,
         hooks: [
-          "Most SMEs are losing time in places they do not measure.",
-          "This competitor post worked because it made automation concrete.",
-          "Here is the workflow I would rebuild before hiring again."
+          "Most audiences miss the simple lesson behind this.",
+          "This post worked because it made the idea concrete.",
+          "Here is how I would rebuild this angle for the brand."
         ],
-        outline: ["Open with the manual pain", "Show the competitor angle", "Give a founder-led example", "End with a practical CTA"],
-        shotList: ["Founder hook to camera", "Screen recording of workflow steps", "Before/after time saved visual", "CTA close-up with branded caption"],
-        creativeNotes: "Keep pacing practical and direct. Use real workflow language, captions, and a clean SME operations visual style.",
-        caption: "Manual work hides inside routine follow-up, reporting, and approvals. The fastest win is to automate the repeatable decision before scaling the team.",
-        hashtags: ["#SME", "#Automation", "#AI"],
+        outline: ["Open with the core tension", "Show the source angle", "Give a brand-relevant example", "End with a practical CTA"],
+        shotList: ["Hook to camera", "Problem visual", "Brand-relevant example", "CTA close-up with branded caption"],
+        creativeNotes: "Keep pacing practical and direct. Use clear captions, specific examples, and a clean visual style.",
+        caption: `This angle works because it makes the topic concrete for ${context}.`,
+        hashtags: ["#ContentStrategy", "#SocialMedia", "#Creator"],
         optimalTime: "Thu 10:00 AM",
         expectedPerformance: "4.2-6.0% engagement",
         analysisSummary: "Fallback plan generated from local competitor metrics."
@@ -868,7 +871,8 @@ export async function POST(req: Request) {
     const idea = String(body.idea || "").trim();
     if (!idea) return NextResponse.json({ error: "Tell me what you want to create first." }, { status: 400 });
     const workspace = await mutateDb((db) => db.workspaces.find((item) => item.id === workspaceId) || null);
-    const prompt = buildAiBriefPrompt({ idea, niche: workspace?.niche || "SME AI automation" });
+    const niche = workspace?.niche?.trim() || "";
+    const prompt = buildAiBriefPrompt({ idea, niche });
     await debugLog(workspaceId, {
       action,
       label: "Prompt sent to Kie GPT-5.5 for new content plan",
@@ -878,7 +882,7 @@ export async function POST(req: Request) {
       details: { model: "gpt-5-5", idea }
     });
     try {
-      const plan = await generateContentPlanWithGpt55({ idea, niche: workspace?.niche || "SME AI automation" }, prompt);
+      const plan = await generateContentPlanWithGpt55({ idea, niche }, prompt);
       const format = String(plan.format || "Short video 9:16");
       const draft = {
         topic: String(plan.topic || idea),
@@ -1029,8 +1033,8 @@ export async function POST(req: Request) {
       const workspace = db.workspaces.find((item) => item.id === workspaceId);
       if (!workspace) return null;
       workspace.name = String(body.name || workspace.name).trim() || workspace.name;
-      workspace.niche = String(body.niche || workspace.niche).trim() || workspace.niche;
-      activity(`Workspace context updated: ${workspace.niche}`);
+      if (Object.prototype.hasOwnProperty.call(body, "niche")) workspace.niche = String(body.niche || "").trim();
+      activity(`Workspace context updated: ${workspace.niche || "No brand/niche set"}`);
       return workspace;
     }
 
@@ -1226,7 +1230,9 @@ export async function POST(req: Request) {
       const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "nanobanana-pro" : "gemini-3.5-flash"));
       const duration = Number(body.duration || 0) || (generationType === "video" ? 8 : undefined);
       const assetReferences = parseAssetReferences(body.assetReferences);
-      const prompt = enrichPromptWithAssetReferences(String(body.prompt || "Create a practical founder-led social post about SME AI automation."), generationType, assetReferences);
+      const workspace = db.workspaces.find((entry) => entry.id === workspaceId);
+      const context = workspace?.niche?.trim() || "the configured brand";
+      const prompt = enrichPromptWithAssetReferences(String(body.prompt || `Create a practical founder-led social post for ${context}.`), generationType, assetReferences);
       const caption = String(body.caption || "A practical reminder for SME teams: automate repeatable work first.");
       const hashtags = parseList(body.hashtags || "#SME, #Automation, #AI");
       const platform = (String(body.platform || "TikTok") as Platform);

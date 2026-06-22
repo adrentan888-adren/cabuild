@@ -43,7 +43,7 @@ export async function fetchTrendSignals(niche: string) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      queries: `${niche} AI automation social media trend`,
+      queries: `${niche || "social media content"} social media trend`,
       maxPagesPerQuery: 1,
       resultsPerPage: 5,
       countryCode: "us",

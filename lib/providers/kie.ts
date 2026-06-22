@@ -226,7 +226,10 @@ function extractJson(text: string) {
   return JSON.parse(raw);
 }
 
-export function buildAiBriefPrompt(input: { idea: string; niche: string }) {
+export function buildAiBriefPrompt(input: { idea: string; niche: string; requestedFormat?: string }) {
+  const requestedFormatLine = input.requestedFormat
+    ? `\nRequired content format:\n${input.requestedFormat}\n\nYou must set the JSON "format" exactly to "${input.requestedFormat}". All generated fields must match this format. If it is video, write a video creation prompt with scenes, motion, pacing, and duration. If it is image, write an image generation prompt with composition, layout, aspect ratio, and visual direction. If it is text, write text-post fields and do not describe video/image production unless useful as creative notes.`
+    : "";
   return `You are ContentAgent's senior social content strategist.
 
 User request:
@@ -234,6 +237,7 @@ ${input.idea}
 
 Brand/niche:
 ${input.niche || "No brand/niche set. Follow the user request exactly and do not assume a niche."}
+${requestedFormatLine}
 
 Create a complete editable content plan. Return ONLY valid JSON with this exact shape:
 {
@@ -254,7 +258,7 @@ Create a complete editable content plan. Return ONLY valid JSON with this exact 
 }`;
 }
 
-export async function generateContentPlanWithGpt55(input: { idea: string; niche: string }, prompt = buildAiBriefPrompt(input)) {
+export async function generateContentPlanWithGpt55(input: { idea: string; niche: string; requestedFormat?: string }, prompt = buildAiBriefPrompt(input)) {
   if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
   const res = await fetch(`${baseUrl}/codex/v1/responses`, {
     method: "POST",

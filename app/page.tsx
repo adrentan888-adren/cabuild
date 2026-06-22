@@ -844,6 +844,15 @@ function createContentInitialFromDraft(draft: PlanDraft): CreateContentInitial {
   };
 }
 
+function preferredFormatForKind(kind: GenerationKind, aspectRatio?: string) {
+  if (kind === "image") {
+    const ratio = aspectRatio === "1:1" || aspectRatio === "4:5" || aspectRatio === "16:9" || aspectRatio === "9:16" ? aspectRatio : "4:5";
+    return `Image ${ratio}`;
+  }
+  if (kind === "text") return "Text post";
+  return aspectRatio === "16:9" ? "Long-form video 16:9" : "Short video 9:16";
+}
+
 function durationOptionsForModel(model: string) {
   if (model === "veo-fast") return [8];
   if (model === "seedance-2.0") return Array.from({ length: 12 }, (_, index) => index + 4);
@@ -1193,7 +1202,10 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
     setAiError("");
     setAiGenerating(true);
     try {
-      const draft = await post("generateBriefWithAi", { idea }) as PlanDraft;
+      const draft = await post("generateBriefWithAi", {
+        idea,
+        requestedFormat: preferredFormatForKind(kind, activeInitial.aspectRatio)
+      }) as PlanDraft;
       resetFormFromInitial(createContentInitialFromDraft(draft));
       setAiPromptOpen(false);
       setAiIdea("");

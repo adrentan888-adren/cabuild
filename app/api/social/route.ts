@@ -870,20 +870,22 @@ export async function POST(req: Request) {
   if (action === "generateBriefWithAi") {
     const idea = String(body.idea || "").trim();
     if (!idea) return NextResponse.json({ error: "Tell me what you want to create first." }, { status: 400 });
+    const requestedFormatRaw = String(body.requestedFormat || "").trim();
+    const requestedFormat = contentPlanFormats.includes(requestedFormatRaw) ? requestedFormatRaw : "";
     const workspace = await mutateDb((db) => db.workspaces.find((item) => item.id === workspaceId) || null);
     const niche = workspace?.niche?.trim() || "";
-    const prompt = buildAiBriefPrompt({ idea, niche });
+    const prompt = buildAiBriefPrompt({ idea, niche, requestedFormat });
     await debugLog(workspaceId, {
       action,
       label: "Prompt sent to Kie GPT-5.5 for new content plan",
       status: "started",
       provider: "kie",
       prompt,
-      details: { model: "gpt-5-5", idea }
+      details: { model: "gpt-5-5", idea, requestedFormat: requestedFormat || undefined }
     });
     try {
-      const plan = await generateContentPlanWithGpt55({ idea, niche }, prompt);
-      const format = String(plan.format || "Short video 9:16");
+      const plan = await generateContentPlanWithGpt55({ idea, niche, requestedFormat }, prompt);
+      const format = requestedFormat || String(plan.format || "Short video 9:16");
       const draft = {
         topic: String(plan.topic || idea),
         format: contentPlanFormats.includes(format) ? format : "Short video 9:16",

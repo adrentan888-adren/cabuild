@@ -886,12 +886,14 @@ export async function POST(req: Request) {
     try {
       const plan = await generateContentPlanWithGpt55({ idea, niche, requestedFormat }, prompt);
       const format = requestedFormat || String(plan.format || "Short video 9:16");
+      const resolvedFormat = contentPlanFormats.includes(format) ? format : "Short video 9:16";
+      const resolvedKind = contentKindFromFormat(resolvedFormat);
       const draft = {
         topic: String(plan.topic || idea),
-        format: contentPlanFormats.includes(format) ? format : "Short video 9:16",
+        format: resolvedFormat,
         description: String(plan.description || ""),
         videoPrompt: String(plan.videoPrompt || ""),
-        duration: Number(plan.duration || defaultDuration(format) || 0) || defaultDuration(format) || "",
+        duration: resolvedKind === "video" ? Number(plan.duration || defaultDuration(resolvedFormat) || 0) || defaultDuration(resolvedFormat) || "" : "",
         hooks: Array.isArray(plan.hooks) ? plan.hooks.join("\n") : String(plan.hooks || ""),
         outline: Array.isArray(plan.outline) ? plan.outline.join("\n") : String(plan.outline || ""),
         shotList: Array.isArray(plan.shotList) ? plan.shotList.join("\n") : String(plan.shotList || ""),

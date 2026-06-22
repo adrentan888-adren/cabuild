@@ -1025,6 +1025,15 @@ export async function POST(req: Request) {
       };
     }
 
+    if (action === "updateWorkspace") {
+      const workspace = db.workspaces.find((item) => item.id === workspaceId);
+      if (!workspace) return null;
+      workspace.name = String(body.name || workspace.name).trim() || workspace.name;
+      workspace.niche = String(body.niche || workspace.niche).trim() || workspace.niche;
+      activity(`Workspace context updated: ${workspace.niche}`);
+      return workspace;
+    }
+
     if (action === "addCompetitor") {
       const url = String(body.url || body.handle || "");
       const minViews = Number(body.minViews || 0);

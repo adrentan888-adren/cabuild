@@ -302,7 +302,7 @@ export default function Home() {
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
           {screen === "analyse" && <AnalyticsPanel data={data} />}
           {screen === "logs" && <LogPanel data={data} />}
-          {screen === "settings" && <SettingsPanel integrations={integrations} />}
+          {screen === "settings" && <SettingsPanel data={data} run={run} integrations={integrations} />}
         </section>
       </main>
     </div>
@@ -1603,7 +1603,7 @@ function BrandPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<
   return <PanelCard title="Brand kit"><form className="brand-form" action={(form) => run("updateBrandKit", { brandKit: Object.fromEntries(form.entries()) }, "Brand kit saved")}><label>Primary<input name="primary" type="color" defaultValue={data.brandKit.primary} /></label><label>Secondary<input name="secondary" type="color" defaultValue={data.brandKit.secondary} /></label><label>Accent<input name="accent" type="color" defaultValue={data.brandKit.accent} /></label><label>Voice<textarea name="voice" defaultValue={data.brandKit.voice} /></label><button className="primary">Save brand kit</button></form></PanelCard>;
 }
 
-function SettingsPanel({ integrations }: { integrations: IntegrationData | null }) {
+function SettingsPanel({ data, run, integrations }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; integrations: IntegrationData | null }) {
   const [connectUrl, setConnectUrl] = useState("");
   const [connectError, setConnectError] = useState("");
   async function createConnectUrl() {
@@ -1618,7 +1618,7 @@ function SettingsPanel({ integrations }: { integrations: IntegrationData | null 
     setConnectUrl(url);
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   }
-  return <div className="grid two"><PanelCard title="Provider status"><div className="provider-list">{Object.entries(integrations || {}).map(([name, value]) => <div className="provider-row" key={name}><b>{name}</b><span className={value.ok || value.configured ? "good" : "bad"}>{value.ok ? "verified" : value.configured ? "configured" : "missing"}</span>{value.status && <small>HTTP {value.status}</small>}{value.error && <small>{value.error}</small>}</div>)}</div></PanelCard><PanelCard title="Connect social accounts"><p className="muted">Demo is configured to Upload-Post profile Mariana and publishes to TikTok, Facebook, and X. Use this only if you need to re-open the connection page.</p><button className="primary" onClick={createConnectUrl}><Megaphone size={14} />Open Mariana connect link</button>{connectUrl && <p className="muted">Connection page opened in a new tab.</p>}{connectError && <p className="provider-error">{connectError}</p>}</PanelCard><PanelCard title="Token handling"><p>Keys are loaded from ignored local environment variables. Rotate the pasted keys before production because they were exposed in chat.</p><code>KIE_API_TOKEN, APIFY_API_TOKEN, UPLOAD_POST_API_KEY</code></PanelCard><PanelCard title="Recommended production shape"><p>GCP Cloud Run or a VPS can run this app later. Keep Postgres, queue, object storage, and provider keys outside the client.</p></PanelCard></div>;
+  return <div className="grid two"><PanelCard title="Workspace context"><form className="brand-form" action={(form) => run("updateWorkspace", Object.fromEntries(form.entries()), "Workspace context saved")}><label>Workspace name<input name="name" defaultValue={data.workspace.name} /></label><label>Brand / niche<textarea name="niche" defaultValue={data.workspace.niche} /></label><p className="muted">This Brand / niche value is passed into AI content-plan generation as context.</p><button className="primary">Save workspace context</button></form></PanelCard><PanelCard title="Provider status"><div className="provider-list">{Object.entries(integrations || {}).map(([name, value]) => <div className="provider-row" key={name}><b>{name}</b><span className={value.ok || value.configured ? "good" : "bad"}>{value.ok ? "verified" : value.configured ? "configured" : "missing"}</span>{value.status && <small>HTTP {value.status}</small>}{value.error && <small>{value.error}</small>}</div>)}</div></PanelCard><PanelCard title="Connect social accounts"><p className="muted">Demo is configured to Upload-Post profile Mariana and publishes to TikTok, Facebook, and X. Use this only if you need to re-open the connection page.</p><button className="primary" onClick={createConnectUrl}><Megaphone size={14} />Open Mariana connect link</button>{connectUrl && <p className="muted">Connection page opened in a new tab.</p>}{connectError && <p className="provider-error">{connectError}</p>}</PanelCard><PanelCard title="Token handling"><p>Keys are loaded from ignored local environment variables. Rotate the pasted keys before production because they were exposed in chat.</p><code>KIE_API_TOKEN, APIFY_API_TOKEN, UPLOAD_POST_API_KEY</code></PanelCard><PanelCard title="Recommended production shape"><p>GCP Cloud Run or a VPS can run this app later. Keep Postgres, queue, object storage, and provider keys outside the client.</p></PanelCard></div>;
 }
 
 function PanelCard({ title, children }: { title: string; children: React.ReactNode }) {

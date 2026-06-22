@@ -57,10 +57,14 @@ code{display:block;padding:12px;border-radius:8px;background:var(--panel-2);font
 .nav-item.active .nav-icon{background:var(--text);color:#fff}
 .nav-label{font-size:12px;flex:1;text-align:left}
 .nav-badge{font-size:10px;background:#e24b4a;color:#fff;border-radius:10px;padding:1px 6px}
-.sidebar-footer{padding:14px 16px;border-top:1px solid var(--line)}
-.ws-pill{display:flex;align-items:center;gap:9px}
+.sidebar-footer{padding:14px 16px;border-top:1px solid var(--line);position:relative}
+.ws-pill{display:flex;align-items:center;gap:9px;width:100%;border:0;background:transparent;border-radius:10px;padding:6px;text-align:left;justify-content:flex-start;color:var(--text);min-height:auto}
+.ws-pill:hover,.ws-pill.open{background:var(--bg)}
 .ws-av{width:30px;height:30px;border-radius:50%;background:#1a1a2e;color:#aaa9ec;display:grid;place-items:center;font-size:11px;font-weight:600}
 .ws-name{font-size:12px;font-weight:600}.ws-role{font-size:11px;color:var(--faint)}
+.profile-dropup{position:absolute;left:12px;right:12px;bottom:calc(100% - 6px);background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 34px rgba(0,0,0,.14);padding:6px;display:grid;gap:4px;z-index:30}
+.profile-dropup button{border:0;background:transparent;justify-content:flex-start;min-height:34px;padding:8px 10px;border-radius:8px;font-size:12px;color:var(--text)}
+.profile-dropup button:hover{background:var(--bg)}
 .main{flex:1;height:100vh;overflow:auto}
 .topbar{position:sticky;top:0;z-index:10;background:rgba(245,244,238,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
 .topbar-top{height:48px;padding:0 28px;display:flex;align-items:center;justify-content:space-between;gap:16px}

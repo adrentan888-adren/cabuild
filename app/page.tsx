@@ -132,6 +132,7 @@ export default function Home() {
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
   const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
   const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   async function refresh() {
@@ -261,13 +262,19 @@ export default function Home() {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <div className="ws-pill">
+          {profileMenuOpen && (
+            <div className="profile-dropup">
+              <button onClick={() => { setScreen("persona"); setProfileMenuOpen(false); }}><UserRound size={14} />Persona</button>
+              <button onClick={() => { setScreen("settings"); setProfileMenuOpen(false); }}><Settings size={14} />Settings</button>
+            </div>
+          )}
+          <button className={`ws-pill ${profileMenuOpen ? "open" : ""}`} onClick={() => setProfileMenuOpen((open) => !open)} aria-expanded={profileMenuOpen} aria-haspopup="menu">
             <div className="ws-av">ST</div>
             <div>
               <div className="ws-name">{data.user.name}</div>
               <div className="ws-role">{data.user.role}</div>
             </div>
-          </div>
+          </button>
         </div>
       </aside>
 

@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   const key = uploadKey(user.workspaceId, file.name);
   const stored = await saveUpload(key, Buffer.from(await file.arrayBuffer()), file.type || "application/octet-stream");
   const token = encodeUploadKey(stored.key);
-  const origin = new URL(req.url).origin;
+  const origin = publicOrigin(req);
 
   return NextResponse.json({
     role,
@@ -31,4 +31,12 @@ export async function POST(req: NextRequest) {
     storageKey: stored.key,
     url: `${origin}/api/public-uploads/${token}`
   });
+}
+
+function publicOrigin(req: NextRequest) {
+  if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/+$/, "");
+  const forwardedHost = req.headers.get("x-forwarded-host");
+  const forwardedProto = req.headers.get("x-forwarded-proto") || "https";
+  if (forwardedHost) return `${forwardedProto}://${forwardedHost}`;
+  return new URL(req.url).origin;
 }

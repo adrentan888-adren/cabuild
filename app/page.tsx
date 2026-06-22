@@ -795,7 +795,6 @@ type CreateContentInitial = {
   model?: string;
   duration?: number | string;
   aspectRatio?: string;
-  imageSize?: string;
   prompt: string;
   caption: string;
   hashtags: string;
@@ -812,6 +811,13 @@ function closestDuration(value: number | string | undefined, options: number[]) 
   if (options.length === 0) return "";
   const numeric = Number(value || options[0]);
   return String(options.reduce((best, option) => Math.abs(option - numeric) < Math.abs(best - numeric) ? option : best, options[0]));
+}
+
+function defaultAspectRatioForFormat(format?: string) {
+  if (format?.includes("1:1")) return "1:1";
+  if (format?.includes("4:5")) return "4:5";
+  if (format?.includes("16:9")) return "16:9";
+  return "9:16";
 }
 
 function defaultGenerationPrompt(brief: Brief, kind = planContentKind(brief.format)) {
@@ -1086,7 +1092,6 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
         caption: String(form.get("caption") || ""),
         hashtags: String(form.get("hashtags") || ""),
         aspectRatio: String(form.get("aspectRatio") || ""),
-        imageSize: String(form.get("imageSize") || ""),
         variants: String(form.get("variants") || ""),
         tone: String(form.get("tone") || ""),
         length: String(form.get("length") || ""),
@@ -1169,7 +1174,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
           )}
           {kind === "image" && (
             <>
-              <label>Image size<select name="imageSize" defaultValue={initial.imageSize || "1080x1350"}><option>1080x1350</option><option>1080x1080</option><option>1920x1080</option></select></label>
+              <label>Image dimension<select name="aspectRatio" defaultValue={initial.aspectRatio || "4:5"}><option value="1:1">1:1 square</option><option value="4:5">4:5 portrait</option><option value="16:9">16:9 landscape</option><option value="9:16">9:16 vertical</option></select></label>
               <label>Variants<input name="variants" type="number" min="1" max="4" defaultValue="1" /></label>
             </>
           )}
@@ -1219,7 +1224,7 @@ function GenerationModal({ brief, onClose, onStart, onSubmit }: { brief: Brief; 
     sourceDescription: brief.description || brief.hooks?.[0] || brief.format,
     kind,
     duration: brief.duration || defaultPlanDuration(brief.format) || 8,
-    aspectRatio: brief.format.includes("16:9") ? "16:9" : "9:16",
+    aspectRatio: defaultAspectRatioForFormat(brief.format),
     prompt: defaultGenerationPrompt(brief, kind),
     caption: defaultCaption(brief),
     hashtags: defaultHashtags(brief),

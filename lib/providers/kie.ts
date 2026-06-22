@@ -118,13 +118,13 @@ export async function generateSeedanceVideo(prompt: string, options: { duration?
   return json.data.taskId;
 }
 
-export async function generateImage(prompt: string, options: { model?: string; aspectRatio?: string; imageSize?: string; references?: KieReferenceAsset[] } = {}) {
+export async function generateImage(prompt: string, options: { model?: string; aspectRatio?: string; references?: KieReferenceAsset[] } = {}) {
   if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
   const imageUrls = referenceUrls(options.references);
   const model = options.model === "gpt-image-2"
     ? imageUrls.length ? "gpt-image-2-image-to-image" : "gpt-image-2-text-to-image"
     : "nano-banana-pro";
-  const aspectRatio = options.aspectRatio || imageSizeToAspectRatio(options.imageSize) || "1:1";
+  const aspectRatio = normalizeAspectRatio(options.aspectRatio);
   const input = model === "nano-banana-pro"
     ? { prompt, image_input: imageUrls, aspect_ratio: aspectRatio, resolution: "1K", output_format: "png" }
     : model === "gpt-image-2-image-to-image"
@@ -145,13 +145,8 @@ export async function generateImage(prompt: string, options: { model?: string; a
   return json.data.taskId;
 }
 
-function imageSizeToAspectRatio(size?: string) {
-  if (!size) return "";
-  const [width, height] = size.split("x").map(Number);
-  if (!width || !height) return "";
-  if (width === height) return "1:1";
-  if (width > height) return "16:9";
-  return "4:5";
+function normalizeAspectRatio(value?: string) {
+  return value === "1:1" || value === "4:5" || value === "16:9" || value === "9:16" ? value : "1:1";
 }
 
 export async function getVeoVideo(taskId: string) {

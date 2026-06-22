@@ -880,13 +880,12 @@ export async function POST(req: Request) {
         model,
         duration: settings.duration || snapshot.publishItem?.duration,
         aspectRatio: settings.aspectRatio,
-        imageSize: settings.imageSize,
         references
       }
     });
     try {
       const taskId = isKieImageModel(model)
-        ? await generateImage(prompt, { model, aspectRatio: String(settings.aspectRatio || ""), imageSize: String(settings.imageSize || ""), references })
+        ? await generateImage(prompt, { model, aspectRatio: String(settings.aspectRatio || ""), references })
         : model === "seedance-2.0"
           ? await generateSeedanceVideo(prompt, { duration: Number(settings.duration || snapshot.publishItem?.duration || 8), aspectRatio: String(settings.aspectRatio || "9:16"), references })
           : await generateVeoVideo(prompt, { duration: Number(settings.duration || snapshot.publishItem?.duration || 8), aspectRatio: String(settings.aspectRatio || "9:16"), references });
@@ -1093,7 +1092,6 @@ export async function POST(req: Request) {
       const platform = (String(body.platform || brief.platforms[0] || "TikTok") as Platform);
       const generationSettings = {
         aspectRatio: String(body.aspectRatio || ""),
-        imageSize: String(body.imageSize || ""),
         variants: String(body.variants || ""),
         tone: String(body.tone || ""),
         length: String(body.length || ""),
@@ -1162,7 +1160,6 @@ export async function POST(req: Request) {
       const platform = (String(body.platform || "TikTok") as Platform);
       const generationSettings = {
         aspectRatio: String(body.aspectRatio || ""),
-        imageSize: String(body.imageSize || ""),
         variants: String(body.variants || ""),
         tone: String(body.tone || ""),
         length: String(body.length || ""),
@@ -1307,12 +1304,11 @@ export async function POST(req: Request) {
           model,
           duration: body.duration,
           aspectRatio: body.aspectRatio,
-          imageSize: body.imageSize,
           references
         }
       });
       const taskId = isKieImageModel(model)
-        ? await generateImage(prompt, { model, aspectRatio: String(body.aspectRatio || ""), imageSize: String(body.imageSize || ""), references })
+        ? await generateImage(prompt, { model, aspectRatio: String(body.aspectRatio || ""), references })
         : model === "seedance-2.0"
           ? await generateSeedanceVideo(prompt, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16"), references })
           : await generateVeoVideo(prompt, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16"), references });

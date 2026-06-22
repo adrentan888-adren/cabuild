@@ -39,6 +39,16 @@ type KieMarketStatusResponse = {
   };
 };
 
+type KieResponsesResponse = {
+  output?: Array<{
+    type?: string;
+    role?: string;
+    content?: Array<{ type?: string; text?: string }>;
+  }>;
+  status?: string;
+  error?: { message?: string };
+};
+
 const baseUrl = "https://api.kie.ai";
 
 export type KieReferenceAsset = {
@@ -213,6 +223,66 @@ function extractJson(text: string) {
   const fenced = text.match(/```json\s*([\s\S]*?)```/i)?.[1];
   const raw = fenced || text.match(/\{[\s\S]*\}/)?.[0] || text;
   return JSON.parse(raw);
+}
+
+export function buildAiBriefPrompt(input: { idea: string; niche: string }) {
+  return `You are ContentAgent's senior social content strategist.
+
+User request:
+${input.idea}
+
+Brand/niche:
+${input.niche}
+
+Create a complete editable content plan. Return ONLY valid JSON with this exact shape:
+{
+  "topic": "specific title/topic",
+  "format": "one of: Short video 9:16, Long-form video 16:9, Image 1:1, Image 4:5, Image 16:9, Image 9:16, Text post, Long-form article",
+  "description": "concise strategic description",
+  "videoPrompt": "detailed generation prompt if video/image; for text/article, describe the creative direction",
+  "duration": 8,
+  "hooks": ["hook 1", "hook 2", "hook 3"],
+  "outline": ["section or scene 1", "section or scene 2", "section or scene 3", "section or scene 4"],
+  "shotList": ["shot or visual 1", "shot or visual 2", "shot or visual 3", "shot or visual 4"],
+  "creativeNotes": "visual style, pacing, edit notes, CTA, compliance notes",
+  "caption": "ready-to-use caption",
+  "hashtags": ["#tag1", "#tag2", "#tag3"],
+  "optimalTime": "day and time",
+  "expectedPerformance": "estimated engagement range",
+  "analysisSummary": "why this plan should work"
+}`;
+}
+
+export async function generateContentPlanWithGpt55(input: { idea: string; niche: string }, prompt = buildAiBriefPrompt(input)) {
+  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const res = await fetch(`${baseUrl}/codex/v1/responses`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token()}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "gpt-5-5",
+      stream: false,
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: prompt }]
+        }
+      ],
+      reasoning: { effort: "medium" }
+    })
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Kie GPT-5.5 failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
+  const parsed = JSON.parse(text) as KieResponsesResponse;
+  if (parsed.error?.message) throw new Error(parsed.error.message);
+  const content = (parsed.output || [])
+    .flatMap((item) => item.content || [])
+    .map((item) => item.text || "")
+    .join("")
+    .trim();
+  return extractJson(content || text);
 }
 
 export function buildContentPlanPrompt(input: PlanInput) {

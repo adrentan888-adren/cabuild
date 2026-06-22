@@ -95,6 +95,21 @@ const researchActors = [
 type IntegrationData = Record<string, { configured?: boolean; ok?: boolean; status?: number; error?: string; baseUrl?: string; actor?: string }>;
 type PendingPlan = { title: string; description: string; startedAt: number };
 type PendingGeneration = { title: string; description: string; kind: GenerationKind; model: string; startedAt: number };
+type PlanDraft = {
+  topic?: string;
+  format?: string;
+  description?: string;
+  videoPrompt?: string;
+  duration?: number | string;
+  hooks?: string;
+  outline?: string;
+  shotList?: string;
+  creativeNotes?: string;
+  caption?: string;
+  hashtags?: string;
+  optimalTime?: string;
+  expectedPerformance?: string;
+};
 
 async function post(action: string, payload: Record<string, unknown> = {}) {
   const res = await fetch("/api/social", {
@@ -905,25 +920,29 @@ function enrichPromptForSocialConversion(basePrompt: string, kind: GenerationKin
   return [basePrompt, visualDirection, conversionDirection].filter(Boolean).join("\n\n");
 }
 
-function PlanEditorForm({ brief, onSubmit, onCancel, submitLabel }: { brief?: Brief; onSubmit: (form: FormData) => Promise<void>; onCancel: () => void; submitLabel: string }) {
-  const [format, setFormat] = useState(brief?.format && contentFormatOptions.includes(brief.format) ? brief.format : "Short video 9:16");
+function PlanEditorForm({ brief, draft, onSubmit, onCancel, submitLabel }: { brief?: Brief; draft?: PlanDraft; onSubmit: (form: FormData) => Promise<void>; onCancel: () => void; submitLabel: string }) {
+  const source = brief || draft;
+  const [format, setFormat] = useState(source?.format && contentFormatOptions.includes(source.format) ? source.format : "Short video 9:16");
+  useEffect(() => {
+    setFormat(source?.format && contentFormatOptions.includes(source.format) ? source.format : "Short video 9:16");
+  }, [source?.format]);
   return (
     <form action={onSubmit} className="plan-edit">
       {brief && <input type="hidden" name="id" value={brief.id} />}
-      <label>Topic<input name="topic" defaultValue={brief?.topic || ""} required /></label>
+      <label>Topic<input name="topic" defaultValue={source?.topic || ""} required /></label>
       <label>Format<select name="format" value={format} onChange={(event) => setFormat(event.target.value)}>{contentFormatOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
-      <label>Description<textarea name="description" defaultValue={brief?.description || ""} /></label>
-      <label>Video prompt<textarea name="videoPrompt" defaultValue={brief?.videoPrompt || ""} /></label>
-      {planContentKind(format) === "video" && <label>Duration (seconds)<input name="duration" type="number" min="1" step="1" defaultValue={brief?.duration || defaultPlanDuration(format)} /></label>}
-      <label>Hooks<textarea name="hooks" defaultValue={(brief?.hooks || []).join("\n")} /></label>
-      <label>Outline<textarea name="outline" defaultValue={(brief?.outline || []).join("\n")} /></label>
-      <label>Shot list<textarea name="shotList" defaultValue={(brief?.shotList || []).join("\n")} /></label>
-      <label>Creative notes<textarea name="creativeNotes" defaultValue={brief?.creativeNotes || ""} /></label>
-      <label>Caption<textarea name="caption" defaultValue={brief?.caption || ""} /></label>
-      <label>Hashtags<input name="hashtags" defaultValue={(brief?.hashtags || []).join(", ")} /></label>
+      <label>Description<textarea name="description" defaultValue={source?.description || ""} /></label>
+      <label>Video prompt<textarea name="videoPrompt" defaultValue={source?.videoPrompt || ""} /></label>
+      {planContentKind(format) === "video" && <label>Duration (seconds)<input name="duration" type="number" min="1" step="1" defaultValue={source?.duration || defaultPlanDuration(format)} /></label>}
+      <label>Hooks<textarea name="hooks" defaultValue={brief ? (brief.hooks || []).join("\n") : draft?.hooks || ""} /></label>
+      <label>Outline<textarea name="outline" defaultValue={brief ? (brief.outline || []).join("\n") : draft?.outline || ""} /></label>
+      <label>Shot list<textarea name="shotList" defaultValue={brief ? (brief.shotList || []).join("\n") : draft?.shotList || ""} /></label>
+      <label>Creative notes<textarea name="creativeNotes" defaultValue={source?.creativeNotes || ""} /></label>
+      <label>Caption<textarea name="caption" defaultValue={source?.caption || ""} /></label>
+      <label>Hashtags<input name="hashtags" defaultValue={brief ? (brief.hashtags || []).join(", ") : draft?.hashtags || ""} /></label>
       <div className="grid two">
-        <label>Optimal time<input name="optimalTime" defaultValue={brief?.optimalTime || ""} /></label>
-        <label>Expected performance<input name="expectedPerformance" defaultValue={brief?.expectedPerformance || ""} /></label>
+        <label>Optimal time<input name="optimalTime" defaultValue={source?.optimalTime || ""} /></label>
+        <label>Expected performance<input name="expectedPerformance" defaultValue={source?.expectedPerformance || ""} /></label>
       </div>
       <div className="row-actions">
         <button className="primary" type="submit"><Check size={14} />{submitLabel}</button>
@@ -937,6 +956,10 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
   const [editingId, setEditingId] = useState<string | null>(null);
   const [generatingBrief, setGeneratingBrief] = useState<Brief | null>(null);
   const [creatingPlan, setCreatingPlan] = useState(false);
+  const [aiPromptOpen, setAiPromptOpen] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiDraft, setAiDraft] = useState<PlanDraft | null>(null);
   const planTime = (value?: string) => {
     const time = value ? new Date(value).getTime() : 0;
     return Number.isFinite(time) ? time : 0;
@@ -949,6 +972,31 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
   const create = async (form: FormData) => {
     await run("createBrief", Object.fromEntries(form.entries()), "Content plan created");
     setCreatingPlan(false);
+    setAiDraft(null);
+  };
+  const closeCreate = () => {
+    setCreatingPlan(false);
+    setAiPromptOpen(false);
+    setAiError("");
+    setAiDraft(null);
+  };
+  const generateAiDraft = async (form: FormData) => {
+    const idea = String(form.get("idea") || "").trim();
+    if (!idea) {
+      setAiError("Tell me what you want to create first.");
+      return;
+    }
+    setAiError("");
+    setAiGenerating(true);
+    try {
+      const draft = await post("generateBriefWithAi", { idea }) as PlanDraft;
+      setAiDraft(draft);
+      setAiPromptOpen(false);
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "AI generation failed.");
+    } finally {
+      setAiGenerating(false);
+    }
   };
   const generate = (brief: Brief) => setGeneratingBrief(brief);
   return (
@@ -961,9 +1009,26 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
                 <h3>New content plan</h3>
                 <p>Create a plan manually using the same editable fields as generated plans.</p>
               </div>
-              <button onClick={() => setCreatingPlan(false)}>Close</button>
+              <div className="row-actions">
+                <button className="primary" onClick={() => setAiPromptOpen(true)}><Sparkles size={14} />Generate with AI</button>
+                <button onClick={closeCreate}>Close</button>
+              </div>
             </div>
-            <PlanEditorForm onSubmit={create} onCancel={() => setCreatingPlan(false)} submitLabel="Create plan" />
+            {aiPromptOpen && (
+              <div className="ai-plan-box">
+                <form onSubmit={(event) => { event.preventDefault(); void generateAiDraft(new FormData(event.currentTarget)); }}>
+                  <label>Tell me in a sentence or few, then I can create anything for you.
+                    <textarea name="idea" placeholder="Example: Create an Instagram image post about why SME owners should automate invoice follow-ups." autoFocus />
+                  </label>
+                  {aiError && <div className="provider-error">{aiError}</div>}
+                  <div className="row-actions">
+                    <button className="primary" type="submit" disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? "Generating..." : "Generate"}</button>
+                    <button type="button" onClick={() => setAiPromptOpen(false)} disabled={aiGenerating}>Cancel</button>
+                  </div>
+                </form>
+              </div>
+            )}
+            <PlanEditorForm key={aiDraft ? JSON.stringify(aiDraft) : "blank"} draft={aiDraft || undefined} onSubmit={create} onCancel={closeCreate} submitLabel="Create plan" />
           </div>
         </div>
       )}

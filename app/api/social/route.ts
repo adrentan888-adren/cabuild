@@ -3,7 +3,7 @@ import { currentUser } from "@/lib/session";
 import { id, mutateDb } from "@/lib/store";
 import type { Asset, Brief, CompetitorResult, GenerationAssetReference, Platform, PublishItem } from "@/lib/types";
 import { fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl } from "@/lib/providers/apify";
-import { buildContentPlanPrompt, generateContentPlanWithGemini, generateImage, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
+import { buildAiBriefPrompt, buildContentPlanPrompt, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateImage, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 
 async function requireUser() {
@@ -197,6 +197,17 @@ function defaultDuration(format: string) {
   if (lower.includes("video") || lower.includes("short") || lower.includes("reel") || lower.includes("tiktok")) return 8;
   return undefined;
 }
+
+const contentPlanFormats = [
+  "Short video 9:16",
+  "Long-form video 16:9",
+  "Image 1:1",
+  "Image 4:5",
+  "Image 16:9",
+  "Image 9:16",
+  "Text post",
+  "Long-form article"
+];
 
 function defaultPromptForBrief(brief: Brief, generationType: "video" | "image" | "text") {
   const existing = brief.videoPrompt || [brief.description, brief.outline?.join(". "), brief.creativeNotes].filter(Boolean).join("\n");
@@ -850,6 +861,58 @@ export async function POST(req: Request) {
         error: error instanceof Error ? error.message : "Upload-Post publish failed"
       });
       return NextResponse.json(updated || { error: "Publish failed" }, { status: 502 });
+    }
+  }
+
+  if (action === "generateBriefWithAi") {
+    const idea = String(body.idea || "").trim();
+    if (!idea) return NextResponse.json({ error: "Tell me what you want to create first." }, { status: 400 });
+    const workspace = await mutateDb((db) => db.workspaces.find((item) => item.id === workspaceId) || null);
+    const prompt = buildAiBriefPrompt({ idea, niche: workspace?.niche || "SME AI automation" });
+    await debugLog(workspaceId, {
+      action,
+      label: "Prompt sent to Kie GPT-5.5 for new content plan",
+      status: "started",
+      provider: "kie",
+      prompt,
+      details: { model: "gpt-5-5", idea }
+    });
+    try {
+      const plan = await generateContentPlanWithGpt55({ idea, niche: workspace?.niche || "SME AI automation" }, prompt);
+      const format = String(plan.format || "Short video 9:16");
+      const draft = {
+        topic: String(plan.topic || idea),
+        format: contentPlanFormats.includes(format) ? format : "Short video 9:16",
+        description: String(plan.description || ""),
+        videoPrompt: String(plan.videoPrompt || ""),
+        duration: Number(plan.duration || defaultDuration(format) || 0) || defaultDuration(format) || "",
+        hooks: Array.isArray(plan.hooks) ? plan.hooks.join("\n") : String(plan.hooks || ""),
+        outline: Array.isArray(plan.outline) ? plan.outline.join("\n") : String(plan.outline || ""),
+        shotList: Array.isArray(plan.shotList) ? plan.shotList.join("\n") : String(plan.shotList || ""),
+        creativeNotes: String(plan.creativeNotes || ""),
+        caption: String(plan.caption || ""),
+        hashtags: Array.isArray(plan.hashtags) ? plan.hashtags.join(", ") : String(plan.hashtags || ""),
+        optimalTime: String(plan.optimalTime || "Thu 10:00 AM"),
+        expectedPerformance: String(plan.expectedPerformance || "4.0-5.5% engagement")
+      };
+      await debugLog(workspaceId, {
+        action,
+        label: `Kie GPT-5.5 populated new content plan: ${draft.topic}`,
+        status: "success",
+        provider: "kie",
+        details: { model: "gpt-5-5", format: draft.format, topic: draft.topic }
+      });
+      return NextResponse.json(draft);
+    } catch (error) {
+      await debugLog(workspaceId, {
+        action,
+        label: "Kie GPT-5.5 content plan generation failed",
+        status: "failed",
+        provider: "kie",
+        prompt,
+        error: error instanceof Error ? error.message : "Kie GPT-5.5 generation failed"
+      });
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Kie GPT-5.5 generation failed" }, { status: 502 });
     }
   }
 

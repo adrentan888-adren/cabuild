@@ -554,8 +554,25 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   const [step, setStep] = useState(0);
   const [showAutofill, setShowAutofill] = useState(false);
   const persona = data.personaProfile;
+  const completionChecks = [
+    persona.fullName,
+    persona.jobTitle,
+    persona.company,
+    persona.primaryAudience,
+    persona.painPoint,
+    persona.naturalPhrases.length,
+    persona.approvedTopics.length,
+    persona.strongOpinions,
+    persona.writingSamples.length
+  ];
+  const completion = Math.round((completionChecks.filter(Boolean).length / completionChecks.length) * 100);
   const save = async (form: FormData) => {
     await run("updatePersonaProfile", Object.fromEntries(form.entries()), "Persona saved");
+  };
+  const saveAndGo = async (targetStep: number, form?: HTMLFormElement | null) => {
+    if (targetStep === step) return;
+    if (form) await save(new FormData(form));
+    setStep(Math.min(personaSteps.length - 1, Math.max(0, targetStep)));
   };
   return (
     <div className="persona-page">
@@ -591,18 +608,11 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
         </button>
       </div>
 
-      {showAutofill && (
-        <section className="persona-card">
-          <div className="persona-card-head">
-            <div>
-              <div className="clbl">Auto-fill sources</div>
-              <h3>Online presence URLs</h3>
-            </div>
-            <button type="button" onClick={() => setShowAutofill(false)}>Close</button>
-          </div>
-          <p className="muted">These URLs are only stored for later. No scraping or prompt usage is enabled in this step.</p>
-        </section>
-      )}
+      <section className="persona-summary">
+        <Metric label="Profile completion" value={`${completion}%`} />
+        <Metric label="Tone" value={`${persona.toneFormalCasual}/${persona.toneSeriousHumorous}/${persona.toneReservedBold}`} />
+        <Metric label="Approved topics" value={persona.approvedTopics.length} />
+      </section>
 
       <form action={save} className="persona-setup">
         <div className="persona-step-head">
@@ -611,9 +621,28 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
         </div>
         <div className="step-nav">
           {personaSteps.map((label, index) => (
-            <button type="button" key={label} className={`step-dot ${index === step ? "active" : index < step ? "done" : ""}`} onClick={() => setStep(index)} title={label}>{index + 1}</button>
+            <button type="button" key={label} className={`step-dot ${index === step ? "active" : index < step ? "done" : ""}`} onClick={(event) => saveAndGo(index, event.currentTarget.form)} title={label}><span>{index + 1}</span>{label}</button>
           ))}
         </div>
+
+        {showAutofill && (
+          <section className="persona-card">
+            <div className="persona-card-head">
+              <div>
+                <div className="clbl">Auto-fill sources</div>
+                <h3>Online presence URLs</h3>
+              </div>
+              <button type="button" onClick={() => setShowAutofill(false)}>Close</button>
+            </div>
+            <p className="muted">These URLs are only stored for later. No scraping or prompt usage is enabled in this step.</p>
+            <div className="grid two">
+              <label>LinkedIn<input name="linkedinUrl" defaultValue={persona.sourceUrls.linkedin} placeholder="linkedin.com/in/yourname" /></label>
+              <label>Website<input name="websiteUrl" defaultValue={persona.sourceUrls.website} placeholder="yourcompany.com" /></label>
+              <label>Instagram<input name="instagramUrl" defaultValue={persona.sourceUrls.instagram} placeholder="instagram.com/yourhandle" /></label>
+              <label>X / Twitter<input name="xUrl" defaultValue={persona.sourceUrls.x} placeholder="x.com/yourhandle" /></label>
+            </div>
+          </section>
+        )}
 
         <section className="persona-card">
           {step === 0 && (
@@ -649,7 +678,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
                 <label>Audience's biggest fear<input name="audienceFear" defaultValue={persona.audienceFear} placeholder="Being replaced by AI or falling behind competitors" /></label>
                 <label>Audience's biggest aspiration<input name="audienceAspiration" defaultValue={persona.audienceAspiration} placeholder="Run a leaner, faster, more profitable operation" /></label>
                 <label>Secondary audience<input name="secondaryAudience" defaultValue={persona.secondaryAudience} placeholder="Investors, potential hires..." /></label>
-                <label className="toggle-line"><span>Include personal life in content</span><input name="includePersonalLife" type="checkbox" defaultChecked={persona.includePersonalLife} /></label>
+                <label className="toggle-line"><span>Include personal life in content</span><span><input type="hidden" name="includePersonalLife" value="false" /><input name="includePersonalLife" type="checkbox" value="true" defaultChecked={persona.includePersonalLife} /></span></label>
               </div>
             </div>
           )}
@@ -695,32 +724,18 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
                   <PersonaFileField name="voiceSampleFileName" title="Voice sample" helper="Upload recording" accept="audio/*" initial={persona.voiceSampleFileName} />
                 </div>
                 <div className="clbl">PDPA consent</div>
-                <label className="toggle-line"><span>Allow AI face generation</span><input name="allowAiFace" type="checkbox" defaultChecked={persona.allowAiFace} /></label>
-                <label className="toggle-line"><span>Allow AI voice cloning</span><input name="allowAiVoice" type="checkbox" defaultChecked={persona.allowAiVoice} /></label>
-                <label className="toggle-line"><span>Auto-apply AI disclosure label</span><input name="autoAiDisclosure" type="checkbox" defaultChecked={persona.autoAiDisclosure} /></label>
+                <label className="toggle-line"><span>Allow AI face generation</span><span><input type="hidden" name="allowAiFace" value="false" /><input name="allowAiFace" type="checkbox" value="true" defaultChecked={persona.allowAiFace} /></span></label>
+                <label className="toggle-line"><span>Allow AI voice cloning</span><span><input type="hidden" name="allowAiVoice" value="false" /><input name="allowAiVoice" type="checkbox" value="true" defaultChecked={persona.allowAiVoice} /></span></label>
+                <label className="toggle-line"><span>Auto-apply AI disclosure label</span><span><input type="hidden" name="autoAiDisclosure" value="false" /><input name="autoAiDisclosure" type="checkbox" value="true" defaultChecked={persona.autoAiDisclosure} /></span></label>
               </div>
             </div>
           )}
-
-          <div className="persona-source-fields">
-            <div className="clbl">Stored autofill URLs</div>
-            <div className="grid two">
-              <label>LinkedIn<input name="linkedinUrl" defaultValue={persona.sourceUrls.linkedin} placeholder="linkedin.com/in/yourname" /></label>
-              <label>Website<input name="websiteUrl" defaultValue={persona.sourceUrls.website} placeholder="yourcompany.com" /></label>
-              <label>Instagram<input name="instagramUrl" defaultValue={persona.sourceUrls.instagram} placeholder="instagram.com/yourhandle" /></label>
-              <label>X / Twitter<input name="xUrl" defaultValue={persona.sourceUrls.x} placeholder="x.com/yourhandle" /></label>
-            </div>
-          </div>
         </section>
 
         <div className="persona-footer">
-          <button type="button" onClick={() => setStep(Math.max(0, step - 1))} disabled={step === 0}>Back</button>
+          <button type="button" onClick={(event) => saveAndGo(step - 1, event.currentTarget.form)} disabled={step === 0}>Back</button>
           <div className="row-actions">
-            <button type="button" onClick={async (event) => {
-              const form = event.currentTarget.form;
-              if (form) await save(new FormData(form));
-              setStep(Math.min(personaSteps.length - 1, step + 1));
-            }} disabled={step === personaSteps.length - 1}>Continue</button>
+            <button type="button" onClick={(event) => saveAndGo(step + 1, event.currentTarget.form)} disabled={step === personaSteps.length - 1}>Continue</button>
             <button className="primary" type="submit"><Check size={14} />Save persona</button>
           </div>
         </div>

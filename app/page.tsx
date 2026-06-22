@@ -93,6 +93,7 @@ const researchActors = [
 ] as const;
 type IntegrationData = Record<string, { configured?: boolean; ok?: boolean; status?: number; error?: string; baseUrl?: string; actor?: string }>;
 type PendingPlan = { title: string; description: string; startedAt: number };
+type PendingGeneration = { title: string; description: string; kind: GenerationKind; model: string; startedAt: number };
 
 async function post(action: string, payload: Record<string, unknown> = {}) {
   const res = await fetch("/api/social", {
@@ -112,6 +113,7 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
   const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
+  const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function refresh() {
@@ -132,6 +134,13 @@ export default function Home() {
   useEffect(() => {
     refresh();
   }, []);
+
+  useEffect(() => {
+    if (!pendingGeneration || !data?.publishQueue.length) return;
+    const pendingStartedAt = pendingGeneration.startedAt - 30000;
+    const hasNewQueueItem = data.publishQueue.some((item) => new Date(item.createdAt || item.scheduledAt).getTime() >= pendingStartedAt);
+    if (hasNewQueueItem) setPendingGeneration(null);
+  }, [data?.publishQueue, pendingGeneration]);
 
   async function run(action: string, payload: Record<string, unknown> = {}, message = "Updated") {
     try {
@@ -271,9 +280,9 @@ export default function Home() {
           {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
           {screen === "research" && <IntelligencePanel data={data} run={run} setScreen={setScreen} setPendingPlan={setPendingPlan} />}
-          {screen === "plan" && <BriefPanel data={data} run={run} setScreen={setScreen} pendingPlan={pendingPlan} />}
-          {screen === "create" && <CreateContentPanel run={run} setScreen={setScreen} />}
-          {screen === "publish" && <PublishPanel data={data} run={run} />}
+          {screen === "plan" && <BriefPanel data={data} run={run} setScreen={setScreen} pendingPlan={pendingPlan} setPendingGeneration={setPendingGeneration} />}
+          {screen === "create" && <CreateContentPanel run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
+          {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
           {screen === "analyse" && <AnalyticsPanel data={data} />}
           {screen === "logs" && <LogPanel data={data} />}
@@ -915,7 +924,7 @@ function PlanEditorForm({ brief, onSubmit, onCancel, submitLabel }: { brief?: Br
   );
 }
 
-function BriefPanel({ data, run, setScreen, pendingPlan }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; setScreen: (screen: string) => void; pendingPlan: PendingPlan | null }) {
+function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; setScreen: (screen: string) => void; pendingPlan: PendingPlan | null; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [generatingBrief, setGeneratingBrief] = useState<Brief | null>(null);
   const [creatingPlan, setCreatingPlan] = useState(false);
@@ -953,10 +962,14 @@ function BriefPanel({ data, run, setScreen, pendingPlan }: { data: AppData; run:
         <GenerationModal
           brief={generatingBrief}
           onClose={() => setGeneratingBrief(null)}
-          onSubmit={async (payload) => {
+          onStart={(generation) => {
+            setPendingGeneration(generation);
             setGeneratingBrief(null);
             setScreen("publish");
+          }}
+          onSubmit={async (payload) => {
             await run("generateDraftFromPlan", payload, "Generation queued in Publish");
+            setPendingGeneration(null);
           }}
         />
       )}
@@ -1014,7 +1027,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan }: { data: AppData; run:
   );
 }
 
-function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, submitLabel = "Generate" }: { initial: CreateContentInitial; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; submitLabel?: string }) {
+function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate" }: { initial: CreateContentInitial; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string }) {
   const [kind, setKind] = useState<GenerationKind>(initial.kind);
   const [model, setModel] = useState<string>(initial.model || generationModels[initial.kind][0][0]);
   const [duration, setDuration] = useState(closestDuration(initial.duration || 8, durationOptionsForModel(initial.model || generationModels[initial.kind][0][0])));
@@ -1055,6 +1068,13 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, submitLab
     setBusy(true);
     try {
       const selectedPlatform = String(form.get("platform") || platform || defaultPlatformForKind(kind));
+      onStart?.({
+        title: initial.sourceTitle,
+        description: visualAssetsEnabled && assetRefs.length ? "Uploading references and preparing provider generation." : "Preparing provider generation.",
+        kind,
+        model,
+        startedAt: Date.now()
+      });
       const cleanRefs = visualAssetsEnabled ? await uploadAssetReferences(assetRefs) : [];
       const prompt = enrichPromptForSocialConversion(String(form.get("prompt") || ""), kind, cleanRefs);
       await onSubmit({
@@ -1188,7 +1208,7 @@ function AssetUploadBox({ icon, title, helper, role, refs, onChange }: { icon: R
   );
 }
 
-function GenerationModal({ brief, onClose, onSubmit }: { brief: Brief; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+function GenerationModal({ brief, onClose, onStart, onSubmit }: { brief: Brief; onClose: () => void; onStart?: (generation: PendingGeneration) => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
   const kind = planContentKind(brief.format);
   const initial: CreateContentInitial = {
     sourceLabel: "Content plan",
@@ -1213,13 +1233,13 @@ function GenerationModal({ brief, onClose, onSubmit }: { brief: Brief; onClose: 
           </div>
           <button type="button" className="icon-btn" onClick={onClose}>x</button>
         </div>
-        <CreateContentModule initial={initial} onCancel={onClose} submitLabel="Generate" onSubmit={(payload) => onSubmit({ ...payload, id: brief.id })} />
+        <CreateContentModule initial={initial} onCancel={onClose} onStart={onStart} submitLabel="Generate" onSubmit={(payload) => onSubmit({ ...payload, id: brief.id })} />
       </section>
     </div>
   );
 }
 
-function CreateContentPanel({ run, setScreen }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void }) {
+function CreateContentPanel({ run, setScreen, setPendingGeneration }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
   const initial: CreateContentInitial = {
     sourceLabel: "Direct generation",
     sourceTitle: "Generate from scratch",
@@ -1244,16 +1264,20 @@ function CreateContentPanel({ run, setScreen }: { run: (a: string, p?: Record<st
       <CreateContentModule
         initial={initial}
         onUsePlan={() => setScreen("plan")}
-        onSubmit={async (payload) => {
+        onStart={(generation) => {
+          setPendingGeneration(generation);
           setScreen("publish");
+        }}
+        onSubmit={async (payload) => {
           await run("generateDirectContent", payload, "Generation queued in Publish");
+          setPendingGeneration(null);
         }}
       />
     </div>
   );
 }
 
-function PublishPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; pendingGeneration: PendingGeneration | null }) {
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const runRef = useRef(run);
   useEffect(() => {
@@ -1306,6 +1330,30 @@ function PublishPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
         <Metric label="Done drafts" value={queue.filter((item) => item.status === "done").length} />
       </section>
       <div className="publish-list">
+        {pendingGeneration && (
+          <article className="publish-card with-video pending-publish-card">
+            <div className="image-thumb pending">
+              {pendingGeneration.kind === "video" ? <Film size={22} /> : pendingGeneration.kind === "image" ? <Palette size={22} /> : <FileText size={22} />}
+              <span>Preparing generation</span>
+            </div>
+            <div className="publish-main">
+              <div className="publish-icon">{pendingGeneration.kind === "video" ? <Film size={18} /> : pendingGeneration.kind === "image" ? <Palette size={18} /> : <FileText size={18} />}</div>
+              <div>
+                <h3>{pendingGeneration.title}</h3>
+                <p>{pendingGeneration.description}</p>
+                <div className="publish-tags">
+                  <span>{pendingGeneration.kind}</span>
+                  <span>{pendingGeneration.model}</span>
+                  <span>{new Date(pendingGeneration.startedAt).toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+            <div className="publish-actions">
+              <span className="status generating">Generating</span>
+              <span className="auto-poll"><RefreshCcw size={13} />Preparing</span>
+            </div>
+          </article>
+        )}
         {queue.map((item) => {
           const asset = data.assets.find((entry) => entry.id === item.assetId);
           const isVideo = item.generationType === "video" || asset?.type === "video" || asset?.type === "ugc";
@@ -1352,7 +1400,7 @@ function PublishPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
             </article>
           );
         })}
-        {queue.length === 0 && <div className="empty-state">No generated drafts yet. Generate from a content plan to create the first publish item.</div>}
+        {queue.length === 0 && !pendingGeneration && <div className="empty-state">No generated drafts yet. Generate from a content plan to create the first publish item.</div>}
       </div>
     </div>
   );

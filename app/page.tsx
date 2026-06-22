@@ -827,6 +827,23 @@ type CreateContentInitial = {
   platform?: Platform;
 };
 
+function createContentInitialFromDraft(draft: PlanDraft): CreateContentInitial {
+  const format = draft.format && contentFormatOptions.includes(draft.format) ? draft.format : "Short video 9:16";
+  const kind = planContentKind(format);
+  return {
+    sourceLabel: "AI generated draft",
+    sourceTitle: draft.topic || "AI generated content",
+    sourceDescription: draft.description || "Generated from your Create Content instruction. Review and adjust before generating.",
+    kind,
+    duration: kind === "video" ? draft.duration || defaultPlanDuration(format) || 8 : undefined,
+    aspectRatio: defaultAspectRatioForFormat(format),
+    prompt: draft.videoPrompt || draft.description || draft.topic || "",
+    caption: draft.caption || "",
+    hashtags: draft.hashtags || "",
+    platform: defaultPlatformForKind(kind)
+  };
+}
+
 function durationOptionsForModel(model: string) {
   if (model === "veo-fast") return [8];
   if (model === "seedance-2.0") return Array.from({ length: 12 }, (_, index) => index + 4);
@@ -1112,19 +1129,37 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
   );
 }
 
-function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate" }: { initial: CreateContentInitial; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string }) {
+function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate", allowAiAssist = false }: { initial: CreateContentInitial; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string; allowAiAssist?: boolean }) {
+  const [activeInitial, setActiveInitial] = useState<CreateContentInitial>(initial);
+  const [formVersion, setFormVersion] = useState(0);
   const [kind, setKind] = useState<GenerationKind>(initial.kind);
   const [model, setModel] = useState<string>(initial.model || generationModels[initial.kind][0][0]);
   const [duration, setDuration] = useState(closestDuration(initial.duration || 8, durationOptionsForModel(initial.model || generationModels[initial.kind][0][0])));
   const [platform, setPlatform] = useState<Platform>(initial.platform || defaultPlatformForKind(initial.kind));
   const [busy, setBusy] = useState(false);
+  const [aiPromptOpen, setAiPromptOpen] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiIdea, setAiIdea] = useState("");
   const [assetRefs, setAssetRefs] = useState<AssetReference[]>([]);
   const assetRefsRef = useRef<AssetReference[]>([]);
   const durationOptions = durationOptionsForModel(model);
   const visualAssetsEnabled = kind === "video" || kind === "image";
+  const resetFormFromInitial = (next: CreateContentInitial) => {
+    const nextModel = next.model || generationModels[next.kind][0][0];
+    setActiveInitial(next);
+    setKind(next.kind);
+    setModel(nextModel);
+    setPlatform(next.platform || defaultPlatformForKind(next.kind));
+    setDuration(closestDuration(next.duration || 8, durationOptionsForModel(nextModel)));
+    setFormVersion((value) => value + 1);
+  };
   useEffect(() => {
     assetRefsRef.current = assetRefs;
   }, [assetRefs]);
+  useEffect(() => {
+    resetFormFromInitial(initial);
+  }, [initial.sourceLabel, initial.sourceTitle, initial.sourceDescription, initial.prompt, initial.caption, initial.hashtags, initial.kind, initial.model, initial.duration, initial.aspectRatio, initial.platform]);
   useEffect(() => {
     return () => {
       assetRefsRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
@@ -1135,11 +1170,11 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
     setKind(next);
     setModel(nextModel);
     setPlatform(defaultPlatformForKind(next));
-    setDuration(closestDuration(initial.duration || 8, durationOptionsForModel(nextModel)));
+    setDuration(closestDuration(activeInitial.duration || 8, durationOptionsForModel(nextModel)));
   };
   const changeModel = (next: string) => {
     setModel(next);
-    setDuration(closestDuration(duration || initial.duration || 8, durationOptionsForModel(next)));
+    setDuration(closestDuration(duration || activeInitial.duration || 8, durationOptionsForModel(next)));
   };
   const updateAssetRef = (role: AssetReference["role"], file?: File | null) => {
     setAssetRefs((current) => {
@@ -1149,12 +1184,31 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
       return file?.name ? [...rest, { role, fileName: file.name, previewUrl: URL.createObjectURL(file), file }] : rest;
     });
   };
+  const generateAiDraft = async () => {
+    const idea = aiIdea.trim();
+    if (!idea) {
+      setAiError("Tell me what you want to create first.");
+      return;
+    }
+    setAiError("");
+    setAiGenerating(true);
+    try {
+      const draft = await post("generateBriefWithAi", { idea }) as PlanDraft;
+      resetFormFromInitial(createContentInitialFromDraft(draft));
+      setAiPromptOpen(false);
+      setAiIdea("");
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "AI generation failed.");
+    } finally {
+      setAiGenerating(false);
+    }
+  };
   const submit = async (form: FormData) => {
     setBusy(true);
     try {
       const selectedPlatform = String(form.get("platform") || platform || defaultPlatformForKind(kind));
       onStart?.({
-        title: initial.sourceTitle,
+        title: activeInitial.sourceTitle,
         description: visualAssetsEnabled && assetRefs.length ? "Uploading references and preparing provider generation." : "Preparing provider generation.",
         kind,
         model,
@@ -1181,15 +1235,32 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
     }
   };
   return (
-    <form onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }} className="generation-form create-generation-form">
+    <form key={formVersion} onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }} className="generation-form create-generation-form">
       <section className="create-card">
         <div className="clbl">Input source</div>
         <div className="brief-preview">
-          <span>{initial.sourceLabel}</span>
-          <b>{initial.sourceTitle}</b>
-          <p>{initial.sourceDescription}</p>
+          <span>{activeInitial.sourceLabel}</span>
+          <b>{activeInitial.sourceTitle}</b>
+          <p>{activeInitial.sourceDescription}</p>
         </div>
-        {onUsePlan && <button type="button" className="linkish" onClick={onUsePlan}>Use a content plan instead</button>}
+        <div className="source-actions">
+          {allowAiAssist && <button type="button" className="primary" onClick={() => setAiPromptOpen(true)} disabled={aiGenerating}><Sparkles size={14} />Generate with AI</button>}
+          {onUsePlan && <button type="button" className="linkish" onClick={onUsePlan}>Use a content plan instead</button>}
+        </div>
+        {aiPromptOpen && (
+          <div className="ai-plan-box compact">
+            <div className="ai-plan-inner">
+              <label>Tell me in a sentence or few, then I can create anything for you.
+                <textarea name="idea" value={aiIdea} onChange={(event) => setAiIdea(event.target.value)} placeholder="Example: Create a 9:16 product demo video for busy SME founders about invoice follow-up automation." autoFocus />
+              </label>
+              {aiError && <div className="provider-error">{aiError}</div>}
+              <div className="row-actions">
+                <button className="primary" type="button" onClick={() => void generateAiDraft()} disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Generating" /> : "Generate"}</button>
+                <button type="button" onClick={() => setAiPromptOpen(false)} disabled={aiGenerating}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="create-card">
@@ -1245,12 +1316,12 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
           {kind === "video" && (
             <>
               <label>Duration (seconds)<select name="duration" value={duration} onChange={(event) => setDuration(event.target.value)}>{durationOptions.map((option) => <option key={option} value={option}>{option} seconds</option>)}</select></label>
-              <label>Aspect ratio<select name="aspectRatio" defaultValue={initial.aspectRatio || "9:16"}><option value="9:16">9:16 vertical</option><option value="16:9">16:9 landscape</option><option value="1:1">1:1 square</option></select></label>
+              <label>Aspect ratio<select name="aspectRatio" defaultValue={activeInitial.aspectRatio || "9:16"}><option value="9:16">9:16 vertical</option><option value="16:9">16:9 landscape</option><option value="1:1">1:1 square</option></select></label>
             </>
           )}
           {kind === "image" && (
             <>
-              <label>Image dimension<select name="aspectRatio" defaultValue={initial.aspectRatio || "4:5"}><option value="1:1">1:1 square</option><option value="4:5">4:5 portrait</option><option value="16:9">16:9 landscape</option><option value="9:16">9:16 vertical</option></select></label>
+              <label>Image dimension<select name="aspectRatio" defaultValue={activeInitial.aspectRatio || "4:5"}><option value="1:1">1:1 square</option><option value="4:5">4:5 portrait</option><option value="16:9">16:9 landscape</option><option value="9:16">9:16 vertical</option></select></label>
               <label>Variants<input name="variants" type="number" min="1" max="4" defaultValue="1" /></label>
             </>
           )}
@@ -1265,9 +1336,9 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
 
       <section className="create-card">
         <div className="clbl">Creative inputs</div>
-        <label>Generation prompt<textarea name="prompt" defaultValue={initial.prompt} /></label>
-        <label>Caption<textarea name="caption" defaultValue={initial.caption} /></label>
-        <label>Hashtags<input name="hashtags" defaultValue={initial.hashtags} /></label>
+        <label>Generation prompt<textarea name="prompt" defaultValue={activeInitial.prompt} /></label>
+        <label>Caption<textarea name="caption" defaultValue={activeInitial.caption} /></label>
+        <label>Hashtags<input name="hashtags" defaultValue={activeInitial.hashtags} /></label>
         <div className="ftrow">
           <div>Selected: <b>{model}</b></div>
           <div className="row-actions">
@@ -1348,6 +1419,7 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
       </div>
       <CreateContentModule
         initial={initial}
+        allowAiAssist
         onUsePlan={() => setScreen("plan")}
         onStart={(generation) => {
           flushSync(() => {

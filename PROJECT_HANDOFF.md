@@ -1,6 +1,6 @@
 # CABuild Project Handoff
 
-Last updated: 2026-06-18
+Last updated: 2026-06-22
 
 ## Purpose
 ContentAgent Social is a local Next.js prototype for research, content planning, AI generation, and publishing. The mock UI is the visual source of truth when it conflicts with the PRD.
@@ -118,6 +118,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+- 2026-06-22: Added `Generate with AI` to the Create Content tab using the same GPT-5.5 Kie action as New Content Plan. The button sits in the Input source card beside `Use a content plan instead`, opens the same “Tell me in a sentence or few...” prompt, animates `Generating...`, and remounts the shared Create Content module with AI-prefilled content type, platform, prompt, caption, hashtags, duration, and aspect ratio. Local `npm run build` passed.
 - 2026-06-22: Added animated loading dots for generation states. A reusable `AnimatedDots` component cycles visible dots from one to three on `Generating`, `Preparing generation`, `Starting provider`, `Auto-checking`, generated video/image pending thumbnails, and the GPT-5.5 New plan button. CSS reserves fixed dot width so buttons/chips do not shift while animating. Local `npm run build` passed.
 - 2026-06-22: Fixed workspace niche clearing and removed hidden AI automation fallbacks from generated content prompts. `updateWorkspace` now allows Brand/niche to be saved as blank instead of keeping the previous value. GPT-5.5 New Content Plan generation no longer falls back to `SME AI automation`; blank niche now becomes explicit “No brand/niche set. Follow the user request exactly and do not assume a niche.” Research create-plan prompts/fallbacks and direct Create Content defaults now use the saved workspace niche or generic brand wording instead of hardcoded AI automation. Local `npm run build` passed.
 - 2026-06-22: Added editable workspace context in Settings. Users can now change Workspace name and Brand/niche after registration; this `workspace.niche` value is what appears in the top bar and is passed into GPT-5.5 AI content-plan generation as `Brand/niche`. Backend action `updateWorkspace` persists the change to the same durable store and logs activity. Local `npm run build` passed.

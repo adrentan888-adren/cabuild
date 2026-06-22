@@ -3,7 +3,7 @@ import { currentUser } from "@/lib/session";
 import { id, mutateDb } from "@/lib/store";
 import type { Asset, Brief, CompetitorResult, Platform, PublishItem } from "@/lib/types";
 import { fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl } from "@/lib/providers/apify";
-import { generateContentPlanWithGemini, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
+import { generateContentPlanWithGemini, generateImage, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 
 async function requireUser() {
@@ -34,6 +34,10 @@ function handleFromUrl(url: string) {
   } catch {
     return url;
   }
+}
+
+function isKieImageModel(model: string) {
+  return model === "nanobanana-pro" || model === "gpt-image-2";
 }
 
 function mockCompetitorResults(input: { workspaceId: string; competitorId: string; platform: Platform; url: string; minViews: number }) {
@@ -264,8 +268,8 @@ export async function POST(req: Request) {
         if (!asset?.providerTaskId) throw new Error("Asset has no provider task to poll.");
         const publishItems = db.publishQueue.filter((item) => item.assetId === asset.id && item.workspaceId === workspaceId);
         const generationModel = asset.generationModel || publishItems.find((item) => item.generationModel)?.generationModel || "";
-        const isSeedance = generationModel === "seedance-2.0" || asset.providerTaskId.startsWith("task_bytedance");
-        if (isSeedance) {
+        const isMarketTask = generationModel === "seedance-2.0" || isKieImageModel(generationModel) || asset.providerTaskId.startsWith("task_");
+        if (isMarketTask) {
           const status = await getMarketTask(asset.providerTaskId);
           if (status.state === "success" && status.assetUrl) {
             asset.status = "ready";
@@ -277,7 +281,7 @@ export async function POST(req: Request) {
               item.assetUrl = status.assetUrl;
               item.error = "";
             });
-            db.activity.push({ id: id("act"), workspaceId, message: `Kie video ready for "${asset.title}".`, createdAt: new Date().toISOString() });
+            db.activity.push({ id: id("act"), workspaceId, message: `Kie ${asset.type === "video" || asset.type === "ugc" ? "video" : "image"} ready for "${asset.title}".`, createdAt: new Date().toISOString() });
           } else if (status.state === "fail") {
             asset.status = "failed";
             asset.error = status.error || "Kie generation failed.";
@@ -862,6 +866,8 @@ export async function POST(req: Request) {
       const now = new Date().toISOString();
       const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? (brief.format.toLowerCase().includes("carousel") ? "carousel" : "image") : "text";
       const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
+      const isKieImage = generationType === "image" && isKieImageModel(model);
+      const isKieGeneration = isKieVideo || isKieImage;
       brief.duration = duration || brief.duration;
       brief.status = "production";
       brief.updatedAt = now;
@@ -871,13 +877,13 @@ export async function POST(req: Request) {
         briefId: brief.id,
         title: brief.topic,
         type,
-        status: isKieVideo ? "queued" : "ready",
-        progress: isKieVideo ? 10 : 100,
+        status: isKieGeneration ? "queued" : "ready",
+        progress: isKieGeneration ? 10 : 100,
         createdAt: now,
-        provider: isKieVideo ? "kie" : "local",
+        provider: isKieGeneration ? "kie" : "local",
         generationModel: model,
         prompt,
-        assetUrl: isKieVideo ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
+        assetUrl: isKieGeneration ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
       };
       db.assets.push(asset);
       const item: PublishItem = {
@@ -887,8 +893,8 @@ export async function POST(req: Request) {
         title: brief.topic,
         platform,
         scheduledAt: now,
-        status: isKieVideo ? "generating" : "done",
-        provider: isKieVideo ? "kie" : "local",
+        status: isKieGeneration ? "generating" : "done",
+        provider: isKieGeneration ? "kie" : "local",
         caption,
         hashtags,
         generationModel: model,
@@ -901,7 +907,7 @@ export async function POST(req: Request) {
       db.publishQueue.push(item);
       const ws = db.workspaces.find((entry) => entry.id === workspaceId);
       if (ws) ws.credits = Math.max(0, ws.credits - (generationType === "video" ? 8 : generationType === "image" ? 3 : 1));
-      activity(isKieVideo ? `Queued ${model} generation for "${brief.topic}".` : `Generated ${model} draft for "${brief.topic}".`);
+      activity(isKieGeneration ? `Queued ${model} generation for "${brief.topic}".` : `Generated ${model} draft for "${brief.topic}".`);
       return { asset, publishItem: item };
     }
 
@@ -917,19 +923,21 @@ export async function POST(req: Request) {
       const title = prompt.split(/\n|\.|\?/)[0].slice(0, 96) || "Direct content draft";
       const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? "image" : "text";
       const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
+      const isKieImage = generationType === "image" && isKieImageModel(model);
+      const isKieGeneration = isKieVideo || isKieImage;
       const asset: Asset = {
         id: id("ast"),
         workspaceId,
         briefId: "direct",
         title,
         type,
-        status: isKieVideo ? "queued" : "ready",
-        progress: isKieVideo ? 10 : 100,
+        status: isKieGeneration ? "queued" : "ready",
+        progress: isKieGeneration ? 10 : 100,
         createdAt: now,
-        provider: isKieVideo ? "kie" : "local",
+        provider: isKieGeneration ? "kie" : "local",
         generationModel: model,
         prompt,
-        assetUrl: isKieVideo ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
+        assetUrl: isKieGeneration ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
       };
       db.assets.push(asset);
       const item: PublishItem = {
@@ -939,8 +947,8 @@ export async function POST(req: Request) {
         title,
         platform,
         scheduledAt: now,
-        status: isKieVideo ? "generating" : "done",
-        provider: isKieVideo ? "kie" : "local",
+        status: isKieGeneration ? "generating" : "done",
+        provider: isKieGeneration ? "kie" : "local",
         caption,
         hashtags,
         generationModel: model,
@@ -953,7 +961,7 @@ export async function POST(req: Request) {
       db.publishQueue.push(item);
       const ws = db.workspaces.find((entry) => entry.id === workspaceId);
       if (ws) ws.credits = Math.max(0, ws.credits - (generationType === "video" ? 8 : generationType === "image" ? 3 : 1));
-      activity(isKieVideo ? `Queued ${model} direct generation.` : `Generated ${model} direct draft.`);
+      activity(isKieGeneration ? `Queued ${model} direct generation.` : `Generated ${model} direct draft.`);
       return { asset, publishItem: item };
     }
 
@@ -1017,9 +1025,12 @@ export async function POST(req: Request) {
   if ((action === "renderAsset" || action === "generateUgc" || action === "generateDraftFromPlan" || action === "generateDirectContent") && generatedAsset?.provider === "kie") {
     try {
       const model = generatedAsset.generationModel || String(body.generationModel || "veo-fast");
-      const taskId = model === "seedance-2.0"
-        ? await generateSeedanceVideo(generatedAsset.prompt || generatedAsset.title, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16") })
-        : await generateVeoVideo(generatedAsset.prompt || generatedAsset.title, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16") });
+      const prompt = generatedAsset.prompt || generatedAsset.title;
+      const taskId = isKieImageModel(model)
+        ? await generateImage(prompt, { model, aspectRatio: String(body.aspectRatio || ""), imageSize: String(body.imageSize || "") })
+        : model === "seedance-2.0"
+          ? await generateSeedanceVideo(prompt, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16") })
+          : await generateVeoVideo(prompt, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16") });
       const updated = await mutateDb((db) => {
         const asset = db.assets.find((item) => item.id === generatedAsset.id && item.workspaceId === workspaceId);
         if (!asset) return data;

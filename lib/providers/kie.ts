@@ -103,6 +103,37 @@ export async function generateSeedanceVideo(prompt: string, options: { duration?
   return json.data.taskId;
 }
 
+export async function generateImage(prompt: string, options: { model?: string; aspectRatio?: string; imageSize?: string } = {}) {
+  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const model = options.model === "gpt-image-2" ? "gpt-image-2-text-to-image" : "nano-banana-pro";
+  const aspectRatio = options.aspectRatio || imageSizeToAspectRatio(options.imageSize) || "1:1";
+  const input = model === "nano-banana-pro"
+    ? { prompt, image_input: [], aspect_ratio: aspectRatio, resolution: "1K", output_format: "png" }
+    : { prompt, aspect_ratio: aspectRatio };
+  const res = await fetch(`${baseUrl}/api/v1/jobs/createTask`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token()}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ model, input })
+  });
+  const json = (await res.json()) as KieMarketTaskResponse;
+  if (!res.ok || json.code !== 200 || !json.data?.taskId) {
+    throw new Error(json.msg || `Kie image generation failed with HTTP ${res.status}.`);
+  }
+  return json.data.taskId;
+}
+
+function imageSizeToAspectRatio(size?: string) {
+  if (!size) return "";
+  const [width, height] = size.split("x").map(Number);
+  if (!width || !height) return "";
+  if (width === height) return "1:1";
+  if (width > height) return "16:9";
+  return "4:5";
+}
+
 export async function getVeoVideo(taskId: string) {
   if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
   const url = new URL(`${baseUrl}/api/v1/veo/record-info`);

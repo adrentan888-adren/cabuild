@@ -1248,14 +1248,22 @@ function PublishPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
         {queue.map((item) => {
           const asset = data.assets.find((entry) => entry.id === item.assetId);
           const isVideo = item.generationType === "video" || asset?.type === "video" || asset?.type === "ugc";
+          const isImage = item.generationType === "image" || asset?.type === "image" || asset?.type === "carousel";
           const videoUrl = isVideo ? item.assetUrl || asset?.assetUrl : "";
+          const imageUrl = isImage ? item.assetUrl || asset?.assetUrl : "";
           return (
-            <article className={`publish-card ${isVideo ? "with-video" : ""}`} key={item.id}>
+            <article className={`publish-card ${isVideo || isImage ? "with-video" : ""}`} key={item.id}>
               {isVideo && (
                 <button className={`video-thumb ${videoUrl ? "" : "pending"}`} type="button" disabled={!videoUrl} onClick={() => asset?.assetUrl && setPreviewAsset(asset)}>
                   {videoUrl ? <video src={videoUrl} muted preload="metadata" playsInline /> : <Film size={22} />}
                   <span>{videoUrl ? "Preview video" : "Generating video"}</span>
                 </button>
+              )}
+              {!isVideo && isImage && (
+                <a className={`image-thumb ${imageUrl ? "" : "pending"}`} href={imageUrl || undefined} target="_blank" aria-disabled={!imageUrl}>
+                  {imageUrl ? <img src={imageUrl} alt={`${item.title} generated preview`} /> : <Palette size={22} />}
+                  <span>{imageUrl ? "Open image" : item.status === "failed" ? "No image generated" : "Generating image"}</span>
+                </a>
               )}
               <div className="publish-main">
                 <div className="publish-icon">{item.generationType === "video" ? <Film size={18} /> : item.generationType === "image" ? <Palette size={18} /> : <FileText size={18} />}</div>

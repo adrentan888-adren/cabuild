@@ -776,6 +776,25 @@ export async function POST(req: Request) {
   const data = await mutateDb((db) => {
     const activity = (message: string) => db.activity.push({ id: id("act"), workspaceId, message, createdAt: new Date().toISOString() });
 
+    if (action === "clearWorkspaceHistory") {
+      if (String(body.confirm || "") !== "DELETE_CURRENT_HISTORY") throw new Error("Missing clear-history confirmation.");
+      db.briefs = db.briefs.filter((item) => item.workspaceId !== workspaceId);
+      db.assets = db.assets.filter((item) => item.workspaceId !== workspaceId);
+      db.publishQueue = db.publishQueue.filter((item) => item.workspaceId !== workspaceId);
+      db.socialAudits = (db.socialAudits || []).filter((item) => item.workspaceId !== workspaceId);
+      db.researchScans = (db.researchScans || []).filter((item) => item.workspaceId !== workspaceId);
+      db.competitorResults = (db.competitorResults || []).filter((item) => item.workspaceId !== workspaceId || item.competitorId === "seed");
+      db.activity = db.activity.filter((item) => item.workspaceId !== workspaceId);
+      activity("Cleared current generated asset, publish, content plan, research, and social audit history.");
+      return {
+        briefs: 0,
+        assets: 0,
+        publishQueue: 0,
+        socialAudits: 0,
+        researchScans: 0
+      };
+    }
+
     if (action === "addCompetitor") {
       const url = String(body.url || body.handle || "");
       const minViews = Number(body.minViews || 0);

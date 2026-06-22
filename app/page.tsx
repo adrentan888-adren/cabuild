@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { flushSync } from "react-dom";
 import {
   Activity,
   BarChart3,
@@ -963,9 +964,11 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
           brief={generatingBrief}
           onClose={() => setGeneratingBrief(null)}
           onStart={(generation) => {
-            setPendingGeneration(generation);
-            setGeneratingBrief(null);
-            setScreen("publish");
+            flushSync(() => {
+              setPendingGeneration(generation);
+              setGeneratingBrief(null);
+              setScreen("publish");
+            });
           }}
           onSubmit={async (payload) => {
             await run("generateDraftFromPlan", payload, "Generation queued in Publish");
@@ -1097,7 +1100,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
     }
   };
   return (
-    <form action={submit} className="generation-form create-generation-form">
+    <form onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }} className="generation-form create-generation-form">
       <section className="create-card">
         <div className="clbl">Input source</div>
         <div className="brief-preview">
@@ -1265,8 +1268,10 @@ function CreateContentPanel({ run, setScreen, setPendingGeneration }: { run: (a:
         initial={initial}
         onUsePlan={() => setScreen("plan")}
         onStart={(generation) => {
-          setPendingGeneration(generation);
-          setScreen("publish");
+          flushSync(() => {
+            setPendingGeneration(generation);
+            setScreen("publish");
+          });
         }}
         onSubmit={async (payload) => {
           await run("generateDirectContent", payload, "Generation queued in Publish");

@@ -2,8 +2,28 @@ substitutions:
   _REGION: asia-southeast1
   _SERVICE: contentagent-social
   _AR_REPO: cloud-run-source-deploy
+  _DATA_BUCKET: contentagent-social-history-content-agent-2-499616
+  _DATA_OBJECT: app.json
 
 steps:
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud storage buckets describe gs://${_DATA_BUCKET} >/dev/null 2>&1 || \
+          gcloud storage buckets create gs://${_DATA_BUCKET} --project=$PROJECT_ID --location=${_REGION} --uniform-bucket-level-access
+        RUNTIME_SA=$(gcloud run services describe ${_SERVICE} --project=$PROJECT_ID --region=${_REGION} --format='value(spec.template.spec.serviceAccountName)' 2>/dev/null || true)
+        if [ -z "$RUNTIME_SA" ]; then
+          PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+          RUNTIME_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
+        fi
+        gcloud storage buckets add-iam-policy-binding gs://${_DATA_BUCKET} \
+          --member="serviceAccount:$RUNTIME_SA" \
+          --role="roles/storage.objectAdmin" >/dev/null 2>&1 || true
+        gcloud storage objects describe gs://${_DATA_BUCKET}/${_DATA_OBJECT} >/dev/null 2>&1 || \
+          gcloud storage cp data-seed/app.json gs://${_DATA_BUCKET}/${_DATA_OBJECT}
+
   - name: gcr.io/cloud-builders/docker
     args:
       - build
@@ -30,6 +50,8 @@ steps:
         APIFY_FACEBOOK_ACTOR_ID: "scrapeforge/facebook-search-posts"
         UPLOAD_POST_PROFILE: "Mariana"
         UPLOAD_POST_DEFAULT_PLATFORMS: "tiktok,facebook,x"
+        DATA_STORE_GCS_BUCKET: "${_DATA_BUCKET}"
+        DATA_STORE_GCS_OBJECT: "${_DATA_OBJECT}"
         EOF
 
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim

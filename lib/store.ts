@@ -5,6 +5,8 @@ import type { Database, Platform } from "./types";
 
 const dataDir = path.join(process.cwd(), "data");
 const dataFile = path.join(dataDir, "app.json");
+const gcsBucket = process.env.DATA_STORE_GCS_BUCKET;
+const gcsObject = process.env.DATA_STORE_GCS_OBJECT || "app.json";
 
 export function id(prefix: string) {
   return `${prefix}_${crypto.randomBytes(6).toString("hex")}`;
@@ -126,6 +128,13 @@ function seeded(): Database {
 }
 
 export async function readDb(): Promise<Database> {
+  if (gcsBucket) {
+    try {
+      return await readGcsDb();
+    } catch (error) {
+      console.warn(error instanceof Error ? error.message : "GCS data store read failed; falling back to local JSON store.");
+    }
+  }
   await fs.mkdir(dataDir, { recursive: true });
   try {
     return JSON.parse(await fs.readFile(dataFile, "utf8")) as Database;
@@ -137,6 +146,14 @@ export async function readDb(): Promise<Database> {
 }
 
 export async function writeDb(db: Database) {
+  if (gcsBucket) {
+    try {
+      await writeGcsDb(db);
+      return;
+    } catch (error) {
+      console.warn(error instanceof Error ? error.message : "GCS data store write failed; falling back to local JSON store.");
+    }
+  }
   await fs.mkdir(dataDir, { recursive: true });
   await fs.writeFile(dataFile, JSON.stringify(db, null, 2));
 }
@@ -146,4 +163,42 @@ export async function mutateDb<T>(fn: (db: Database) => T | Promise<T>) {
   const result = await fn(db);
   await writeDb(db);
   return result;
+}
+
+async function readGcsDb(): Promise<Database> {
+  const url = gcsObjectUrl();
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${await googleAccessToken()}` }, cache: "no-store" });
+  if (res.status === 404) {
+    const db = seeded();
+    await writeGcsDb(db);
+    return db;
+  }
+  if (!res.ok) throw new Error(`Failed to read data store from GCS: HTTP ${res.status} ${await res.text()}`);
+  return (await res.json()) as Database;
+}
+
+async function writeGcsDb(db: Database) {
+  const uploadUrl = `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(gcsBucket!)}/o?uploadType=media&name=${encodeURIComponent(gcsObject)}`;
+  const res = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${await googleAccessToken()}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(db, null, 2)
+  });
+  if (!res.ok) throw new Error(`Failed to write data store to GCS: HTTP ${res.status} ${await res.text()}`);
+}
+
+function gcsObjectUrl() {
+  return `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(gcsBucket!)}/o/${encodeURIComponent(gcsObject)}?alt=media`;
+}
+
+async function googleAccessToken() {
+  const metadataUrl = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
+  const res = await fetch(metadataUrl, { headers: { "Metadata-Flavor": "Google" }, cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to get Google metadata token: HTTP ${res.status}`);
+  const json = (await res.json()) as { access_token?: string };
+  if (!json.access_token) throw new Error("Google metadata token response did not include an access token.");
+  return json.access_token;
 }

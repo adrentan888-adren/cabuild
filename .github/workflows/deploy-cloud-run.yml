@@ -16,6 +16,8 @@ env:
   REGION: asia-southeast1
   SERVICE: contentagent-social
   AR_REPO: cloud-run-source-deploy
+  DATA_BUCKET: contentagent-social-history-content-agent-2-499616
+  DATA_OBJECT: app.json
   WORKLOAD_IDENTITY_PROVIDER: projects/340047797097/locations/global/workloadIdentityPools/github-contentagent/providers/github-cabuild
   SERVICE_ACCOUNT: github-cloud-run-deployer@content-agent-2-499616.iam.gserviceaccount.com
 
@@ -38,6 +40,21 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
 
+      - name: Prepare persistent data store
+        continue-on-error: true
+        run: |
+          gcloud storage buckets describe gs://$DATA_BUCKET >/dev/null 2>&1 || \
+            gcloud storage buckets create gs://$DATA_BUCKET --project=$PROJECT_ID --location=$REGION --uniform-bucket-level-access
+          RUNTIME_SA=$(gcloud run services describe $SERVICE --project=$PROJECT_ID --region=$REGION --format='value(spec.template.spec.serviceAccountName)' 2>/dev/null || true)
+          if [ -z "$RUNTIME_SA" ]; then
+            RUNTIME_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
+          fi
+          gcloud storage buckets add-iam-policy-binding gs://$DATA_BUCKET \
+            --member="serviceAccount:$RUNTIME_SA" \
+            --role="roles/storage.objectAdmin" >/dev/null 2>&1 || true
+          gcloud storage objects describe gs://$DATA_BUCKET/$DATA_OBJECT >/dev/null 2>&1 || \
+            gcloud storage cp data-seed/app.json gs://$DATA_BUCKET/$DATA_OBJECT
+
       - name: Build image
         run: docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA .
 
@@ -55,6 +72,8 @@ jobs:
           APIFY_FACEBOOK_ACTOR_ID: "scrapeforge/facebook-search-posts"
           UPLOAD_POST_PROFILE: "Mariana"
           UPLOAD_POST_DEFAULT_PLATFORMS: "tiktok,facebook,x"
+          DATA_STORE_GCS_BUCKET: "${{ env.DATA_BUCKET }}"
+          DATA_STORE_GCS_OBJECT: "${{ env.DATA_OBJECT }}"
           EOF
 
       - name: Deploy Cloud Run

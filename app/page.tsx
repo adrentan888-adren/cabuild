@@ -763,8 +763,10 @@ function defaultPlanDuration(format: string) {
 const contentFormatOptions = [
   "Short video 9:16",
   "Long-form video 16:9",
-  "Image / carousel 1:1",
-  "Image / carousel 4:5",
+  "Image 1:1",
+  "Image 4:5",
+  "Image 16:9",
+  "Image 9:16",
   "Text post",
   "Long-form article"
 ];
@@ -1121,7 +1123,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
         <div className="modal-grid">
           <label>Content type<select value={kind} onChange={(event) => changeKind(event.target.value as GenerationKind)}>
             <option value="video">Video</option>
-            <option value="image">Image / carousel</option>
+            <option value="image">Image</option>
             <option value="text">Text post</option>
           </select></label>
           <label>Primary platform<select name="platform" value={platform} onChange={(event) => setPlatform(event.target.value as Platform)}>
@@ -1131,7 +1133,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
         </div>
         <div className="create-type-grid">
           <button type="button" className={kind === "video" ? "on" : ""} onClick={() => changeKind("video")}><b>Video</b><span>TikTok, Reels, Shorts</span></button>
-          <button type="button" className={kind === "image" ? "on" : ""} onClick={() => changeKind("image")}><b>Image / carousel</b><span>Instagram, LinkedIn, Facebook</span></button>
+          <button type="button" className={kind === "image" ? "on" : ""} onClick={() => changeKind("image")}><b>Image</b><span>Instagram, LinkedIn, Facebook</span></button>
           <button type="button" className={kind === "text" ? "on" : ""} onClick={() => changeKind("text")}><b>Text post</b><span>LinkedIn, X, Threads</span></button>
         </div>
         <div className="plat-row">

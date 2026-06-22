@@ -1098,7 +1098,7 @@ export async function POST(req: Request) {
         duration
       };
       const now = new Date().toISOString();
-      const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? (brief.format.toLowerCase().includes("carousel") ? "carousel" : "image") : "text";
+      const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? "image" : "text";
       const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
       const isKieImage = generationType === "image" && isKieImageModel(model);
       const isKieGeneration = isKieVideo || isKieImage;

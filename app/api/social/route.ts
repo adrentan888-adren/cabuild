@@ -105,6 +105,67 @@ function enrichPromptWithAssetReferences(prompt: string, generationType: "video"
   ].join("\n\n");
 }
 
+function videoPromptSceneCount(duration: number) {
+  if (duration <= 6) return "2 tight scenes maximum";
+  if (duration <= 10) return "3 to 4 scenes maximum";
+  return "4 to 5 scenes maximum";
+}
+
+function enhanceVideoPromptForProvider(input: {
+  prompt: string;
+  model: string;
+  duration?: number;
+  aspectRatio?: string;
+  references?: GenerationAssetReference[];
+}) {
+  if (input.model !== "seedance-2.0" && input.model !== "veo-fast") return input.prompt;
+  if (input.prompt.includes("Provider-specific video prompt guidance")) return input.prompt;
+  const duration = Math.max(4, Math.min(15, Math.round(Number(input.duration || 8))));
+  const aspectRatio = input.aspectRatio === "16:9" ? "16:9 landscape" : "9:16 vertical";
+  const provider = input.model === "seedance-2.0" ? "Seedance 2.0" : "VEO Fast";
+  const refs = input.references || [];
+  const refRoles = refs.length
+    ? refs.map((ref, index) => `- Reference ${index + 1} (${ref.role}, ${ref.fileName}): use only for its stated role; keep logos/products visually clear and avoid inventing replacement branding.`).join("\n")
+    : "- No uploaded visual references are attached.";
+  const seedanceSpecific = input.model === "seedance-2.0"
+    ? [
+      "Seedance-specific requirements:",
+      "- Use clear timed scene segments and physically plausible motion.",
+      "- Include audio direction because Seedance can generate BGM and sound effects.",
+      "- If references are attached, treat them as role-based reference images rather than generic inspiration.",
+      "- Do not overload short durations; every segment must be renderable in the selected duration."
+    ].join("\n")
+    : [
+      "VEO-specific requirements:",
+      "- Use clean natural-language scene direction with camera movement and pacing.",
+      "- Keep text overlay requests short and legible; avoid asking for too many readable text elements.",
+      "- Make the opening shot visually strong, then resolve into a clear CTA/end frame."
+    ].join("\n");
+
+  return [
+    input.prompt.trim(),
+    "Provider-specific video prompt guidance:",
+    `Target model: ${provider}.`,
+    `Target duration: ${duration} seconds.`,
+    `Target aspect ratio: ${aspectRatio}.`,
+    `Prompt complexity: ${videoPromptSceneCount(duration)}.`,
+    "",
+    "Rewrite/interpret the video as a structured social ad:",
+    "- 0-3s: thumb-stopping hook with a clear visual problem, bold motion, and immediate attention cue.",
+    `- 3-${Math.max(4, duration - 2)}s: main value/USP scenes with specific actions, camera movement, transitions, and readable mobile text overlays.`,
+    `- ${Math.max(4, duration - 2)}-${duration}s: brand/CTA ending with logo or company name, concise call to action, and compliance-safe wording.`,
+    "- Specify shot sizes and camera movements such as close-up, medium shot, push in, pan, track, orbit, or whip pan where useful.",
+    "- Include sound design: music mood, notification hits, transition sounds, voiceover or text-only direction.",
+    "- Maintain high-conversion social media pacing, professional lighting, and strong mobile readability.",
+    "- Avoid unrealistic financial claims, guaranteed approval, cash piles, luxury promises, or misleading before/after outcomes.",
+    "",
+    "Uploaded reference roles:",
+    refRoles,
+    "",
+    seedanceSpecific
+  ].join("\n");
+}
+
 function mockCompetitorResults(input: { workspaceId: string; competitorId: string; platform: Platform; url: string; minViews: number }) {
   const base = Math.max(input.minViews, 1000);
   const now = Date.now();
@@ -1016,7 +1077,13 @@ export async function POST(req: Request) {
     const asset = snapshot.asset;
     const settings = (asset.generationSettings || snapshot.publishItem?.generationSettings || {}) as Record<string, unknown>;
     const model = asset.generationModel || String(body.generationModel || "veo-fast");
-    const prompt = asset.prompt || asset.title;
+    const prompt = enhanceVideoPromptForProvider({
+      prompt: asset.prompt || asset.title,
+      model,
+      duration: Number(settings.duration || snapshot.publishItem?.duration || 8),
+      aspectRatio: String(settings.aspectRatio || "9:16"),
+      references: asset.assetReferences || []
+    });
     const references = asset.assetReferences || [];
     await debugLog(workspaceId, {
       action,
@@ -1255,7 +1322,7 @@ export async function POST(req: Request) {
       const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "gpt-image-2" : "gemini-3.5-flash"));
       const duration = Number(body.duration || brief.duration || defaultDuration(brief.format) || 0) || undefined;
       const assetReferences = parseAssetReferences(body.assetReferences);
-      const prompt = enrichPromptWithAssetReferences(String(body.prompt || defaultPromptForBrief(brief, generationType)), generationType, assetReferences);
+      const basePrompt = enrichPromptWithAssetReferences(String(body.prompt || defaultPromptForBrief(brief, generationType)), generationType, assetReferences);
       const caption = String(body.caption || defaultCaptionForBrief(brief));
       const hashtags = parseList(body.hashtags || defaultHashtagsForBrief(brief, generationType).join(", "));
       const platform = (String(body.platform || brief.platforms[0] || "TikTok") as Platform);
@@ -1266,6 +1333,9 @@ export async function POST(req: Request) {
         length: String(body.length || ""),
         duration
       };
+      const prompt = generationType === "video"
+        ? enhanceVideoPromptForProvider({ prompt: basePrompt, model, duration, aspectRatio: String(generationSettings.aspectRatio || "9:16"), references: assetReferences })
+        : basePrompt;
       const now = new Date().toISOString();
       const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? "image" : "text";
       const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
@@ -1325,7 +1395,7 @@ export async function POST(req: Request) {
       const assetReferences = parseAssetReferences(body.assetReferences);
       const workspace = db.workspaces.find((entry) => entry.id === workspaceId);
       const context = workspace?.niche?.trim() || "the configured brand";
-      const prompt = enrichPromptWithAssetReferences(String(body.prompt || `Create a practical founder-led social post for ${context}.`), generationType, assetReferences);
+      const basePrompt = enrichPromptWithAssetReferences(String(body.prompt || `Create a practical founder-led social post for ${context}.`), generationType, assetReferences);
       const caption = String(body.caption || "A practical reminder for SME teams: automate repeatable work first.");
       const hashtags = parseList(body.hashtags || "#SME, #Automation, #AI");
       const platform = (String(body.platform || "TikTok") as Platform);
@@ -1336,6 +1406,9 @@ export async function POST(req: Request) {
         length: String(body.length || ""),
         duration
       };
+      const prompt = generationType === "video"
+        ? enhanceVideoPromptForProvider({ prompt: basePrompt, model, duration, aspectRatio: String(generationSettings.aspectRatio || "9:16"), references: assetReferences })
+        : basePrompt;
       const now = new Date().toISOString();
       const title = prompt.split(/\n|\.|\?/)[0].slice(0, 96) || "Direct content draft";
       const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? "image" : "text";
@@ -1462,8 +1535,14 @@ export async function POST(req: Request) {
   if ((action === "renderAsset" || action === "generateUgc") && generatedAsset?.provider === "kie") {
     try {
       const model = generatedAsset.generationModel || String(body.generationModel || "veo-fast");
-      const prompt = generatedAsset.prompt || generatedAsset.title;
       const references = generatedAsset.assetReferences || parseAssetReferences(body.assetReferences);
+      const prompt = enhanceVideoPromptForProvider({
+        prompt: generatedAsset.prompt || generatedAsset.title,
+        model,
+        duration: Number(body.duration || generatedAsset.generationSettings?.duration || 8),
+        aspectRatio: String(body.aspectRatio || generatedAsset.generationSettings?.aspectRatio || "9:16"),
+        references
+      });
       await debugLog(workspaceId, {
         action,
         label: `Prompt sent to Kie ${model}`,

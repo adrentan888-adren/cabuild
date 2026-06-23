@@ -175,3 +175,8 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 ### 2026-06-23 - Publish Image Preview Modal
 - Changed Publish tab image thumbnails from direct external links to in-app preview buttons.
 - Reused the media preview modal for image and video assets; image previews now show the generated image in a pop-up with a download button.
+### 2026-06-23 - Seedance/VEO Prompt Enhancement
+- Added provider-aware video prompt enhancement before Kie generation.
+- Seedance 2.0 prompts now append structured timed-scene guidance, camera movement, sound design, duration-aware complexity limits, reference-role handling, and social-ad/compliance constraints inspired by the dexhunter Seedance 2.0 prompt skill.
+- VEO Fast now receives the same core timed-scene/camera/CTA structure without Seedance-specific reference syntax.
+- Existing queued video assets are also enhanced at send time if their stored prompt does not already include provider-specific guidance.

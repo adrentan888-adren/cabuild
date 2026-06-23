@@ -79,6 +79,7 @@ function personaText(snapshot: Awaited<ReturnType<typeof projectSnapshot>>) {
 async function answer(text: string) {
   const snapshot = await projectSnapshot();
   const command = text.trim().toLowerCase();
+  const compact = command.replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
   if (command === "/start" || command === "/help") {
     return [
       "ContentAgent Telegram bridge is connected.",
@@ -91,9 +92,12 @@ async function answer(text: string) {
       "Plain text messages should be handled by the Codex session/local bridge."
     ].join("\n");
   }
-  if (command === "/status") return statusText(snapshot);
-  if (command === "/logs") return logsText(snapshot);
-  if (command === "/persona") return personaText(snapshot);
+  if (command === "/status" || compact.includes("status") || compact.includes("summary") || compact.includes("how is the app")) return statusText(snapshot);
+  if (command === "/logs" || compact.includes("log") || compact.includes("debug")) return logsText(snapshot);
+  if (command === "/persona" || compact.includes("persona") || compact.includes("profile")) return personaText(snapshot);
+  if (["hi", "hello", "hey", "ok", "okay"].includes(compact)) {
+    return "Hi. I can answer local project commands like persona, status, logs, and help. For implementation requests, the active Codex session will process the inbox.";
+  }
 
   return "Received by the ContentAgent bridge. Ask the active Codex session to process this Telegram message.";
 }

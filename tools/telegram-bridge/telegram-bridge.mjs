@@ -86,6 +86,7 @@ function compactProjectState(db) {
 
 function commandReply(text, state) {
   const command = text.trim().toLowerCase();
+  const compact = command.replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
   if (command === "/start" || command === "/help") {
     return [
       "ContentAgent local bridge is connected.",
@@ -98,7 +99,7 @@ function commandReply(text, state) {
       "Plain text messages are queued for the Codex session to process."
     ].join("\n");
   }
-  if (command === "/status") {
+  if (command === "/status" || compact.includes("status") || compact.includes("summary") || compact.includes("how is the app")) {
     return [
       `${state.workspace.name || "ContentAgent"}`,
       `Niche: ${state.workspace.niche || "not set"}`,
@@ -109,7 +110,7 @@ function commandReply(text, state) {
       `Done: ${state.counts.done} | Generating: ${state.counts.generating} | Failed: ${state.counts.failed}`
     ].join("\n");
   }
-  if (command === "/persona") {
+  if (command === "/persona" || compact.includes("persona") || compact.includes("profile")) {
     return [
       "Persona",
       `Name: ${state.persona.fullName || "not set"}`,
@@ -119,10 +120,13 @@ function commandReply(text, state) {
       `Topics: ${(state.persona.approvedTopics || []).join(", ") || "not set"}`
     ].join("\n");
   }
-  if (command === "/logs") {
+  if (command === "/logs" || compact.includes("log") || compact.includes("debug")) {
     return state.latestLogs.length
       ? state.latestLogs.map((log) => `${log.status} ${log.action}\n${log.label}${log.error ? `\nError: ${log.error}` : ""}`).join("\n\n")
       : "No debug logs yet.";
+  }
+  if (["hi", "hello", "hey", "ok", "okay"].includes(compact)) {
+    return "Hi. I can answer local project commands like persona, status, logs, and help. For implementation requests, the active Codex session will process the inbox.";
   }
   return "";
 }

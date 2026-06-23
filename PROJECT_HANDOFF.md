@@ -1,6 +1,6 @@
 # CABuild Project Handoff
 
-Last updated: 2026-06-22
+Last updated: 2026-06-23
 
 ## Purpose
 ContentAgent Social is a local Next.js prototype for research, content planning, AI generation, and publishing. The mock UI is the visual source of truth when it conflicts with the PRD.
@@ -36,20 +36,42 @@ Get-CimInstance Win32_Process -Filter "name = 'node.exe'" | Where-Object { $_.Co
 - Local data file: `data/app.json`
 
 ## Environment And Secrets
-Do not commit raw API keys. Keep secrets in `.env.local`, which is ignored by git. Required key names:
+Do not commit raw API keys. Keep secrets in ignored local files, GCP Secret Manager, or the user's password manager. The user pasted live keys in chat earlier; treat those values as compromised before production and rotate them. This handoff deliberately records names, locations, and usage, not raw secret values.
+
+Local app secrets should be in `.env.local`:
+- `APP_SECRET`: Next/session signing secret.
+- `KIE_API_TOKEN`: Kie.ai token used by GPT-5.5/Gemini, Seedance 2.0, VEO Fast, Nano Banana Pro, and GPT-image 2 provider calls.
+- `APIFY_API_TOKEN`: Apify token used for Research URL scans, keyword platform scans, Social Audit scans, and Persona public-source crawling.
+- `UPLOAD_POST_API_KEY`: Upload-Post token used for connect links, connected-account listing, and publish requests.
+- `UPLOAD_POST_PROFILE`: Demo profile name, currently `Mariana`.
+- `UPLOAD_POST_DEFAULT_PLATFORMS`: Demo publish platforms, currently `tiktok,facebook,x`.
+- `TELEGRAM_BOT_TOKEN`: App webhook bot token if using `/api/telegram/webhook`.
+- `TELEGRAM_ALLOWED_USER_IDS`: Allowed Telegram users for the app webhook, currently `1151114885`.
+- `DATA_STORE_GCS_BUCKET`: Persistent GCS bucket for Cloud Run app history, currently `contentagent-social-history-content-agent-2-499616`.
+- `DATA_STORE_GCS_OBJECT`: Persistent GCS object name, currently `app.json`.
+- `UPLOADS_GCS_BUCKET`: Optional upload/reference storage bucket. Falls back to `DATA_STORE_GCS_BUCKET` if unset.
+- `DATABASE_URL`: Future Postgres connection string when migrating away from JSON/GCS persistence.
+- `GITHUB_TOKEN`, `DIGITALOCEAN_TOKEN`, `CLOUDFLARE_API_TOKEN`: Operator/deployment tokens only; not required by the app runtime.
+- Cloudflare R2 keys (`CLOUDFLARE_R2_ACCESS_KEY_ID`, `CLOUDFLARE_R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_R2_BUCKET`, `CLOUDFLARE_R2_ENDPOINT`) only if object storage is switched to R2.
+
+Cloud Run production secrets are stored in GCP Secret Manager and attached by `.github/workflows/deploy-cloud-run.yml` / `cloudbuild.yaml`:
 - `APP_SECRET`
 - `KIE_API_TOKEN`
 - `APIFY_API_TOKEN`
-- `GITHUB_TOKEN`
 - `UPLOAD_POST_API_KEY`
-- `UPLOAD_POST_PROFILE`
-- `UPLOAD_POST_DEFAULT_PLATFORMS`
-- `DIGITALOCEAN_TOKEN`
-- `CLOUDFLARE_API_TOKEN`
-- Cloudflare R2 keys if object storage is enabled
-- `DATABASE_URL` when migrating from JSON storage to Postgres
 
-The user pasted live keys in chat earlier. Treat them as compromised before production and rotate them.
+Local Claude-to-IM Telegram bridge secrets are separate from the app and live in `C:\Users\WINDOWS-10\.claude-to-im\config.env`:
+- `CTI_TG_BOT_TOKEN`: Telegram bot token for the always-on local Codex bridge.
+- `CTI_TG_CHAT_ID`: target chat.
+- `CTI_TG_ALLOWED_USERS`: allowed Telegram user IDs.
+- `CTI_RUNTIME=codex`
+- `CTI_ENABLED_CHANNELS=telegram`
+- `CTI_DEFAULT_WORKDIR=C:\Users\WINDOWS-10\Desktop\ClaudeWork\CABuild`
+- `CTI_DEFAULT_MODE=code`
+
+Demo web app login:
+- Email: `demo@contentagent.tech`
+- Password: `demo1234`
 
 ## Current Feature State
 - Auth exists with local users and workspace data.

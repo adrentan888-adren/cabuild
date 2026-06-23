@@ -52,6 +52,35 @@ Start-Process -FilePath "node.exe" `
   -RedirectStandardError "$env:USERPROFILE\.claude-to-im\logs\bridge.err.log"
 ```
 
+## Watchdog
+
+The local machine also has a watchdog script for the external Claude-to-IM bridge:
+
+```text
+C:\Users\WINDOWS-10\Desktop\ClaudeWork\CABuild\tools\telegram-bridge\claude-to-im-watchdog.ps1
+```
+
+It checks for duplicate bridge daemons, unhealthy status files, and stale Codex child tasks. If needed, it restarts one clean bridge process.
+
+Run once manually:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File "C:\Users\WINDOWS-10\Desktop\ClaudeWork\CABuild\tools\telegram-bridge\claude-to-im-watchdog.ps1" -Once -MaxTaskMinutes 25
+```
+
+Installed scheduled task:
+
+```text
+ContentAgent-ClaudeToIM-Watchdog
+```
+
+It runs every 30 minutes. Check it with:
+
+```powershell
+Get-ScheduledTaskInfo -TaskName "ContentAgent-ClaudeToIM-Watchdog"
+Get-Content "$env:USERPROFILE\.claude-to-im\logs\watchdog.log" -Tail 40
+```
+
 ## Files
 
 - Bridge script: `tools/telegram-bridge/telegram-bridge.mjs`

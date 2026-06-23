@@ -86,7 +86,6 @@ function compactProjectState(db) {
 
 function commandReply(text, state) {
   const command = text.trim().toLowerCase();
-  const compact = command.replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
   if (command === "/start" || command === "/help") {
     return [
       "ContentAgent local bridge is connected.",
@@ -99,7 +98,7 @@ function commandReply(text, state) {
       "Plain text messages are queued for the Codex session to process."
     ].join("\n");
   }
-  if (command === "/status" || compact.includes("status") || compact.includes("summary") || compact.includes("how is the app")) {
+  if (command === "/status") {
     return [
       `${state.workspace.name || "ContentAgent"}`,
       `Niche: ${state.workspace.niche || "not set"}`,
@@ -110,7 +109,7 @@ function commandReply(text, state) {
       `Done: ${state.counts.done} | Generating: ${state.counts.generating} | Failed: ${state.counts.failed}`
     ].join("\n");
   }
-  if (command === "/persona" || compact.includes("persona") || compact.includes("profile")) {
+  if (command === "/persona") {
     return [
       "Persona",
       `Name: ${state.persona.fullName || "not set"}`,
@@ -120,30 +119,12 @@ function commandReply(text, state) {
       `Topics: ${(state.persona.approvedTopics || []).join(", ") || "not set"}`
     ].join("\n");
   }
-  if (command === "/logs" || compact.includes("log") || compact.includes("debug")) {
+  if (command === "/logs") {
     return state.latestLogs.length
       ? state.latestLogs.map((log) => `${log.status} ${log.action}\n${log.label}${log.error ? `\nError: ${log.error}` : ""}`).join("\n\n")
       : "No debug logs yet.";
   }
-  if (["hi", "hello", "hey", "ok", "okay"].includes(compact)) {
-    return "Hi. You can ask for persona, status, logs, or where to find a page in the web app. For build/change requests, I will save the message for the active Codex session.";
-  }
-  if (compact.includes("where") || compact.includes("webgui") || compact.includes("web gui") || compact.includes("button") || compact.includes("click")) {
-    if (compact.includes("persona") || compact.includes("profile")) {
-      return [
-        "Persona is in the web app in two places:",
-        "1. Left sidebar: click Persona.",
-        "2. Bottom-left user pill: click the Sean Tan profile button, then choose Persona from the drop-up menu.",
-        "",
-        "I am preparing screenshot steps in the Codex session now."
-      ].join("\n");
-    }
-    return "In the web app, use the left sidebar for main pages. The bottom-left user pill opens Settings and Persona.";
-  }
-  return [
-    "I can answer local project questions like persona, status, logs, or where to click in the web app.",
-    "For open-ended build/change requests, I saved your Telegram message in the Codex inbox so the active session can handle it."
-  ].join("\n");
+  return "";
 }
 
 async function bridgeReply(text) {
@@ -151,7 +132,7 @@ async function bridgeReply(text) {
   const state = compactProjectState(db);
   const command = commandReply(text, state);
   if (command) return command;
-  return "I saved your message in the Codex inbox. I can answer local project questions like persona, status, logs, or where to click in the web app.";
+  return "";
 }
 
 async function appendInbox(messages) {
@@ -199,6 +180,7 @@ async function pollOnce() {
       await telegram("sendMessage", { chat_id: message.chat.id, text: "Unauthorized Telegram user." });
       continue;
     }
+    const reply = await bridgeReply(text);
     accepted.push({
       id: update.update_id,
       chatId: message.chat.id,
@@ -207,9 +189,9 @@ async function pollOnce() {
       firstName: message.from?.first_name || "",
       text,
       receivedAt: new Date().toISOString(),
-      status: "new"
+      status: reply ? "bridge-replied" : "new",
+      bridgeRepliedAt: reply ? new Date().toISOString() : undefined
     });
-    const reply = await bridgeReply(text);
     if (reply) {
       await telegram("sendMessage", {
         chat_id: message.chat.id,

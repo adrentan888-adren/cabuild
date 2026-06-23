@@ -198,5 +198,6 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - 2026-06-23: Added a no-AI acknowledgement for ordinary Telegram messages so the bot does not appear silent while messages wait in the Codex inbox.
 - 2026-06-23: Added no-AI natural language routing for common Telegram text: persona/profile, status/summary, logs/debug, and simple greetings. These now return local app-state answers without requiring slash commands.
 - 2026-06-23: Replaced the stale generic Telegram fallback with a local capability response and added plain-English routing for web GUI/persona/profile navigation questions.
+- 2026-06-23: Added `tools/telegram-bridge/telegram-codex-runner.mjs`, an optional always-on local runner that reads normal Telegram messages from `data/telegram-inbox.json`, acknowledges them, launches `codex exec` non-interactively, and sends the final Codex answer back to Telegram. The bridge now answers only slash commands locally and marks them `bridge-replied`; normal messages stay `new` for the runner.
 ### 2026-06-23 - Telegram Local Bridge Setup Doc
 - Added `TELEGRAM_LOCAL_BRIDGE_SETUP.md` with future-session setup steps for the local Telegram bridge, including env vars, start/stop commands, inbox/outbox paths, commands, and limitations.

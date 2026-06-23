@@ -7,10 +7,12 @@ It lets Telegram messages reach this workspace through local JSON queues. It doe
 ## Files
 
 - Bridge script: `tools/telegram-bridge/telegram-bridge.mjs`
+- Codex runner: `tools/telegram-bridge/telegram-codex-runner.mjs`
 - Bridge notes: `tools/telegram-bridge/README.md`
 - Incoming messages: `data/telegram-inbox.json`
 - Outgoing replies: `data/telegram-outbox.json`
 - Polling state: `data/telegram-bridge-state.json`
+- Runner state: `data/telegram-codex-runner-state.json`
 
 The `data/*.json` files are ignored by git.
 
@@ -32,6 +34,8 @@ $env:TELEGRAM_ALLOWED_USER_IDS = "your-telegram-user-id"
 
 No AI provider key is required. The bridge receives messages, saves them to the inbox, processes fixed commands, and sends manual outbox replies written by the Codex session.
 
+The optional Codex runner uses the locally authenticated Codex CLI. It does not need a separate model API key, but the machine must already be logged in to Codex.
+
 ## Start Bridge
 
 From the project root:
@@ -48,11 +52,34 @@ $env:TELEGRAM_ALLOWED_USER_IDS = "your-telegram-user-id"
 Start-Process -FilePath "node.exe" -ArgumentList "tools/telegram-bridge/telegram-bridge.mjs" -WorkingDirectory "C:\Users\WINDOWS-10\Desktop\ClaudeWork\CABuild" -WindowStyle Hidden
 ```
 
+## Start Codex Runner
+
+Start this as a second process if Telegram should run Codex automatically for normal messages:
+
+```powershell
+$env:TELEGRAM_BOT_TOKEN = "your-telegram-bot-token"
+$env:TELEGRAM_ALLOWED_USER_IDS = "your-telegram-user-id"
+$env:TELEGRAM_CODEX_SKIP_EXISTING = "1"
+Start-Process -FilePath "node.exe" -ArgumentList "tools/telegram-bridge/telegram-codex-runner.mjs" -WorkingDirectory "C:\Users\WINDOWS-10\Desktop\ClaudeWork\CABuild" -WindowStyle Hidden
+```
+
+`TELEGRAM_CODEX_SKIP_EXISTING=1` marks old unprocessed inbox messages as skipped on first runner start, so the runner only works on new Telegram messages.
+
+The runner invokes local Codex with non-interactive permissions. It can edit files, run builds, commit, push, and deploy when the allowed Telegram user asks it to. Keep the bot private and rotate any token pasted into chat or logs.
+
 ## Check Bridge Process
 
 ```powershell
 Get-CimInstance Win32_Process |
   Where-Object { $_.Name -eq "node.exe" -and $_.CommandLine -match "telegram-bridge" } |
+  Select-Object ProcessId,CommandLine
+```
+
+Check the runner process:
+
+```powershell
+Get-CimInstance Win32_Process |
+  Where-Object { $_.Name -eq "node.exe" -and $_.CommandLine -match "telegram-codex-runner" } |
   Select-Object ProcessId,CommandLine
 ```
 
@@ -64,6 +91,14 @@ Get-CimInstance Win32_Process |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 ```
 
+Stop the runner:
+
+```powershell
+Get-CimInstance Win32_Process |
+  Where-Object { $_.Name -eq "node.exe" -and $_.CommandLine -match "telegram-codex-runner" } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
 ## How It Works
 
 Telegram messages from allowed users are polled with `getUpdates`.
@@ -72,8 +107,8 @@ For each message:
 
 1. The bridge saves it to `data/telegram-inbox.json`.
 2. If it is a command, the bridge replies directly.
-3. If it is normal text, the bridge acknowledges it and keeps it in the inbox for the Codex session to answer or act on.
-4. A Codex session can write replies to the outbox.
+3. If it is normal text, the Codex runner marks it processing, sends a working acknowledgement, launches `codex exec`, and sends the final answer back to Telegram.
+4. A Codex session can still write manual replies to the outbox.
 
 Supported commands:
 
@@ -103,9 +138,10 @@ The bridge will send it and clear successful entries.
 1. Pull latest repo.
 2. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS`.
 3. Start `tools/telegram-bridge/telegram-bridge.mjs`.
-4. Send `/status` to the configured Telegram bot.
-5. Confirm the message appears in `data/telegram-inbox.json`.
+4. Start `tools/telegram-bridge/telegram-codex-runner.mjs` if automatic Codex processing is needed.
+5. Send `/status` to the configured Telegram bot.
+6. Send a normal text message and confirm the runner replies after Codex completes.
 
 ## Limitation
 
-This bridge does not inject messages directly into the Codex UI. It is a local bridge plus queue and auto-answer service. For code changes, a Codex session still needs to read the inbox and perform the work.
+The runner starts separate non-interactive Codex jobs. It does not inject messages into an already-open Codex UI session.

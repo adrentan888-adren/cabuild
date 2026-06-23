@@ -439,23 +439,24 @@ export async function crawlPersonaSourcesWithApify(urls: Record<string, string>)
   const entries = Object.entries(urls).filter(([, url]) => url.trim());
   if (!entries.length) return [];
   const actorId = (process.env.APIFY_KEYWORD_ACTOR_ID || process.env.APIFY_ACTOR_ID || "apify/google-search-scraper").replace("/", "~");
-  const queries = entries.map(([source, url]) => `${url} ${source} profile about posts`).slice(0, 8);
+  const queryList = entries.map(([source, url]) => `${url} ${source} profile about posts`).slice(0, 8);
   const endpoint = `https://api.apify.com/v2/actors/${actorId}/run-sync-get-dataset-items?token=${token()}&timeout=120`;
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      queries,
+      queries: queryList.join("\n"),
       maxPagesPerQuery: 1,
       resultsPerPage: 5,
       countryCode: "us",
       languageCode: "en"
     })
   });
-  if (!res.ok) throw new Error(`Apify persona crawl failed with HTTP ${res.status}.`);
-  const items = (await res.json()) as Array<Record<string, unknown>>;
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Apify persona crawl failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
+  const items = JSON.parse(text) as Array<Record<string, unknown>>;
   return entries.map(([source, url], index) => {
-    const query = queries[index];
+    const query = queryList[index];
     const related = items.filter((item) => {
       const haystack = [item.searchQuery, item.query, item.url, item.link, item.title, item.description, item.text].map((value) => String(value || "")).join(" ");
       return haystack.includes(url) || haystack.includes(query) || haystack.toLowerCase().includes(source.toLowerCase());

@@ -85,7 +85,7 @@ jobs:
           --platform=managed
           --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA
           --env-vars-file=cloudrun-env.yaml
-          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest
+          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest
           --quiet
 
       - name: Keep service public

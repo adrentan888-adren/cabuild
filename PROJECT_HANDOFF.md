@@ -191,6 +191,6 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 ### 2026-06-23 - Telegram Bridge
 - Added `/api/telegram/webhook` for a Telegram bot control surface.
 - Allowed user IDs are controlled by `TELEGRAM_ALLOWED_USER_IDS`; current configured ID is `1151114885`.
-- Bot token must be stored as `TELEGRAM_BOT_TOKEN` in environment/GCP Secret Manager; do not commit it.
+- Bot token must be stored as `TELEGRAM_BOT_TOKEN` in environment/GCP Secret Manager and attached to Cloud Run manually or through a future deploy workflow update; do not commit it.
 - Commands: `/start`, `/help`, `/status`, `/logs`, `/persona`. Plain text messages are answered by Kie GPT-5.5 using current app/project state.
 - This does not attach Telegram to the live Codex runtime directly; it gives Telegram access to the app/project state and AI assistant. Code changes still require this Codex session unless a future job runner is added.

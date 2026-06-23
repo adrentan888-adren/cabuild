@@ -1536,7 +1536,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
           {kind === "video" && (
             <>
               <label>Duration (seconds)<select name="duration" value={duration} onChange={(event) => setDuration(event.target.value)}>{durationOptions.map((option) => <option key={option} value={option}>{option} seconds</option>)}</select></label>
-              <label>Aspect ratio<select name="aspectRatio" defaultValue={activeInitial.aspectRatio || "9:16"}><option value="9:16">9:16 vertical</option><option value="16:9">16:9 landscape</option><option value="1:1">1:1 square</option></select></label>
+              <label>Aspect ratio<select name="aspectRatio" defaultValue={activeInitial.aspectRatio === "16:9" ? "16:9" : "9:16"}><option value="9:16">9:16 vertical</option><option value="16:9">16:9 landscape</option></select></label>
             </>
           )}
           {kind === "image" && (

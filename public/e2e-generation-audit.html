@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ContentAgent E2E Generation Audit</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --text: #17191c;
+      --muted: #667085;
+      --line: #d9dde5;
+      --pass: #0f7b45;
+      --fail: #b42318;
+      --accent: #2554d9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+    main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 36px auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: flex-start;
+      margin-bottom: 18px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      letter-spacing: 0;
+    }
+    p { margin: 0; color: var(--muted); }
+    .meta {
+      text-align: right;
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .note {
+      background: #fff8e6;
+      border: 1px solid #f1d38b;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin: 18px 0;
+      color: #684b00;
+    }
+    .table-wrap {
+      overflow-x: auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 14px 34px rgba(18, 25, 38, .06);
+    }
+    table {
+      width: 100%;
+      min-width: 980px;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+      font-size: 14px;
+    }
+    th {
+      background: #f0f3f8;
+      color: #303745;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-width: 58px;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .pass { color: var(--pass); background: #e9f7ef; }
+    .fail { color: var(--fail); background: #ffebe9; }
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+    a:hover { text-decoration: underline; }
+    footer {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    @media (max-width: 720px) {
+      main { width: min(100% - 20px, 1180px); margin: 18px auto; }
+      header { display: block; }
+      .meta { text-align: left; margin-top: 10px; white-space: normal; }
+      h1 { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>ContentAgent E2E Generation Audit</h1>
+        <p>Test prompt: create a loan ad for Facebook ads in Malay with a clickbait hook and USP for Yayasan Prihatin Sdn Bhd.</p>
+      </div>
+      <div class="meta">
+        Tested: 2026-06-23<br>
+        Environment: Cloud Run live app
+      </div>
+    </header>
+    <div class="note">
+      Logo attachment note: the provided Google Drive URL returned a sign-in page during testing, so the logo could not be uploaded as a real generation reference. The URL was included in the prompt text only.
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Content Type</th>
+            <th>Dimension</th>
+            <th>Model</th>
+            <th>Result</th>
+            <th>Comments</th>
+            <th>Output URL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Image</td><td>1:1</td><td>GPT-image 2</td><td><span class="status pass">Pass</span></td><td>Generated successfully.</td><td><a href="https://tempfile.aiquickdraw.com/images/chatgpt/file_00000000885c722f93f54e036c70d0e8.png" target="_blank" rel="noreferrer">Open output</a></td></tr>
+          <tr><td>Image</td><td>1:1</td><td>Nanobanana Pro</td><td><span class="status pass">Pass</span></td><td>Generated successfully.</td><td><a href="https://tempfile.aiquickdraw.com/workers/images/image_1782176336168_jp4r1j.png" target="_blank" rel="noreferrer">Open output</a></td></tr>
+          <tr><td>Image</td><td>4:5</td><td>GPT-image 2</td><td><span class="status pass">Pass</span></td><td>Generated successfully.</td><td><a href="https://tempfile.aiquickdraw.com/images/chatgpt/file_0000000081f871f582a76e553e3f2252.png" target="_blank" rel="noreferrer">Open output</a></td></tr>
+          <tr><td>Image</td><td>4:5</td><td>Nanobanana Pro</td><td><span class="status pass">Pass</span></td><td>Generated successfully.</td><td><a href="https://tempfile.aiquickdraw.com/r/00939c034e3aeeef9a1678574cdb6ba3_1782176402_t7xj2i25.png" target="_blank" rel="noreferrer">Open output</a></td></tr>
+          <tr><td>Image</td><td>16:9</td><td>GPT-image 2</td><td><span class="status pass">Pass</span></td><td>Generated successfully.</td><td><a href="https://tempfile.aiquickdraw.com/images/chatgpt/file_00000000df1071f7b24e32a46090f4f6.png" target="_blank" rel="noreferrer">Open output</a></td></tr>
+          <tr><td>Image</td><td>16:9</td><td>Nanobanana Pro</td><td><span class="status pass">Pass</span></td><td>Generated successfully.</td><td><a href="https://tempfile.aiquickdraw.com/workers/images/image_1782176433597_kjfwyf.png" target="_blank" rel="noreferrer">Open output</a></td></tr>
+          <tr><td>Image</td><td>9:16</td><td>GPT-image 2</td><td><span class="status pass">Pass</span></td><td>Initially queued, then completed after polling.</td><td><a href="https://tempfile.aiquickdraw.com/images/chatgpt/file_000000004f1c71f8b96a2114dfe804fd.png" target="_blank" rel="noreferrer">Open output</a></td></tr>
+          <tr><td>Image</td><td>9:16</td><td>Nanobanana Pro</td><td><span class="status pass">Pass</span></td><td>Generated successfully.</td><td><a href="https://tempfile.aiquickdraw.com/workers/images/image_1782176556497_wk8oc2.png" target="_blank" rel="noreferrer">Open output</a></td></tr>
+          <tr><td>Video</td><td>9:16</td><td>VEO Fast</td><td><span class="status fail">Fail</span></td><td>Generation start returned a provider task ID, but later polling said the asset had no provider task to poll.</td><td>None</td></tr>
+          <tr><td>Video</td><td>9:16</td><td>Seedance 2.0</td><td><span class="status pass">Pass</span></td><td>Generated successfully with the 3-second hook instruction.</td><td><a href="https://tempfile.aiquickdraw.com/r/44e50cc369334525219a4e1d5d63ccc9_1782176874_gbpe4mt0.mp4" target="_blank" rel="noreferrer">Open output</a></td></tr>
+          <tr><td>Video</td><td>16:9</td><td>VEO Fast</td><td><span class="status pass">Pass</span></td><td>Generated successfully.</td><td><a href="https://tempfile.aiquickdraw.com/r/3086b1ca-0f9e-4586-a845-6cdcaf38e611_watermarked.mp4" target="_blank" rel="noreferrer">Open output</a></td></tr>
+          <tr><td>Video</td><td>16:9</td><td>Seedance 2.0</td><td><span class="status pass">Pass</span></td><td>Generated successfully.</td><td><a href="https://tempfile.aiquickdraw.com/r/e77cf2a2dbd03f56b67fb3d75d4af88a_1782176840_0hxb3rgi.mp4" target="_blank" rel="noreferrer">Open output</a></td></tr>
+          <tr><td>Text</td><td>N/A</td><td>Gemini 3.5 Flash</td><td><span class="status pass">Pass</span></td><td>Text draft generated and stored in Publish as a data URL.</td><td>Publish item pub_f40f4f3fafbb</td></tr>
+          <tr><td>Text</td><td>N/A</td><td>Claude Opus 4.8</td><td><span class="status pass">Pass</span></td><td>Text draft generated and stored in Publish as a data URL.</td><td>Publish item pub_779b396672a1</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <footer>Video 1:1 was removed from this report and from the app because video generation should only expose 9:16 and 16:9.</footer>
+  </main>
+</body>
+</html>

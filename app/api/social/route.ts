@@ -269,6 +269,13 @@ function defaultDuration(format: string) {
   return undefined;
 }
 
+function normalizeGenerationAspectRatio(generationType: "video" | "image" | "text", value: unknown) {
+  const ratio = String(value || "").trim();
+  if (generationType === "video") return ratio === "16:9" ? "16:9" : "9:16";
+  if (generationType === "image") return ["1:1", "4:5", "16:9", "9:16"].includes(ratio) ? ratio : "4:5";
+  return "";
+}
+
 const contentPlanFormats = [
   "Short video 9:16",
   "Long-form video 16:9",
@@ -1253,7 +1260,7 @@ export async function POST(req: Request) {
       const hashtags = parseList(body.hashtags || defaultHashtagsForBrief(brief, generationType).join(", "));
       const platform = (String(body.platform || brief.platforms[0] || "TikTok") as Platform);
       const generationSettings = {
-        aspectRatio: String(body.aspectRatio || ""),
+        aspectRatio: normalizeGenerationAspectRatio(generationType, body.aspectRatio),
         variants: String(body.variants || ""),
         tone: String(body.tone || ""),
         length: String(body.length || ""),
@@ -1323,7 +1330,7 @@ export async function POST(req: Request) {
       const hashtags = parseList(body.hashtags || "#SME, #Automation, #AI");
       const platform = (String(body.platform || "TikTok") as Platform);
       const generationSettings = {
-        aspectRatio: String(body.aspectRatio || ""),
+        aspectRatio: normalizeGenerationAspectRatio(generationType, body.aspectRatio),
         variants: String(body.variants || ""),
         tone: String(body.tone || ""),
         length: String(body.length || ""),

@@ -168,3 +168,7 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - 2026-06-16: Changed Generate modal Content type to dropdown and removed Placement.
 - 2026-06-16: Added duration dropdown rules for VEO Fast and Seedance 2.0 with closest-duration defaulting.
 - 2026-06-16: Expanded this handoff file and documented secret handling without raw keys.
+### 2026-06-23 - Remove Video 1:1 and Publish E2E Audit Report
+- Removed `1:1` from the video aspect ratio dropdown in the shared Create Content module.
+- Added backend aspect-ratio normalization so stale video requests using `1:1` are coerced to `9:16`; image requests still support `1:1`, `4:5`, `16:9`, and `9:16`.
+- Added a standalone static audit report at `/e2e-generation-audit.html` with the latest Playwright E2E generation results. The report excludes video `1:1` rows because video generation should not support that dimension.

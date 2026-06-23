@@ -103,6 +103,10 @@ async function pollOnce() {
       receivedAt: new Date().toISOString(),
       status: "new"
     });
+    await telegram("sendMessage", {
+      chat_id: message.chat.id,
+      text: "Received by the local Codex bridge. Ask Codex to check Telegram, or wait for the local session to process the inbox."
+    });
   }
   await writeJson(statePath, { offset: nextOffset, updatedAt: new Date().toISOString() });
   await appendInbox(accepted);

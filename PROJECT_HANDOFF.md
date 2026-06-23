@@ -188,3 +188,9 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 ### 2026-06-23 - Persona Auto-Fill Crawl Fix
 - Fixed Persona auto-fill crawler to flatten Apify Google Search `organicResults`/`suggestedResults` before sending snippets to GPT-5.5.
 - Tested locally with `https://www.facebook.com/csgcsg` and `https://www.linkedin.com/in/gregorycharles/`; Apify returned 6 snippets per source, GPT-5.5 filled Gregory Charles persona fields, and the Persona UI rendered the saved result after refresh.
+### 2026-06-23 - Telegram Bridge
+- Added `/api/telegram/webhook` for a Telegram bot control surface.
+- Allowed user IDs are controlled by `TELEGRAM_ALLOWED_USER_IDS`; current configured ID is `1151114885`.
+- Bot token must be stored as `TELEGRAM_BOT_TOKEN` in environment/GCP Secret Manager; do not commit it.
+- Commands: `/start`, `/help`, `/status`, `/logs`, `/persona`. Plain text messages are answered by Kie GPT-5.5 using current app/project state.
+- This does not attach Telegram to the live Codex runtime directly; it gives Telegram access to the app/project state and AI assistant. Code changes still require this Codex session unless a future job runner is added.

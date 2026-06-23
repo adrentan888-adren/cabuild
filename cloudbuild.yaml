@@ -50,6 +50,7 @@ steps:
         APIFY_FACEBOOK_ACTOR_ID: "scrapeforge/facebook-search-posts"
         UPLOAD_POST_PROFILE: "Mariana"
         UPLOAD_POST_DEFAULT_PLATFORMS: "tiktok,facebook,x"
+        TELEGRAM_ALLOWED_USER_IDS: "1151114885"
         DATA_STORE_GCS_BUCKET: "${_DATA_BUCKET}"
         DATA_STORE_GCS_OBJECT: "${_DATA_OBJECT}"
         EOF
@@ -64,7 +65,7 @@ steps:
       - --region=${_REGION}
       - --platform=managed
       - --env-vars-file=cloudrun-env.yaml
-      - --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest
+      - --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest
       - --quiet
 
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim

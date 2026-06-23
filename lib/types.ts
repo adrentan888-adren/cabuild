@@ -67,6 +67,7 @@ export type PersonaProfile = {
     linkedin: string;
     website: string;
     instagram: string;
+    facebook: string;
     x: string;
   };
   updatedAt?: string;

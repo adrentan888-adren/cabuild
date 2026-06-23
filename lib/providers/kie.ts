@@ -290,6 +290,38 @@ export async function generateContentPlanWithGpt55(input: { idea: string; niche:
   return extractJson(content || text);
 }
 
+export async function generatePersonaAutofillWithGpt55(prompt: string) {
+  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const res = await fetch(`${baseUrl}/codex/v1/responses`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token()}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "gpt-5-5",
+      stream: false,
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: prompt }]
+        }
+      ],
+      reasoning: { effort: "medium" }
+    })
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Kie GPT-5.5 persona autofill failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
+  const parsed = JSON.parse(text) as KieResponsesResponse;
+  if (parsed.error?.message) throw new Error(parsed.error.message);
+  const content = (parsed.output || [])
+    .flatMap((item) => item.content || [])
+    .map((item) => item.text || "")
+    .join("")
+    .trim();
+  return extractJson(content || text);
+}
+
 export function buildContentPlanPrompt(input: PlanInput) {
   return `You are ContentAgent's social content strategist. Analyze this competitor post and return ONLY valid JSON.
 

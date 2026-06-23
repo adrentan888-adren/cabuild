@@ -553,6 +553,7 @@ function PersonaFileField({ name, title, helper, accept, initial }: { name: stri
 function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
   const [step, setStep] = useState(0);
   const [showAutofill, setShowAutofill] = useState(false);
+  const [autoFilling, setAutoFilling] = useState(false);
   const persona = data.personaProfile;
   const completionChecks = [
     persona.fullName,
@@ -568,6 +569,12 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   const completion = Math.round((completionChecks.filter(Boolean).length / completionChecks.length) * 100);
   const save = async (form: FormData) => {
     await run("updatePersonaProfile", Object.fromEntries(form.entries()), "Persona saved");
+  };
+  const autoFill = async (form?: HTMLFormElement | null) => {
+    if (!form || autoFilling) return;
+    setAutoFilling(true);
+    await run("autoFillPersonaProfile", Object.fromEntries(new FormData(form).entries()), "Persona auto-filled from public profiles");
+    setAutoFilling(false);
   };
   const saveAndGo = async (targetStep: number, form?: HTMLFormElement | null) => {
     if (targetStep === step) return;
@@ -634,12 +641,17 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
               </div>
               <button type="button" onClick={() => setShowAutofill(false)}>Close</button>
             </div>
-            <p className="muted">These URLs are only stored for later. No scraping or prompt usage is enabled in this step.</p>
+            <p className="muted">Apify crawls public snippets from these URLs, then GPT-5.5 in Kie maps the findings into your persona fields.</p>
             <div className="grid two">
               <label>LinkedIn<input name="linkedinUrl" defaultValue={persona.sourceUrls.linkedin} placeholder="linkedin.com/in/yourname" /></label>
+              <label>Facebook<input name="facebookUrl" defaultValue={persona.sourceUrls.facebook || ""} placeholder="facebook.com/yourprofile" /></label>
               <label>Website<input name="websiteUrl" defaultValue={persona.sourceUrls.website} placeholder="yourcompany.com" /></label>
               <label>Instagram<input name="instagramUrl" defaultValue={persona.sourceUrls.instagram} placeholder="instagram.com/yourhandle" /></label>
               <label>X / Twitter<input name="xUrl" defaultValue={persona.sourceUrls.x} placeholder="x.com/yourhandle" /></label>
+            </div>
+            <div className="autofill-actions">
+              <button type="button" className="primary" onClick={(event) => autoFill(event.currentTarget.form)} disabled={autoFilling}>{autoFilling ? <AnimatedDots label="Auto-filling persona" /> : "Auto-fill persona"}</button>
+              <span>Uses only public crawl results. Review and edit the saved persona after auto-fill.</span>
             </div>
           </section>
         )}
@@ -647,7 +659,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
         <section className="persona-card">
           {step === 0 && (
             <div className="persona-fields">
-              <div className="autofill-banner"><span className="dot" /><span>Skip the form - store public URLs for later autofill.</span><button type="button" onClick={() => setShowAutofill(true)}>Auto-fill</button></div>
+              <div className="autofill-banner"><span className="dot" /><span>Skip the form - crawl public URLs and auto-fill with GPT-5.5.</span><button type="button" onClick={() => setShowAutofill(true)}>Auto-fill</button></div>
               <div className="grid two">
                 <label>Full name<input name="fullName" defaultValue={persona.fullName} placeholder="Sean Tan" /></label>
                 <label>Job title<input name="jobTitle" defaultValue={persona.jobTitle} placeholder="CEO" /></label>

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { defaultPersonaProfile, id, mutateDb } from "@/lib/store";
 import type { Asset, Brief, CompetitorResult, GenerationAssetReference, PersonaProfile, Platform, PublishItem } from "@/lib/types";
-import { fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl } from "@/lib/providers/apify";
-import { buildAiBriefPrompt, buildContentPlanPrompt, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateImage, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
+import { crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl } from "@/lib/providers/apify";
+import { buildAiBriefPrompt, buildContentPlanPrompt, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 
 async function requireUser() {
@@ -310,10 +310,61 @@ function personaFromBody(workspaceId: string, body: Record<string, unknown>, pre
       linkedin: stringField(body, "linkedinUrl", fallback.sourceUrls.linkedin),
       website: stringField(body, "websiteUrl", fallback.sourceUrls.website),
       instagram: stringField(body, "instagramUrl", fallback.sourceUrls.instagram),
+      facebook: stringField(body, "facebookUrl", fallback.sourceUrls.facebook || ""),
       x: stringField(body, "xUrl", fallback.sourceUrls.x)
     },
     updatedAt: new Date().toISOString()
   };
+}
+
+function buildPersonaAutofillPrompt(input: { current: PersonaProfile; crawled: Awaited<ReturnType<typeof crawlPersonaSourcesWithApify>> }) {
+  return `You are ContentAgent's persona researcher. Use the crawled public profile/page information to fill a creator/founder persona profile.
+
+Rules:
+- Return ONLY valid JSON.
+- Only infer fields when supported by crawled information or very strong contextual signals.
+- Preserve useful existing values if the crawl does not provide better information.
+- Do not invent private personal facts.
+- Keep values practical for social content generation.
+- Use arrays for list fields.
+- Tone fields must be integers from 1 to 5.
+
+Existing persona:
+${JSON.stringify(input.current, null, 2)}
+
+Crawled public source snippets:
+${JSON.stringify(input.crawled, null, 2)}
+
+Return this exact JSON shape:
+{
+  "fullName": "",
+  "jobTitle": "",
+  "company": "",
+  "industry": "",
+  "preferredName": "",
+  "companyOneLiner": "",
+  "yearsExperience": "",
+  "pronouns": "",
+  "credentialTags": [],
+  "primaryAudience": "",
+  "painPoint": "",
+  "contentLanguage": "",
+  "audienceFear": "",
+  "audienceAspiration": "",
+  "secondaryAudience": "",
+  "includePersonalLife": false,
+  "toneFormalCasual": 3,
+  "toneSeriousHumorous": 2,
+  "toneReservedBold": 4,
+  "naturalPhrases": [],
+  "bannedVocabulary": [],
+  "primaryContentGoal": "",
+  "ctaStyle": "",
+  "approvedTopics": [],
+  "offLimitsTopics": [],
+  "strongOpinions": "",
+  "writingSamples": []
+}`;
 }
 
 function contentKindFromFormat(format: string): "video" | "image" | "text" {
@@ -1153,6 +1204,65 @@ export async function POST(req: Request) {
         error: error instanceof Error ? error.message : "Kie generation failed"
       });
       return NextResponse.json(updated, { status: 502 });
+    }
+  }
+
+  if (action === "autoFillPersonaProfile") {
+    const existing = await mutateDb((db) => db.personaProfiles.find((item) => item.workspaceId === workspaceId) || defaultPersonaProfile(workspaceId));
+    const sourceUrls = {
+      linkedin: String(body.linkedinUrl || existing.sourceUrls.linkedin || "").trim(),
+      website: String(body.websiteUrl || existing.sourceUrls.website || "").trim(),
+      instagram: String(body.instagramUrl || existing.sourceUrls.instagram || "").trim(),
+      facebook: String(body.facebookUrl || existing.sourceUrls.facebook || "").trim(),
+      x: String(body.xUrl || existing.sourceUrls.x || "").trim()
+    };
+    if (!Object.values(sourceUrls).some(Boolean)) return NextResponse.json({ error: "Add at least one profile URL before auto-fill." }, { status: 400 });
+    await debugLog(workspaceId, {
+      action,
+      label: "Persona auto-fill crawl started",
+      status: "started",
+      provider: "apify",
+      details: { sourceUrls }
+    });
+    try {
+      const crawled = await crawlPersonaSourcesWithApify(sourceUrls);
+      const prompt = buildPersonaAutofillPrompt({ current: existing, crawled });
+      await debugLog(workspaceId, {
+        action,
+        label: "Prompt sent to Kie GPT-5.5 for persona auto-fill",
+        status: "started",
+        provider: "kie",
+        prompt,
+        details: { model: "gpt-5-5", crawledSources: crawled.map((item) => ({ source: item.source, itemCount: item.itemCount })) }
+      });
+      const generated = await generatePersonaAutofillWithGpt55(prompt) as Record<string, unknown>;
+      const profile = await mutateDb((db) => {
+        db.personaProfiles ||= [];
+        const existingIndex = db.personaProfiles.findIndex((item) => item.workspaceId === workspaceId);
+        const previous = existingIndex >= 0 ? db.personaProfiles[existingIndex] : existing;
+        const merged = personaFromBody(workspaceId, { ...generated, ...Object.fromEntries(Object.entries(sourceUrls).map(([key, value]) => [`${key}Url`, value])) }, previous);
+        if (existingIndex >= 0) db.personaProfiles[existingIndex] = merged;
+        else db.personaProfiles.push(merged);
+        db.activity.push({ id: id("act"), workspaceId, message: `Persona auto-filled from ${crawled.length} public source(s).`, createdAt: new Date().toISOString() });
+        return merged;
+      });
+      await debugLog(workspaceId, {
+        action,
+        label: "Persona auto-fill completed",
+        status: "success",
+        provider: "kie",
+        details: { model: "gpt-5-5", fullName: profile.fullName, company: profile.company }
+      });
+      return NextResponse.json(profile);
+    } catch (error) {
+      await debugLog(workspaceId, {
+        action,
+        label: "Persona auto-fill failed",
+        status: "failed",
+        provider: "system",
+        error: error instanceof Error ? error.message : "Persona auto-fill failed"
+      });
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Persona auto-fill failed" }, { status: 502 });
     }
   }
 

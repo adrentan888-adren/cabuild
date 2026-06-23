@@ -57,7 +57,7 @@ export function defaultPersonaProfile(workspaceId: string): PersonaProfile {
     allowAiFace: false,
     allowAiVoice: false,
     autoAiDisclosure: true,
-    sourceUrls: { linkedin: "", website: "", instagram: "", x: "" },
+    sourceUrls: { linkedin: "", website: "", instagram: "", facebook: "", x: "" },
     updatedAt: new Date().toISOString()
   };
 }

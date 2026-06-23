@@ -180,3 +180,8 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Seedance 2.0 prompts now append structured timed-scene guidance, camera movement, sound design, duration-aware complexity limits, reference-role handling, and social-ad/compliance constraints inspired by the dexhunter Seedance 2.0 prompt skill.
 - VEO Fast now receives the same core timed-scene/camera/CTA structure without Seedance-specific reference syntax.
 - Existing queued video assets are also enhanced at send time if their stored prompt does not already include provider-specific guidance.
+### 2026-06-23 - Persona Auto-Fill From Public URLs
+- Added Facebook URL support to persona source URLs.
+- Changed the Persona "Learn from a channel" drawer from storage-only into a real "Auto-fill persona" action.
+- Auto-fill flow: browser submits current Persona form URLs -> `/api/social` `autoFillPersonaProfile` -> Apify crawls public source snippets using the configured search actor -> Kie GPT-5.5 maps crawled snippets into the persona schema -> merged persona is saved and the app refreshes.
+- Debug Logs capture the Apify source crawl start, GPT-5.5 prompt, crawled source counts, and completion/failure details.

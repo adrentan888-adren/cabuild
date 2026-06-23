@@ -1699,7 +1699,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
   }, [pollIds]);
   return (
     <div className="publish-page">
-      {previewAsset?.assetUrl && <VideoPlayerModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
+      {previewAsset?.assetUrl && <AssetPreviewModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
       <section className="plan-hero">
         <div>
           <div className="clbl">Publish</div>
@@ -1749,10 +1749,10 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
                 </button>
               )}
               {!isVideo && isImage && (
-                <a className={`image-thumb ${imageUrl ? "" : "pending"}`} href={imageUrl || undefined} target="_blank" aria-disabled={!imageUrl}>
+                <button className={`image-thumb ${imageUrl ? "" : "pending"}`} type="button" disabled={!imageUrl} onClick={() => asset && imageUrl && setPreviewAsset({ ...asset, assetUrl: imageUrl, type: "image" })}>
                   {imageUrl ? <img src={imageUrl} alt={`${item.title} generated preview`} /> : <Palette size={22} />}
-                  <span>{imageUrl ? "Open image" : item.status === "failed" ? "No image generated" : <AnimatedDots label="Generating image" />}</span>
-                </a>
+                  <span>{imageUrl ? "Preview image" : item.status === "failed" ? "No image generated" : <AnimatedDots label="Generating image" />}</span>
+                </button>
               )}
               <div className="publish-main">
                 <div className="publish-icon">{item.generationType === "video" ? <Film size={18} /> : item.generationType === "image" ? <Palette size={18} /> : <FileText size={18} />}</div>
@@ -1767,7 +1767,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
                   </div>
                   {item.hashtags?.length ? <small>{item.hashtags.join(" ")}</small> : null}
                   {videoUrl && <div className="asset-actions"><button type="button" onClick={() => asset && setPreviewAsset(asset)}><Film size={14} />Play video</button><a className="asset-link" href={`/api/assets/${asset?.id}/download`}>Download MP4</a></div>}
-                  {!isVideo && item.assetUrl && <a className="asset-link" href={item.assetUrl} target="_blank">Open generated asset</a>}
+                  {!isVideo && imageUrl && asset && <button type="button" className="asset-link asset-button-link" onClick={() => setPreviewAsset({ ...asset, assetUrl: imageUrl, type: "image" })}>Preview image</button>}
                   {item.error && <span className="provider-error inline">{item.error}</span>}
                 </div>
               </div>
@@ -1785,20 +1785,22 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
   );
 }
 
-function VideoPlayerModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
+function AssetPreviewModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
+  const isImage = asset.type === "image" || asset.type === "carousel";
+  const downloadLabel = isImage ? "Download image" : "Download MP4";
   return (
     <div className="modal-backdrop video-backdrop">
       <section className="video-player-modal">
         <div className="modal-head">
           <div>
-            <div className="clbl">Video Preview</div>
+            <div className="clbl">{isImage ? "Image Preview" : "Video Preview"}</div>
             <h3>{asset.title}</h3>
           </div>
           <button type="button" className="icon-btn" onClick={onClose}>x</button>
         </div>
-        <video src={asset.assetUrl} controls autoPlay playsInline />
+        {isImage ? <img className="asset-preview-image" src={asset.assetUrl} alt={`${asset.title} generated preview`} /> : <video src={asset.assetUrl} controls autoPlay playsInline />}
         <div className="modal-actions">
-          <a className="asset-link" href={`/api/assets/${asset.id}/download`}>Download MP4</a>
+          <a className="asset-link" href={`/api/assets/${asset.id}/download`}>{downloadLabel}</a>
           <button type="button" onClick={onClose}>Close</button>
         </div>
       </section>

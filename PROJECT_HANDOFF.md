@@ -172,3 +172,6 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Removed `1:1` from the video aspect ratio dropdown in the shared Create Content module.
 - Added backend aspect-ratio normalization so stale video requests using `1:1` are coerced to `9:16`; image requests still support `1:1`, `4:5`, `16:9`, and `9:16`.
 - Added a standalone static audit report at `/e2e-generation-audit.html` with the latest Playwright E2E generation results. The report excludes video `1:1` rows because video generation should not support that dimension.
+### 2026-06-23 - Publish Image Preview Modal
+- Changed Publish tab image thumbnails from direct external links to in-app preview buttons.
+- Reused the media preview modal for image and video assets; image previews now show the generated image in a pop-up with a download button.

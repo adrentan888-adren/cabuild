@@ -2,7 +2,55 @@
 
 This project includes a local Telegram bridge for Codex sessions.
 
-It lets Telegram messages reach this workspace through local JSON queues. It does **not** directly control a Codex runtime. A Codex session can inspect the inbox, act on messages, and reply through the bridge.
+The original repo-local bridge remains available as a fallback. The current live machine has been switched to the external `op7418/Claude-to-IM-skill` bridge with `CTI_RUNTIME=codex`.
+
+The repo-local bridge lets Telegram messages reach this workspace through local JSON queues. It does **not** directly control a Codex runtime unless `telegram-codex-runner.mjs` is also running.
+
+The external Claude-to-IM bridge runs from:
+
+```text
+C:\Users\WINDOWS-10\.codex\skills\claude-to-im
+```
+
+Its private config is:
+
+```text
+C:\Users\WINDOWS-10\.claude-to-im\config.env
+```
+
+Do not commit that config file or paste its token values.
+
+To check the external bridge:
+
+```powershell
+Get-CimInstance Win32_Process |
+  Where-Object { $_.Name -eq "node.exe" -and $_.CommandLine -match "dist/daemon.mjs" } |
+  Select-Object ProcessId,CommandLine
+
+Get-Content "$env:USERPROFILE\.claude-to-im\runtime\status.json"
+```
+
+To stop it:
+
+```powershell
+$pidFile = "$env:USERPROFILE\.claude-to-im\runtime\bridge.pid"
+if (Test-Path $pidFile) {
+  Stop-Process -Id ([int](Get-Content $pidFile -Raw).Trim()) -Force
+  Remove-Item $pidFile -Force
+}
+```
+
+To start it manually after a reboot:
+
+```powershell
+$env:CTI_HOME = "$env:USERPROFILE\.claude-to-im"
+Start-Process -FilePath "node.exe" `
+  -ArgumentList "dist/daemon.mjs" `
+  -WorkingDirectory "C:\Users\WINDOWS-10\.codex\skills\claude-to-im" `
+  -WindowStyle Hidden `
+  -RedirectStandardOutput "$env:USERPROFILE\.claude-to-im\logs\bridge.out.log" `
+  -RedirectStandardError "$env:USERPROFILE\.claude-to-im\logs\bridge.err.log"
+```
 
 ## Files
 

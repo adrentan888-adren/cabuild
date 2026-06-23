@@ -1,5 +1,8 @@
 param(
   [switch]$Once,
+  [switch]$Force,
+  [string]$NotifyChatId = "",
+  [int]$DelaySeconds = 0,
   [int]$IntervalMinutes = 30,
   [int]$MaxTaskMinutes = 25
 )
@@ -13,6 +16,7 @@ $LogDir = Join-Path $CtiHome "logs"
 $StatusFile = Join-Path $RuntimeDir "status.json"
 $PidFile = Join-Path $RuntimeDir "bridge.pid"
 $WatchdogLog = Join-Path $LogDir "watchdog.log"
+$ConfigFile = Join-Path $CtiHome "config.env"
 
 function Write-WatchdogLog {
   param([string]$Message)
@@ -20,6 +24,34 @@ function Write-WatchdogLog {
   $line = "[{0}] {1}" -f (Get-Date).ToUniversalTime().ToString("s"), $Message
   Add-Content -Path $WatchdogLog -Value $line
   Write-Output $line
+}
+
+function Get-ConfigValue {
+  param([string]$Name)
+  if (-not (Test-Path $ConfigFile)) { return "" }
+  $line = Get-Content $ConfigFile | Where-Object { $_ -match ("^\s*" + [regex]::Escape($Name) + "\s*=") } | Select-Object -First 1
+  if (-not $line) { return "" }
+  return ($line -replace "^\s*[^=]+\s*=", "").Trim().Trim('"').Trim("'")
+}
+
+function Send-TelegramNotice {
+  param(
+    [string]$ChatId,
+    [string]$Message
+  )
+  if ([string]::IsNullOrWhiteSpace($ChatId)) { return }
+  $token = Get-ConfigValue -Name "CTI_TG_BOT_TOKEN"
+  if ([string]::IsNullOrWhiteSpace($token)) { return }
+  try {
+    Invoke-RestMethod `
+      -Method Post `
+      -Uri ("https://api.telegram.org/bot{0}/sendMessage" -f $token) `
+      -Body @{ chat_id = $ChatId; text = $Message } `
+      -TimeoutSec 15 `
+      -ErrorAction Stop | Out-Null
+  } catch {
+    Write-WatchdogLog "Telegram force-stop notification failed."
+  }
 }
 
 function Get-Daemons {
@@ -131,7 +163,33 @@ function Invoke-WatchdogCheck {
   Start-Bridge
 }
 
-Write-WatchdogLog "Watchdog starting. IntervalMinutes=$IntervalMinutes MaxTaskMinutes=$MaxTaskMinutes Once=$Once."
+function Invoke-ForceRestart {
+  if ($DelaySeconds -gt 0) {
+    Start-Sleep -Seconds $DelaySeconds
+  }
+
+  $daemons = @(Get-Daemons)
+  $daemonPids = @($daemons | Select-Object -ExpandProperty ProcessId)
+  $codexChildren = @(Get-CodexChildren -ParentIds $daemonPids)
+  $codexPids = @($codexChildren | Select-Object -ExpandProperty ProcessId)
+  $roots = @($daemonPids + $codexPids | Select-Object -Unique)
+
+  Write-WatchdogLog "Force restart requested. Daemon PID(s): $($daemonPids -join ', '); Codex child PID(s): $($codexPids -join ', ')."
+  Stop-ProcessTree -RootPids $roots
+  foreach ($pidValue in $roots) {
+    try { Stop-Process -Id ([int]$pidValue) -Force -ErrorAction SilentlyContinue } catch {}
+  }
+  Start-Sleep -Seconds 2
+  Start-Bridge
+  Send-TelegramNotice -ChatId $NotifyChatId -Message "Force stop complete. Bridge restarted."
+}
+
+Write-WatchdogLog "Watchdog starting. IntervalMinutes=$IntervalMinutes MaxTaskMinutes=$MaxTaskMinutes Once=$Once Force=$Force."
+
+if ($Force) {
+  Invoke-ForceRestart
+  exit 0
+}
 
 do {
   Invoke-WatchdogCheck

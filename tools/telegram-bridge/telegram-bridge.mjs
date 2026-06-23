@@ -132,7 +132,7 @@ async function bridgeReply(text) {
   const state = compactProjectState(db);
   const command = commandReply(text, state);
   if (command) return command;
-  return "";
+  return "Received by the local Codex bridge. I saved this for the active Codex session to process.";
 }
 
 async function appendInbox(messages) {

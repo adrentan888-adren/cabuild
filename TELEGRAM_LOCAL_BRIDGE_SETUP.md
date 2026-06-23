@@ -72,7 +72,7 @@ For each message:
 
 1. The bridge saves it to `data/telegram-inbox.json`.
 2. If it is a command, the bridge replies directly.
-3. If it is normal text, it stays in the inbox for the Codex session to answer or act on.
+3. If it is normal text, the bridge acknowledges it and keeps it in the inbox for the Codex session to answer or act on.
 4. A Codex session can write replies to the outbox.
 
 Supported commands:

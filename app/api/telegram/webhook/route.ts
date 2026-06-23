@@ -95,7 +95,7 @@ async function answer(text: string) {
   if (command === "/logs") return logsText(snapshot);
   if (command === "/persona") return personaText(snapshot);
 
-  return "Message received. Ask the Codex session to process Telegram messages through the local bridge inbox.";
+  return "Received by the ContentAgent bridge. Ask the active Codex session to process this Telegram message.";
 }
 
 export async function POST(req: Request) {

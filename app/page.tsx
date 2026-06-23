@@ -1009,8 +1009,8 @@ const generationModels = {
     ["seedance-2.0", "Seedance 2.0", "$0.04-0.10/sec est."]
   ],
   image: [
-    ["nanobanana-pro", "Nanobanana Pro", "$0.03-0.08/image est."],
-    ["gpt-image-2", "GPT-image 2", "$0.04-0.12/image est."]
+    ["gpt-image-2", "GPT-image 2", "$0.04-0.12/image est."],
+    ["nanobanana-pro", "Nanobanana Pro", "$0.03-0.08/image est."]
   ],
   text: [
     ["gemini-3.5-flash", "Gemini 3.5 Flash", "<$0.01/post est."],

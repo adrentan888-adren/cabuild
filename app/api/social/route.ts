@@ -1245,7 +1245,7 @@ export async function POST(req: Request) {
       const brief = db.briefs.find((item) => item.id === body.id && item.workspaceId === workspaceId);
       if (!brief) return null;
       const generationType = (String(body.generationType || contentKindFromFormat(brief.format)) as "video" | "image" | "text");
-      const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "nanobanana-pro" : "gemini-3.5-flash"));
+      const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "gpt-image-2" : "gemini-3.5-flash"));
       const duration = Number(body.duration || brief.duration || defaultDuration(brief.format) || 0) || undefined;
       const assetReferences = parseAssetReferences(body.assetReferences);
       const prompt = enrichPromptWithAssetReferences(String(body.prompt || defaultPromptForBrief(brief, generationType)), generationType, assetReferences);
@@ -1313,7 +1313,7 @@ export async function POST(req: Request) {
 
     if (action === "generateDirectContent") {
       const generationType = (String(body.generationType || "video") as "video" | "image" | "text");
-      const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "nanobanana-pro" : "gemini-3.5-flash"));
+      const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "gpt-image-2" : "gemini-3.5-flash"));
       const duration = Number(body.duration || 0) || (generationType === "video" ? 8 : undefined);
       const assetReferences = parseAssetReferences(body.assetReferences);
       const workspace = db.workspaces.find((entry) => entry.id === workspaceId);

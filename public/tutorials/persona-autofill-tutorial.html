@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Persona Auto-Fill Tutorial</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f4ef;
+        --text: #171717;
+        --muted: #66635d;
+        --line: #d8d4ca;
+        --panel: #fffdf8;
+        --accent: #e11d48;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      main {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 28px 0 48px;
+      }
+      header {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 20px;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(28px, 4vw, 44px);
+        letter-spacing: 0;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+      .steps {
+        display: grid;
+        gap: 18px;
+      }
+      figure {
+        margin: 0;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      figcaption {
+        padding: 12px 14px;
+        font-weight: 700;
+      }
+      img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-top: 1px solid var(--line);
+      }
+      a {
+        color: var(--accent);
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Persona Auto-Fill: Where To Click</h1>
+        <p>Open the web app, enter the workspace, then go to Persona. Use Auto-fill to crawl public LinkedIn, Facebook, website, Instagram, or X profile URLs and save the persona.</p>
+        <p>Web app: <a href="https://contentagent-social-mkhae4sjlq-as.a.run.app">contentagent-social-mkhae4sjlq-as.a.run.app</a></p>
+      </header>
+      <section class="steps">
+        <figure>
+          <figcaption>1. Click Enter workspace.</figcaption>
+          <img src="./persona-autofill-01-sign-in.png" alt="Sign in screen with Enter workspace button highlighted" />
+        </figure>
+        <figure>
+          <figcaption>2. Click Persona in the left sidebar.</figcaption>
+          <img src="./persona-autofill-02-sidebar-persona.png" alt="Dashboard with Persona navigation button highlighted" />
+        </figure>
+        <figure>
+          <figcaption>3. Click Auto-fill on the Persona page.</figcaption>
+          <img src="./persona-autofill-03-click-autofill.png" alt="Persona page with Auto-fill button highlighted" />
+        </figure>
+        <figure>
+          <figcaption>4. Paste public source URLs, then click Auto-fill persona.</figcaption>
+          <img src="./persona-autofill-04-submit-autofill.png" alt="Persona auto-fill sources panel with Auto-fill persona button highlighted" />
+        </figure>
+      </section>
+    </main>
+  </body>
+</html>

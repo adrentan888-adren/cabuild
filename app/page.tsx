@@ -584,23 +584,18 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   return (
     <div className="persona-page">
       <div className="drift-banner">
-        <div><b>Persona setup</b> - Store the founder voice, audience, rules, and references for future prompt use.</div>
-        <span className="badge">Saved profile</span>
+        <div><b>Persona setup</b> - Store one active founder profile. Saving or auto-filling replaces the current profile.</div>
+        <span className="badge">Single active profile</span>
       </div>
 
       <section className="persona-hero">
         <div>
           <div className="msub">Module 1 - Persona</div>
           <h2>Reference persona</h2>
-          <p>Choose a starting path, then complete the five setup steps. Nothing here is injected into prompts yet.</p>
+          <p>Choose a starting path, then complete the five setup steps. Updates replace this profile instead of creating another one.</p>
         </div>
         <span className="last-upd">{persona.updatedAt ? `Updated ${new Date(persona.updatedAt).toLocaleString()}` : "Not saved yet"}</span>
       </section>
-
-      <div className="tabs persona-tabs">
-        <button className="tab on">Discover</button>
-        <button className="tab">Saved references <span>2</span></button>
-      </div>
 
       <div className="path-grid persona-paths">
         <button className="path-card featured" onClick={() => setShowAutofill(true)}>

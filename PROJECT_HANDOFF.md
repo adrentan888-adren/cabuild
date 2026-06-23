@@ -185,3 +185,6 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Changed the Persona "Learn from a channel" drawer from storage-only into a real "Auto-fill persona" action.
 - Auto-fill flow: browser submits current Persona form URLs -> `/api/social` `autoFillPersonaProfile` -> Apify crawls public source snippets using the configured search actor -> Kie GPT-5.5 maps crawled snippets into the persona schema -> merged persona is saved and the app refreshes.
 - Debug Logs capture the Apify source crawl start, GPT-5.5 prompt, crawled source counts, and completion/failure details.
+### 2026-06-23 - Persona Auto-Fill Crawl Fix
+- Fixed Persona auto-fill crawler to flatten Apify Google Search `organicResults`/`suggestedResults` before sending snippets to GPT-5.5.
+- Tested locally with `https://www.facebook.com/csgcsg` and `https://www.linkedin.com/in/gregorycharles/`; Apify returned 6 snippets per source, GPT-5.5 filled Gregory Charles persona fields, and the Persona UI rendered the saved result after refresh.

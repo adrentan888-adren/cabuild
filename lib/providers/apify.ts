@@ -455,11 +455,20 @@ export async function crawlPersonaSourcesWithApify(urls: Record<string, string>)
   const text = await res.text();
   if (!res.ok) throw new Error(`Apify persona crawl failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
   const items = JSON.parse(text) as Array<Record<string, unknown>>;
+  const flattened: Array<Record<string, unknown>> = items.flatMap((item) => {
+    const searchQuery = s(item.searchQuery);
+    const organic = Array.isArray(item.organicResults) ? item.organicResults as Array<Record<string, unknown>> : [];
+    const suggested = Array.isArray(item.suggestedResults) ? item.suggestedResults as Array<Record<string, unknown>> : [];
+    const direct = organic.length || suggested.length ? [] : [item];
+    return [...organic, ...suggested, ...direct].map((result) => ({ ...result, searchQuery }));
+  });
   return entries.map(([source, url], index) => {
     const query = queryList[index];
-    const related = items.filter((item) => {
+    const normalizedUrl = url.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
+    const related = flattened.filter((item) => {
       const haystack = [item.searchQuery, item.query, item.url, item.link, item.title, item.description, item.text].map((value) => String(value || "")).join(" ");
-      return haystack.includes(url) || haystack.includes(query) || haystack.toLowerCase().includes(source.toLowerCase());
+      const lower = haystack.toLowerCase();
+      return lower.includes(normalizedUrl) || lower.includes(url.toLowerCase()) || lower.includes(query.toLowerCase()) || lower.includes(source.toLowerCase());
     }).slice(0, 6);
     const text = related.map((item) => [
       item.title,

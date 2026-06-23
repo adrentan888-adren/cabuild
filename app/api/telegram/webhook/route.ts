@@ -96,10 +96,25 @@ async function answer(text: string) {
   if (command === "/logs" || compact.includes("log") || compact.includes("debug")) return logsText(snapshot);
   if (command === "/persona" || compact.includes("persona") || compact.includes("profile")) return personaText(snapshot);
   if (["hi", "hello", "hey", "ok", "okay"].includes(compact)) {
-    return "Hi. I can answer local project commands like persona, status, logs, and help. For implementation requests, the active Codex session will process the inbox.";
+    return "Hi. You can ask for persona, status, logs, or where to find a page in the web app. For build/change requests, I will save the message for the active Codex session.";
+  }
+  if (compact.includes("where") || compact.includes("webgui") || compact.includes("web gui") || compact.includes("button") || compact.includes("click")) {
+    if (compact.includes("persona") || compact.includes("profile")) {
+      return [
+        "Persona is in the web app in two places:",
+        "1. Left sidebar: click Persona.",
+        "2. Bottom-left user pill: click the Sean Tan profile button, then choose Persona from the drop-up menu.",
+        "",
+        "I am preparing screenshot steps in the Codex session now."
+      ].join("\n");
+    }
+    return "In the web app, use the left sidebar for main pages. The bottom-left user pill opens Settings and Persona.";
   }
 
-  return "Received by the ContentAgent bridge. Ask the active Codex session to process this Telegram message.";
+  return [
+    "I can answer local project questions like persona, status, logs, or where to click in the web app.",
+    "For open-ended build/change requests, I saved your Telegram message in the Codex inbox so the active session can handle it."
+  ].join("\n");
 }
 
 export async function POST(req: Request) {

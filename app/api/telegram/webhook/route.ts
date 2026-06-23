@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { readDb } from "@/lib/store";
-import { generateTelegramReplyWithGpt55 } from "@/lib/providers/kie";
 import { sendTelegramMessage } from "@/lib/providers/telegram";
 
 type TelegramUpdate = {
@@ -89,23 +88,14 @@ async function answer(text: string) {
       "/logs - latest debug logs",
       "/persona - current persona",
       "",
-      "You can also ask a project question in plain text."
+      "Plain text messages should be handled by the Codex session/local bridge."
     ].join("\n");
   }
   if (command === "/status") return statusText(snapshot);
   if (command === "/logs") return logsText(snapshot);
   if (command === "/persona") return personaText(snapshot);
 
-  const prompt = `You are the ContentAgent project assistant inside a Telegram bot.
-Answer concisely and pragmatically. You can explain current project state, suggest next steps, and reference available app data.
-Do not claim you can edit code or deploy from Telegram directly. If the user asks for code changes, say they should keep using the Codex session for implementation until a full Telegram job runner is added.
-
-Project snapshot:
-${JSON.stringify(snapshot, null, 2).slice(0, 12000)}
-
-User Telegram message:
-${text}`;
-  return generateTelegramReplyWithGpt55(prompt);
+  return "Message received. Ask the Codex session to process Telegram messages through the local bridge inbox.";
 }
 
 export async function POST(req: Request) {

@@ -192,7 +192,8 @@ The user pasted live keys in chat earlier. Treat them as compromised before prod
 - Added `/api/telegram/webhook` for a Telegram bot control surface.
 - Allowed user IDs are controlled by `TELEGRAM_ALLOWED_USER_IDS`; current configured ID is `1151114885`.
 - Bot token must be stored as `TELEGRAM_BOT_TOKEN` in environment/GCP Secret Manager and attached to Cloud Run manually or through a future deploy workflow update; do not commit it.
-- Commands: `/start`, `/help`, `/status`, `/logs`, `/persona`. Plain text messages are answered by Kie GPT-5.5 using current app/project state.
+- Commands: `/start`, `/help`, `/status`, `/logs`, `/persona`. Plain text messages are queued for Codex/local bridge processing; no Telegram auto-reply provider is used.
 - This does not attach Telegram to the live Codex runtime directly; it gives Telegram access to the app/project state and AI assistant. Code changes still require this Codex session unless a future job runner is added.
+- 2026-06-23: Removed Kie/GPT auto-replies from the Telegram webhook and local bridge. Fixed commands still reply directly from local app state, while ordinary chat messages are saved to `data/telegram-inbox.json` for the active Codex session to answer or act on. The generic setup guide now requires only the Telegram bot token and allowed user IDs.
 ### 2026-06-23 - Telegram Local Bridge Setup Doc
 - Added `TELEGRAM_LOCAL_BRIDGE_SETUP.md` with future-session setup steps for the local Telegram bridge, including env vars, start/stop commands, inbox/outbox paths, commands, and limitations.

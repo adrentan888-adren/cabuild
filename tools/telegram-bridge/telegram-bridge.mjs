@@ -9,7 +9,6 @@ const statePath = path.join(dataDir, "telegram-bridge-state.json");
 const appDataPath = path.join(dataDir, "app.json");
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
-const kieToken = process.env.KIE_API_TOKEN;
 const allowedUsers = new Set((process.env.TELEGRAM_ALLOWED_USER_IDS || "").split(",").map((item) => item.trim()).filter(Boolean));
 const pollMs = Number(process.env.TELEGRAM_POLL_MS || 3000);
 
@@ -96,7 +95,7 @@ function commandReply(text, state) {
       "/logs - latest debug logs",
       "/persona - current persona",
       "",
-      "Plain text questions are answered using local project state."
+      "Plain text messages are queued for the Codex session to process."
     ].join("\n");
   }
   if (command === "/status") {
@@ -128,41 +127,12 @@ function commandReply(text, state) {
   return "";
 }
 
-async function kieReply(text) {
+async function bridgeReply(text) {
   const db = await readJson(appDataPath, {});
   const state = compactProjectState(db);
   const command = commandReply(text, state);
   if (command) return command;
-  if (!kieToken) return "I received your message, but KIE_API_TOKEN is not configured for local auto-replies.";
-  const prompt = `You are the local Telegram assistant for the ContentAgent project.
-Answer concisely and practically. You can answer questions about the current project state. If the user asks for code changes or deployment, explain that you can record/clarify the task but Codex still needs to execute it in the local session.
-
-Project state:
-${JSON.stringify(state, null, 2)}
-
-User message:
-${text}`;
-  const res = await fetch("https://api.kie.ai/codex/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${kieToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: "gpt-5-5",
-      stream: false,
-      input: [{ role: "user", content: [{ type: "input_text", text: prompt }] }],
-      reasoning: { effort: "low" }
-    })
-  });
-  const body = await res.text();
-  if (!res.ok) return `I received your message, but GPT-5.5 reply failed with HTTP ${res.status}.`;
-  const json = JSON.parse(body);
-  return (json.output || [])
-    .flatMap((item) => item.content || [])
-    .map((item) => item.text || "")
-    .join("")
-    .trim() || "I received your message, but could not generate a reply.";
+  return "";
 }
 
 async function appendInbox(messages) {
@@ -220,11 +190,14 @@ async function pollOnce() {
       receivedAt: new Date().toISOString(),
       status: "new"
     });
-    await telegram("sendMessage", {
-      chat_id: message.chat.id,
-      text: await kieReply(text),
-      disable_web_page_preview: true
-    });
+    const reply = await bridgeReply(text);
+    if (reply) {
+      await telegram("sendMessage", {
+        chat_id: message.chat.id,
+        text: reply,
+        disable_web_page_preview: true
+      });
+    }
   }
   await writeJson(statePath, { offset: nextOffset, updatedAt: new Date().toISOString() });
   await appendInbox(accepted);

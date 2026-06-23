@@ -2,7 +2,7 @@
 
 This project includes a local Telegram bridge for Codex sessions.
 
-It lets Telegram messages reach this workspace through local JSON queues and optional auto-replies. It does **not** directly control a Codex runtime. A Codex session can inspect the inbox, act on messages, and reply through the bridge.
+It lets Telegram messages reach this workspace through local JSON queues. It does **not** directly control a Codex runtime. A Codex session can inspect the inbox, act on messages, and reply through the bridge.
 
 ## Files
 
@@ -28,10 +28,9 @@ Set these in the shell before starting the bridge:
 ```powershell
 $env:TELEGRAM_BOT_TOKEN = "your-telegram-bot-token"
 $env:TELEGRAM_ALLOWED_USER_IDS = "your-telegram-user-id"
-$env:KIE_API_TOKEN = "optional-kie-token"
 ```
 
-`KIE_API_TOKEN` is optional. It is only needed if the bridge should auto-answer free-text messages with AI. Without it, the bridge can still receive messages, save them to the inbox, process commands, and send manual outbox replies.
+No AI provider key is required. The bridge receives messages, saves them to the inbox, processes fixed commands, and sends manual outbox replies written by the Codex session.
 
 ## Start Bridge
 
@@ -46,7 +45,6 @@ To start hidden in the background:
 ```powershell
 $env:TELEGRAM_BOT_TOKEN = "your-telegram-bot-token"
 $env:TELEGRAM_ALLOWED_USER_IDS = "your-telegram-user-id"
-$env:KIE_API_TOKEN = "optional-kie-token"
 Start-Process -FilePath "node.exe" -ArgumentList "tools/telegram-bridge/telegram-bridge.mjs" -WorkingDirectory "C:\Users\WINDOWS-10\Desktop\ClaudeWork\CABuild" -WindowStyle Hidden
 ```
 
@@ -74,8 +72,8 @@ For each message:
 
 1. The bridge saves it to `data/telegram-inbox.json`.
 2. If it is a command, the bridge replies directly.
-3. If it is normal text and `KIE_API_TOKEN` is set, the bridge asks Kie GPT-5.5 for a concise project-aware answer.
-4. A Codex session can still read the inbox for follow-up implementation work.
+3. If it is normal text, it stays in the inbox for the Codex session to answer or act on.
+4. A Codex session can write replies to the outbox.
 
 Supported commands:
 
@@ -103,7 +101,7 @@ The bridge will send it and clear successful entries.
 ## Future Session Checklist
 
 1. Pull latest repo.
-2. Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, and optionally `KIE_API_TOKEN`.
+2. Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS`.
 3. Start `tools/telegram-bridge/telegram-bridge.mjs`.
 4. Send `/status` to the configured Telegram bot.
 5. Confirm the message appears in `data/telegram-inbox.json`.

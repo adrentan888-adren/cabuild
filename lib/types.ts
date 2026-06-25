@@ -113,6 +113,7 @@ export type ResearchScan = {
     formats?: string[];
     contentType?: string;
     uploadDate?: string;
+    sourceOwnershipFilter?: string;
   };
   platform: Platform;
   minViews: number;

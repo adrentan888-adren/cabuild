@@ -432,6 +432,8 @@ const contentPlanFormats = [
   "Long-form article"
 ];
 
+const researchUrlSourceOwnershipFilter = "owner-v2";
+
 function defaultPromptForBrief(brief: Brief, generationType: "video" | "image" | "text") {
   const existing = brief.videoPrompt || [brief.description, brief.outline?.join(". "), brief.creativeNotes].filter(Boolean).join("\n");
   if (existing.trim()) return existing;
@@ -810,7 +812,8 @@ export async function POST(req: Request) {
       const existing = db.researchScans
         .filter((scan) => scan.workspaceId === workspaceId && scan.url === url && scan.minViews === minViews)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-      return existing?.source === "fallback" ? null : existing || null;
+      const hasCurrentOwnershipFilter = existing?.dimensions?.sourceOwnershipFilter === researchUrlSourceOwnershipFilter;
+      return existing?.source === "fallback" || !hasCurrentOwnershipFilter ? null : existing || null;
     });
     if (cached) return NextResponse.json(cached);
 
@@ -861,7 +864,7 @@ export async function POST(req: Request) {
         ...item
       }));
       db.competitorResults.push(...results);
-      const created = { id: id("scan"), workspaceId, url, platform, minViews, resultIds: results.map((item) => item.id), createdAt: new Date().toISOString(), source, error };
+      const created = { id: id("scan"), workspaceId, url, dimensions: { sourceOwnershipFilter: researchUrlSourceOwnershipFilter }, platform, minViews, resultIds: results.map((item) => item.id), createdAt: new Date().toISOString(), source, error };
       db.researchScans.push(created);
       db.researchScans = db.researchScans.filter((item) => item.workspaceId !== workspaceId).concat(db.researchScans.filter((item) => item.workspaceId === workspaceId).slice(-10));
       db.activity.push({ id: id("act"), workspaceId, message: `Research scan completed for ${handleFromUrl(url)} using ${source}.`, createdAt: new Date().toISOString() });

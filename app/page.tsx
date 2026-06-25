@@ -60,6 +60,7 @@ type AppData = {
       contentTypes?: string[];
       formats?: string[];
       uploadDate?: string;
+      sourceOwnershipFilter?: string;
     };
     platform: Platform;
     minViews: number;

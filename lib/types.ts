@@ -111,6 +111,7 @@ export type ResearchScan = {
     actorSources?: string[];
     contentTypes?: string[];
     formats?: string[];
+    contentType?: string;
     uploadDate?: string;
   };
   platform: Platform;

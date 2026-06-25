@@ -9,6 +9,7 @@ type KeywordDimensions = {
   actorSources?: string[];
   contentTypes?: string[];
   formats?: string[];
+  contentType?: string;
   uploadDate?: string;
 };
 
@@ -179,26 +180,18 @@ function normalizeSocialItem(item: Record<string, unknown>, index: number, fallb
 
 export async function scanSocialUrl(url: string, minViews: number) {
   if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
-  if (!process.env.APIFY_SOCIAL_ACTOR_ID) return scanUrlWithSearchActor(url, minViews);
-  const actorId = process.env.APIFY_SOCIAL_ACTOR_ID.replace("/", "~");
-  const endpoint = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token()}&timeout=120`;
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      startUrls: [{ url }],
-      urls: [url],
-      directUrls: [url],
-      maxItems: 30,
-      resultsLimit: 30
-    })
-  });
-  if (!res.ok) return scanUrlWithSearchActor(url, minViews);
-  const items = (await res.json()) as Array<Record<string, unknown>>;
-  const normalized = items
-    .map((item, index) => normalizeSocialItem(item, index, url))
-    .filter((item) => item.views >= minViews);
-  return normalized.length ? normalized : scanUrlWithSearchActor(url, minViews);
+  const source = actorSourceFromUrl(url);
+  const actorId = process.env.APIFY_SOCIAL_ACTOR_ID || sourceActorId(source);
+  if (actorId) {
+    try {
+      const actorItems = await runApifyActor(actorId, platformUrlInput(source, url));
+      const normalized = normalizeActorItems(actorItems, source, minViews, url);
+      if (normalized.length) return normalized;
+    } catch {
+      // Fallback below keeps URL scans scoped to the submitted profile/page as much as search allows.
+    }
+  }
+  return scanUrlWithSearchActor(url, minViews);
 }
 
 function platformFromText(value: string): Platform {
@@ -214,11 +207,43 @@ function platformFromText(value: string): Platform {
 function queryFromUrl(targetUrl: string) {
   try {
     const parsed = new URL(targetUrl);
-    const path = parsed.pathname.split("/").filter(Boolean).slice(0, 3).join(" ");
-    return `${parsed.hostname} ${path} social posts videos reels`.replace(/\s+/g, " ").trim();
+    const host = parsed.hostname.replace(/^www\./, "");
+    const pathParts = parsed.pathname.split("/").filter(Boolean).slice(0, 3);
+    const handle = pathParts[pathParts.length - 1] || "";
+    const exact = `${parsed.origin}${parsed.pathname}`.replace(/\/$/, "");
+    const platform = platformFromText(targetUrl);
+    const contentWords = platform === "LinkedIn" ? "posts articles images links" : "posts videos reels images";
+    return `"${exact}" OR "${handle}" site:${host} ${contentWords}`.replace(/\s+/g, " ").trim();
   } catch {
     return `${targetUrl} social posts videos reels`;
   }
+}
+
+function urlScope(targetUrl: string) {
+  try {
+    const parsed = new URL(targetUrl);
+    const host = parsed.hostname.replace(/^www\./, "").toLowerCase();
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    const handle = (parts[parts.length - 1] || parts[0] || "").replace(/^@/, "").toLowerCase();
+    return { host, handle };
+  } catch {
+    return { host: "", handle: targetUrl.toLowerCase() };
+  }
+}
+
+function scopedToUrl(item: Record<string, unknown>, targetUrl: string) {
+  const scope = urlScope(targetUrl);
+  const haystack = [
+    item.url,
+    item.displayedUrl,
+    item.link,
+    item.title,
+    item.description,
+    item.text
+  ].map((value) => String(value || "").toLowerCase()).join(" ");
+  const hostMatches = scope.host ? haystack.includes(scope.host) : true;
+  const handleMatches = scope.handle ? haystack.includes(scope.handle) : true;
+  return hostMatches && (handleMatches || platformFromText(targetUrl) !== "LinkedIn");
 }
 
 async function scanUrlWithSearchActor(targetUrl: string, minViews: number): Promise<NormalizedSocialItem[]> {
@@ -240,7 +265,7 @@ async function scanUrlWithSearchActor(targetUrl: string, minViews: number): Prom
   const baseViews = Math.max(minViews, 10000);
   return items
     .flatMap((item) => item.organicResults || item.nonPromotedSearchResults || [])
-    .filter((item) => item.title)
+    .filter((item) => item.title && scopedToUrl(item as Record<string, unknown>, targetUrl))
     .slice(0, 20)
     .map((item, index) => {
       const record = item as Record<string, unknown>;
@@ -274,8 +299,9 @@ function uploadDateQuery(value?: string) {
   } as Record<string, string>)[value || ""] || "";
 }
 
-function keywordSearchQueries(keywords: string, actorSources: string[], uploadDate: string) {
+function keywordSearchQueries(keywords: string, actorSources: string[], uploadDate: string, contentType = "") {
   const dateTerm = uploadDateQuery(uploadDate);
+  const typeTerm = contentTypeQuery(contentType);
   const selected = actorSources.length ? actorSources : ["instagram", "tiktok", "youtube"];
   const queryMap: Record<string, string> = {
     instagram: "site:instagram.com/reel OR site:instagram.com/p Instagram Reels posts",
@@ -285,13 +311,22 @@ function keywordSearchQueries(keywords: string, actorSources: string[], uploadDa
     linkedin: "site:linkedin.com/posts OR site:linkedin.com/pulse LinkedIn posts articles"
   };
   return selected
-    .map((source) => `${keywords} ${queryMap[source] || source} ${dateTerm}`.replace(/\s+/g, " ").trim())
+    .map((source) => `${keywords} ${queryMap[source] || source} ${typeTerm} ${dateTerm}`.replace(/\s+/g, " ").trim())
     .join("\n");
 }
 
 function selectedSource(dimensions: KeywordDimensions): ActorSource {
   const source = dimensions.actorSources?.[0] || dimensions.contentTypes?.[0] || "instagram";
   return ["instagram", "tiktok", "youtube", "facebook", "linkedin"].includes(source) ? source as ActorSource : "instagram";
+}
+
+function actorSourceFromUrl(url: string): ActorSource {
+  const platform = platformFromText(url);
+  if (platform === "Instagram") return "instagram";
+  if (platform === "YouTube") return "youtube";
+  if (platform === "LinkedIn") return "linkedin";
+  if (platform === "Facebook") return "facebook";
+  return "tiktok";
 }
 
 function sourceActorId(source: ActorSource) {
@@ -322,10 +357,20 @@ function sourcePlatform(source: ActorSource): Platform {
   } as Record<ActorSource, Platform>)[source];
 }
 
-function platformSearchInput(source: ActorSource, keywords: string, uploadDate: string) {
+function contentTypeQuery(value?: string) {
+  return ({
+    video: "video reel short watch",
+    image: "image photo carousel graphic",
+    text: "text post status update",
+    link: "link post article shared link",
+    article: "article long-form post"
+  } as Record<string, string>)[value || ""] || "";
+}
+
+function platformSearchInput(source: ActorSource, keywords: string, uploadDate: string, contentType = "") {
   const maxItems = 30;
   const dateTerm = uploadDateQuery(uploadDate);
-  const query = `${keywords} ${dateTerm}`.replace(/\s+/g, " ").trim();
+  const query = `${keywords} ${contentTypeQuery(contentType)} ${dateTerm}`.replace(/\s+/g, " ").trim();
   if (source === "tiktok") {
     return {
       searchQueries: [query],
@@ -365,7 +410,30 @@ function platformSearchInput(source: ActorSource, keywords: string, uploadDate: 
     };
   }
   return {
-    queries: keywordSearchQueries(keywords, [source], uploadDate),
+    queries: keywordSearchQueries(keywords, [source], uploadDate, contentType),
+    maxPagesPerQuery: 2,
+    resultsPerPage: 10,
+    countryCode: "us",
+    languageCode: "en"
+  };
+}
+
+function platformUrlInput(source: ActorSource, url: string) {
+  const maxItems = 40;
+  if (source === "tiktok") {
+    return { profiles: [url], startUrls: [{ url }], urls: [url], maxItems, resultsPerPage: maxItems, scrapeRelatedVideos: false, shouldDownloadVideos: false, shouldDownloadCovers: false };
+  }
+  if (source === "instagram") {
+    return { directUrls: [url], startUrls: [{ url }], urls: [url], resultsType: "posts", resultsLimit: maxItems, maxItems, addParentData: false, enhanceUserSearchWithFacebookPage: false };
+  }
+  if (source === "youtube") {
+    return { startUrls: [{ url }], maxResults: maxItems, maxResultsShorts: maxItems };
+  }
+  if (source === "facebook") {
+    return { startUrls: [{ url }], urls: [url], maxItems, resultsLimit: maxItems };
+  }
+  return {
+    queries: queryFromUrl(url),
     maxPagesPerQuery: 2,
     resultsPerPage: 10,
     countryCode: "us",
@@ -385,10 +453,21 @@ async function runApifyActor(actorId: string, input: Record<string, unknown>) {
   return JSON.parse(text) as Array<Record<string, unknown>>;
 }
 
-function normalizeActorItems(items: Array<Record<string, unknown>>, source: ActorSource, minViews: number) {
+function matchesContentType(item: NormalizedSocialItem, contentType = "") {
+  const haystack = `${item.title} ${item.description} ${item.sourceUrl} ${item.mediaType}`.toLowerCase();
+  if (!contentType) return true;
+  if (contentType === "video") return item.mediaType === "video" || /(video|reel|short|watch|tiktok|youtube)/.test(haystack);
+  if (contentType === "image") return item.mediaType === "image" || /(image|photo|carousel|graphic)/.test(haystack);
+  if (contentType === "text") return /(text|post|status|linkedin|twitter|x\.com|threads)/.test(haystack) && !/(watch|reel|shorts)/.test(haystack);
+  if (contentType === "link") return /(http|link|article|shared)/.test(haystack);
+  if (contentType === "article") return /(article|pulse|newsletter|blog)/.test(haystack);
+  return true;
+}
+
+function normalizeActorItems(items: Array<Record<string, unknown>>, source: ActorSource, minViews: number, fallbackUrl = "", contentType = "") {
   return items
-    .map((item, index) => ({ ...normalizeSocialItem(item, index), platform: sourcePlatform(source) }))
-    .filter((item) => item.views >= minViews);
+    .map((item, index) => ({ ...normalizeSocialItem(item, index, fallbackUrl), platform: sourcePlatform(source) }))
+    .filter((item) => item.views >= minViews && matchesContentType(item, contentType));
 }
 
 export async function scanKeywordsWithApify(keywords: string, dimensions: KeywordDimensions, minViews: number) {
@@ -396,10 +475,11 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
   const source = selectedSource(dimensions);
   const actorId = sourceActorId(source);
   const uploadDate = dimensions.uploadDate || "";
+  const contentType = dimensions.contentType || dimensions.contentTypes?.[0] || "";
   if (actorId) {
     try {
-      const actorItems = await runApifyActor(actorId, platformSearchInput(source, keywords, uploadDate));
-      const directItems = normalizeActorItems(actorItems, source, minViews);
+      const actorItems = await runApifyActor(actorId, platformSearchInput(source, keywords, uploadDate, contentType));
+      const directItems = normalizeActorItems(actorItems, source, minViews, "", contentType);
       if (directItems.length) return directItems;
     } catch {
       // Fall through to Google search fallback for sources whose actor schema or search support differs.
@@ -422,8 +502,8 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
   const sourceTerms = actorSources.length
     ? actorSources.map((item) => sourceMap[item] || item).join(" OR ")
     : dimensions.formats?.join(" OR ") || "short-form vertical video Instagram Reels TikTok YouTube Shorts";
-  const query = `${keywords} ${sourceTerms} ${uploadDateQuery(uploadDate)}`.replace(/\s+/g, " ").trim();
-  const queries = keywordSearchQueries(keywords, actorSources, uploadDate);
+  const query = `${keywords} ${sourceTerms} ${contentTypeQuery(contentType)} ${uploadDateQuery(uploadDate)}`.replace(/\s+/g, " ").trim();
+  const queries = keywordSearchQueries(keywords, actorSources, uploadDate, contentType);
   const fallbackActorId = (process.env.APIFY_KEYWORD_ACTOR_ID || process.env.APIFY_ACTOR_ID || "apify/google-search-scraper").replace("/", "~");
   const endpoint = `https://api.apify.com/v2/actors/${fallbackActorId}/run-sync-get-dataset-items?token=${token()}&timeout=120`;
   const res = await fetch(endpoint, {
@@ -436,6 +516,7 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
       filters: {
         actorSources,
         contentTypes: dimensions.contentTypes || [],
+        contentType,
         uploadDate
       },
       maxPagesPerQuery: 2,
@@ -450,7 +531,7 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
   const directItems = (items as unknown as Array<Record<string, unknown>>)
     .filter((item) => !Array.isArray(item.organicResults) && !Array.isArray(item.nonPromotedSearchResults))
     .map((item, index) => normalizeSocialItem(item, index))
-    .filter((item) => item.views >= minViews);
+    .filter((item) => item.views >= minViews && matchesContentType(item, contentType));
   if (directItems.length) return directItems;
   return items
     .flatMap((item) => item.organicResults || item.nonPromotedSearchResults || [])
@@ -477,7 +558,7 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
         publishedAt: date && Number.isFinite(new Date(date).getTime()) ? new Date(date).toISOString() : new Date(Date.now() - 1000 * 60 * 60 * (index + 8)).toISOString()
       };
     })
-    .filter((item) => item.views >= minViews);
+    .filter((item) => item.views >= minViews && matchesContentType(item, contentType));
 }
 
 export async function crawlPersonaSourcesWithApify(urls: Record<string, string>) {

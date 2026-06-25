@@ -237,6 +237,7 @@ function normalizeDimensions(value: unknown) {
     actorSources: normalizeStringList(dimensions.actorSources),
     contentTypes: normalizeStringList(dimensions.contentTypes),
     formats: normalizeStringList(dimensions.formats),
+    contentType: String(dimensions.contentType || ""),
     uploadDate: String(dimensions.uploadDate || "")
   };
 }
@@ -374,6 +375,16 @@ function contentKindFromFormat(format: string): "video" | "image" | "text" {
   return "text";
 }
 
+function platformFromActorSource(value: string): Platform {
+  return ({
+    instagram: "Instagram",
+    tiktok: "TikTok",
+    youtube: "YouTube",
+    facebook: "Facebook",
+    linkedin: "LinkedIn"
+  } as Record<string, Platform>)[value] || "TikTok";
+}
+
 function defaultDuration(format: string) {
   const lower = format.toLowerCase();
   if (lower.includes("long")) return 60;
@@ -429,18 +440,24 @@ function mockKeywordResults(input: { workspaceId: string; competitorId: string; 
     linkedin: "LinkedIn",
     "short-video": "Short-form video",
     "long-video": "Long-form video",
+    video: "Video",
+    image: "Image",
+    text: "Text post",
+    link: "Link post",
     "text-post": "Text post",
     article: "Long-form article",
     carousel: "Image carousel"
   };
-  const format = sourceLabel[input.dimensions.actorSources[0]] || sourceLabel[input.dimensions.contentTypes[0]] || input.dimensions.formats[0] || "Google Search";
+  const platform = platformFromActorSource(input.dimensions.actorSources[0] || "tiktok");
+  const typeLabel = sourceLabel[input.dimensions.contentType] || "Content";
+  const format = `${sourceLabel[input.dimensions.actorSources[0]] || platform} ${typeLabel}`;
   return [
     {
       id: id("res"),
       workspaceId: input.workspaceId,
       competitorId: input.competitorId,
-      platform: "TikTok" as Platform,
-      url: `https://www.tiktok.com/search?q=${encodeURIComponent(input.query)}`,
+      platform,
+      url: platform === "LinkedIn" ? `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(input.query)}` : platform === "Instagram" ? `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(input.query)}` : platform === "YouTube" ? `https://www.youtube.com/results?search_query=${encodeURIComponent(input.query)}` : platform === "Facebook" ? `https://www.facebook.com/search/posts/?q=${encodeURIComponent(input.query)}` : `https://www.tiktok.com/search?q=${encodeURIComponent(input.query)}`,
       title: `${format} angle: the hidden cost behind ${input.query}`,
       thumbnailUrl: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=480&h=270&fit=crop",
       description: "High-performing content idea discovered from keyword search.",
@@ -454,8 +471,8 @@ function mockKeywordResults(input: { workspaceId: string; competitorId: string; 
       id: id("res"),
       workspaceId: input.workspaceId,
       competitorId: input.competitorId,
-      platform: "Instagram" as Platform,
-      url: `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(input.query)}`,
+      platform,
+      url: platform === "LinkedIn" ? `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(input.query)}` : platform === "Instagram" ? `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(input.query)}` : platform === "YouTube" ? `https://www.youtube.com/results?search_query=${encodeURIComponent(input.query)}` : platform === "Facebook" ? `https://www.facebook.com/search/posts/?q=${encodeURIComponent(input.query)}` : `https://www.tiktok.com/search?q=${encodeURIComponent(input.query)}`,
       title: `Carousel breakdown: what people misunderstand about ${input.query}`,
       thumbnailUrl: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=480&h=270&fit=crop",
       description: "A practical breakdown format with clear before-and-after framing.",
@@ -469,8 +486,8 @@ function mockKeywordResults(input: { workspaceId: string; competitorId: string; 
       id: id("res"),
       workspaceId: input.workspaceId,
       competitorId: input.competitorId,
-      platform: "LinkedIn" as Platform,
-      url: `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(input.query)}`,
+      platform,
+      url: platform === "LinkedIn" ? `https://www.linkedin.com/search/results/content/?keywords=${encodeURIComponent(input.query)}` : platform === "Instagram" ? `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(input.query)}` : platform === "YouTube" ? `https://www.youtube.com/results?search_query=${encodeURIComponent(input.query)}` : platform === "Facebook" ? `https://www.facebook.com/search/posts/?q=${encodeURIComponent(input.query)}` : `https://www.tiktok.com/search?q=${encodeURIComponent(input.query)}`,
       title: `Founder POV: where ${input.query} creates real leverage`,
       thumbnailUrl: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=480&h=270&fit=crop",
       description: "Founder-led post structure designed for credibility and saves.",
@@ -850,6 +867,7 @@ export async function POST(req: Request) {
     let normalized: Omit<CompetitorResult, "id" | "workspaceId" | "competitorId" | "capturedAt">[];
     let source: "apify" | "fallback" = "apify";
     let error = "";
+    const selectedPlatform = platformFromActorSource(dimensions.actorSources[0] || "");
     try {
       const apifyItems = await scanKeywordsWithApify(query, dimensions, minViews);
       normalized = apifyItems.map((item) => ({
@@ -885,7 +903,7 @@ export async function POST(req: Request) {
       db.competitors ||= [];
       db.competitorResults ||= [];
       db.researchScans ||= [];
-      const competitor = { id: id("cmp"), workspaceId, platform: "TikTok" as Platform, handle: query, url: cacheKey, minViews, cadence: "weekly" as const, lastScraped: new Date().toISOString() };
+      const competitor = { id: id("cmp"), workspaceId, platform: selectedPlatform, handle: query, url: cacheKey, minViews, cadence: "weekly" as const, lastScraped: new Date().toISOString() };
       db.competitors.push(competitor);
       const results: CompetitorResult[] = normalized.map((item) => ({
         id: id("res"),
@@ -895,7 +913,7 @@ export async function POST(req: Request) {
         ...item
       }));
       db.competitorResults.push(...results);
-      const created = { id: id("scan"), workspaceId, url: cacheKey, query, dimensions, platform: "TikTok" as Platform, minViews, resultIds: results.map((item) => item.id), createdAt: new Date().toISOString(), source, error };
+      const created = { id: id("scan"), workspaceId, url: cacheKey, query, dimensions, platform: selectedPlatform, minViews, resultIds: results.map((item) => item.id), createdAt: new Date().toISOString(), source, error };
       db.researchScans.push(created);
       db.researchScans = db.researchScans.filter((item) => item.workspaceId !== workspaceId).concat(db.researchScans.filter((item) => item.workspaceId === workspaceId).slice(-10));
       db.activity.push({ id: id("act"), workspaceId, message: `Keyword research completed for "${query}" using ${source}.`, createdAt: new Date().toISOString() });

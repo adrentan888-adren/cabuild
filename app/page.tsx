@@ -96,6 +96,14 @@ const researchActors = [
   { id: "facebook", label: "Facebook", dimensions: ["Feed post (1:1 or 4:5)", "Reels (9:16)", "Video (16:9)"] },
   { id: "linkedin", label: "LinkedIn", dimensions: ["Text post (feed)", "Article (editorial)", "Image / carousel (1:1 or 4:5)"] }
 ] as const;
+const researchContentTypes = [
+  { id: "", label: "All types", description: "Posts, images, links, and videos" },
+  { id: "video", label: "Video", description: "Reels, shorts, uploads, and native videos" },
+  { id: "image", label: "Image / graphic", description: "Photos, graphics, and carousel-style posts" },
+  { id: "text", label: "Text post", description: "Feed text/status posts without video focus" },
+  { id: "link", label: "Link post", description: "Shared links, external pages, and article links" },
+  { id: "article", label: "Long-form article", description: "LinkedIn Pulse, blogs, and long-form posts" }
+] as const;
 type IntegrationData = Record<string, { configured?: boolean; ok?: boolean; status?: number; error?: string; baseUrl?: string; actor?: string }>;
 type PendingPlan = { title: string; description: string; startedAt: number };
 type PendingGeneration = { title: string; description: string; kind: GenerationKind; model: string; startedAt: number };
@@ -772,6 +780,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
   const [activeScanId, setActiveScanId] = useState<string | null>(data.researchScans[0]?.id || null);
   const [keywordText, setKeywordText] = useState("AI automation, n8n workflows");
   const [actorSource, setActorSource] = useState("instagram");
+  const [contentType, setContentType] = useState("");
   const [uploadDate, setUploadDate] = useState("");
   const [scanStatus, setScanStatus] = useState<"url" | "keywords" | null>(null);
   const [pendingScan, setPendingScan] = useState<"url" | "keywords" | null>(null);
@@ -831,7 +840,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
       const result = await run("scanKeywordResearch", {
         keywords: keywordText,
         minViews: Number(form.get("minViews") || 0),
-        dimensions: { actorSources: [actorSource], uploadDate }
+        dimensions: { actorSources: [actorSource], contentType, contentTypes: contentType ? [contentType] : [], uploadDate }
       }, "Keyword research complete");
       if (result?.id) setActiveScanId(result.id);
     } finally {
@@ -864,6 +873,10 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
     const parts = keywordText.split(",").map((item) => item.trim()).filter(Boolean);
     if (!parts.some((item) => item.toLowerCase() === keyword.toLowerCase())) setKeywordText([...parts, keyword].join(", "));
   };
+  const keywordParts = keywordText.split(",").map((item) => item.trim()).filter(Boolean);
+  const removeKeyword = (keyword: string) => setKeywordText(keywordParts.filter((item) => item !== keyword).join(", "));
+  const selectedActor = researchActors.find((item) => item.id === actorSource);
+  const selectedContentType = researchContentTypes.find((item) => item.id === contentType);
   const scanLabel = (scanItem: AppData["researchScans"][number]) => scanItem.query || (scanItem.url.startsWith("keyword:") ? scanItem.url.split("|")[0].replace("keyword:", "") : scanItem.url);
   return (
     <div className="research-page">
@@ -872,7 +885,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
         <div>
           <div className="clbl">Research</div>
           <h2>Find competitor posts worth turning into content plans</h2>
-          <p>Scan a social URL or search by keywords through selected sources, then sort qualified posts by views, likes, or date.</p>
+          <p>URL scans stay scoped to the submitted profile/page. Keyword scans search one selected platform and optional content type, then sort qualified posts by views, likes, or date.</p>
         </div>
         <div className="history-wrap">
           <button onClick={() => setHistoryOpen((open) => !open)}>History</button>
@@ -905,7 +918,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
         </div>
         {searchMode === "url" ? (
           <form onSubmit={(event) => { event.preventDefault(); if (!activeScanStatus) void scanUrl(new FormData(event.currentTarget)); }} className="research-form">
-            <label>Social URL<input name="url" type="url" placeholder="https://www.tiktok.com/@brand/video/123 or Instagram/Reels/Facebook/X URL" required /></label>
+            <label>Social URL<input name="url" type="url" placeholder="LinkedIn profile/page, TikTok, Instagram, YouTube, Facebook, or X URL" required /></label>
             <label>Minimum views<input name="minViews" type="number" min="0" step="1000" defaultValue="10000" /></label>
             <button className="primary" disabled={activeScanStatus !== null} aria-busy={activeScanStatus === "url"}><Radar size={14} />{activeScanStatus === "url" ? "Scanning..." : "Scan"}</button>
           </form>
@@ -923,6 +936,15 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
                 </button>
               ))}
             </div>
+            {keywordParts.length > 0 && (
+              <div className="keyword-chip-row" aria-label="Selected keywords">
+                {keywordParts.map((keyword) => (
+                  <button type="button" key={keyword} onClick={() => removeKeyword(keyword)} title={`Remove ${keyword}`}>
+                    {keyword}<span>x</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="dimension-shell">
               <label className="upload-date-filter">Upload Date<select value={uploadDate} onChange={(event) => setUploadDate(event.target.value)}>
                 <option value="">Any time</option>
@@ -932,10 +954,16 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
                 <option value="this-year">This Year</option>
               </select></label>
               <ActorSourceSelector selected={actorSource} onSelect={setActorSource} />
+              <ContentTypeSelector selected={contentType} onSelect={setContentType} />
+              <div className="research-filter-summary">
+                <b>Apify query scope</b>
+                <span>Platform: {selectedActor?.label || "Instagram"} · Type: {selectedContentType?.label || "All types"} · Upload date: {uploadDate ? uploadDate.replace("-", " ") : "Any time"}</span>
+                <small>Workspace niche is not injected into keyword search; only the keywords and filters above are sent.</small>
+              </div>
             </div>
           </form>
         )}
-        {activeScanStatus && <div className="scan-progress"><span />{activeScanStatus === "keywords" ? "Searching Apify for matching content" : "Scanning URL with Apify"}<b>{scanElapsed}s</b></div>}
+        {activeScanStatus && <div className="scan-progress"><span />{activeScanStatus === "keywords" ? "Searching Apify for matching platform/type filters" : "Scanning only the submitted URL/profile with Apify"}<b>{scanElapsed}s</b></div>}
         {!activeScanStatus && activeScan && (
           <div className={`scan-outcome ${activeScan.source}`}>
             {activeScan.source === "apify" ? "Apify search completed" : "Fallback results shown"}
@@ -1002,12 +1030,28 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
 function ActorSourceSelector({ selected, onSelect }: { selected: string; onSelect: (item: string) => void }) {
   return (
     <div className="content-type-group">
-      <b>Source</b>
+      <b>Platform</b>
       <div>
         {researchActors.map((item) => (
           <button type="button" key={item.id} className={selected === item.id ? "on" : ""} onClick={() => onSelect(item.id)}>
             <span><input type="radio" checked={selected === item.id} readOnly tabIndex={-1} />{item.label}</span>
             <small>{item.dimensions.join(", ")}</small>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ContentTypeSelector({ selected, onSelect }: { selected: string; onSelect: (item: string) => void }) {
+  return (
+    <div className="content-type-group">
+      <b>Content type</b>
+      <div>
+        {researchContentTypes.map((item) => (
+          <button type="button" key={item.id || "all"} className={selected === item.id ? "on" : ""} onClick={() => onSelect(item.id)}>
+            <span><input type="radio" checked={selected === item.id} readOnly tabIndex={-1} />{item.label}</span>
+            <small>{item.description}</small>
           </button>
         ))}
       </div>

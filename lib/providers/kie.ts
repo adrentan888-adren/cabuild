@@ -234,9 +234,12 @@ function extractJson(text: string) {
   return JSON.parse(raw);
 }
 
-export function buildAiBriefPrompt(input: { idea: string; niche: string; requestedFormat?: string }) {
+export function buildAiBriefPrompt(input: { idea: string; niche: string; requestedFormat?: string; requestedDuration?: number; requestedModel?: string }) {
+  const durationLine = input.requestedDuration && input.requestedFormat?.toLowerCase().includes("video")
+    ? `\nSelected video model/duration:\n${input.requestedModel || "selected video model"} supports the selected ${input.requestedDuration}-second output. The JSON "duration" must be ${input.requestedDuration}. The videoPrompt, outline, hooks, and shotList must be feasible inside exactly ${input.requestedDuration} seconds. Do not request 25-30 seconds, long scenes, or more than ${input.requestedDuration <= 8 ? "3" : "5"} scenes.`
+    : "";
   const requestedFormatLine = input.requestedFormat
-    ? `\nRequired content format:\n${input.requestedFormat}\n\nYou must set the JSON "format" exactly to "${input.requestedFormat}". All generated fields must match this format. If it is video, write a video creation prompt with scenes, motion, pacing, and duration. If it is image, write an image generation prompt with composition, layout, aspect ratio, and visual direction. If it is text, write text-post fields and do not describe video/image production unless useful as creative notes.`
+    ? `\nRequired content format:\n${input.requestedFormat}\n\nYou must set the JSON "format" exactly to "${input.requestedFormat}". All generated fields must match this format. If it is video, write a video creation prompt with scenes, motion, pacing, and duration. If it is image, write an image generation prompt with composition, layout, aspect ratio, and visual direction. If it is text, write text-post fields and do not describe video/image production unless useful as creative notes.${durationLine}`
     : "";
   return `You are ContentAgent's senior social content strategist.
 
@@ -266,7 +269,7 @@ Create a complete editable content plan. Return ONLY valid JSON with this exact 
 }`;
 }
 
-export async function generateContentPlanWithGpt55(input: { idea: string; niche: string; requestedFormat?: string }, prompt = buildAiBriefPrompt(input)) {
+export async function generateContentPlanWithGpt55(input: { idea: string; niche: string; requestedFormat?: string; requestedDuration?: number; requestedModel?: string }, prompt = buildAiBriefPrompt(input)) {
   if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
   const res = await fetch(`${baseUrl}/codex/v1/responses`, {
     method: "POST",

@@ -161,9 +161,18 @@ function enhanceVideoPromptForProvider(input: {
     "",
     "Uploaded reference roles:",
     refRoles,
+    refs.some((ref) => ref.role === "logo")
+      ? "Logo enforcement: the uploaded logo reference is the brand mark. Include that exact logo in the first or final frame with enough contrast, stroke, shadow, or clean background separation. Do not replace it with generic text or invented symbols."
+      : "",
+    refs.some((ref) => ref.role === "product photo")
+      ? "Product reference enforcement: use the uploaded product/photo reference as the visual product cue. Do not substitute unrelated products."
+      : "",
+    refs.some((ref) => ref.role === "avatar/persona")
+      ? "Avatar/persona enforcement: use the uploaded persona reference only for character/person appearance, not for branding."
+      : "",
     "",
     seedanceSpecific
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 function mockCompetitorResults(input: { workspaceId: string; competitorId: string; platform: Platform; url: string; minViews: number }) {
@@ -390,6 +399,19 @@ function defaultDuration(format: string) {
   if (lower.includes("long")) return 60;
   if (lower.includes("video") || lower.includes("short") || lower.includes("reel") || lower.includes("tiktok")) return 8;
   return undefined;
+}
+
+function durationOptionsForGenerationModel(model: string) {
+  if (model === "veo-fast") return [8];
+  if (model === "seedance-2.0") return [4, 5, 6, 7, 8, 9, 10, 12, 15];
+  return [8];
+}
+
+function closestVideoDuration(value: unknown, model: string, fallback = 8) {
+  const options = durationOptionsForGenerationModel(model);
+  const numeric = Number(value || fallback);
+  const target = Number.isFinite(numeric) ? numeric : fallback;
+  return options.reduce((best, option) => Math.abs(option - target) < Math.abs(best - target) ? option : best, options[0]);
 }
 
 function normalizeGenerationAspectRatio(generationType: "video" | "image" | "text", value: unknown) {
@@ -1095,28 +1117,34 @@ export async function POST(req: Request) {
     if (!idea) return NextResponse.json({ error: "Tell me what you want to create first." }, { status: 400 });
     const requestedFormatRaw = String(body.requestedFormat || "").trim();
     const requestedFormat = contentPlanFormats.includes(requestedFormatRaw) ? requestedFormatRaw : "";
+    const requestedModel = String(body.requestedModel || "");
+    const requestedDuration = requestedFormat.toLowerCase().includes("video") ? closestVideoDuration(body.requestedDuration, requestedModel || "veo-fast") : undefined;
     const workspace = await mutateDb((db) => db.workspaces.find((item) => item.id === workspaceId) || null);
     const niche = workspace?.niche?.trim() || "";
-    const prompt = buildAiBriefPrompt({ idea, niche, requestedFormat });
+    const prompt = buildAiBriefPrompt({ idea, niche, requestedFormat, requestedDuration, requestedModel });
     await debugLog(workspaceId, {
       action,
       label: "Prompt sent to Kie GPT-5.5 for new content plan",
       status: "started",
       provider: "kie",
       prompt,
-      details: { model: "gpt-5-5", idea, requestedFormat: requestedFormat || undefined }
+      details: { model: "gpt-5-5", idea, requestedFormat: requestedFormat || undefined, requestedDuration, requestedModel: requestedModel || undefined }
     });
     try {
       const plan = await generateContentPlanWithGpt55({ idea, niche, requestedFormat }, prompt);
       const format = requestedFormat || String(plan.format || "Short video 9:16");
       const resolvedFormat = contentPlanFormats.includes(format) ? format : "Short video 9:16";
       const resolvedKind = contentKindFromFormat(resolvedFormat);
+      const normalizedDuration = resolvedKind === "video" ? closestVideoDuration(requestedDuration || plan.duration || defaultDuration(resolvedFormat), requestedModel || "veo-fast", defaultDuration(resolvedFormat) || 8) : "";
+      const durationNote = resolvedKind === "video"
+        ? `\n\nDuration constraint: create exactly ${normalizedDuration} seconds for ${requestedModel || "the selected video model"}. Keep scenes short and do not request longer runtime.`
+        : "";
       const draft = {
         topic: String(plan.topic || idea),
         format: resolvedFormat,
         description: String(plan.description || ""),
-        videoPrompt: String(plan.videoPrompt || ""),
-        duration: resolvedKind === "video" ? Number(plan.duration || defaultDuration(resolvedFormat) || 0) || defaultDuration(resolvedFormat) || "" : "",
+        videoPrompt: `${String(plan.videoPrompt || "").trim()}${durationNote}`.trim(),
+        duration: normalizedDuration,
         hooks: Array.isArray(plan.hooks) ? plan.hooks.join("\n") : String(plan.hooks || ""),
         outline: Array.isArray(plan.outline) ? plan.outline.join("\n") : String(plan.outline || ""),
         shotList: Array.isArray(plan.shotList) ? plan.shotList.join("\n") : String(plan.shotList || ""),
@@ -1463,7 +1491,7 @@ export async function POST(req: Request) {
       if (!brief) return null;
       const generationType = (String(body.generationType || contentKindFromFormat(brief.format)) as "video" | "image" | "text");
       const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "gpt-image-2" : "gemini-3.5-flash"));
-      const duration = Number(body.duration || brief.duration || defaultDuration(brief.format) || 0) || undefined;
+      const duration = generationType === "video" ? closestVideoDuration(body.duration || brief.duration || defaultDuration(brief.format) || 8, model) : undefined;
       const assetReferences = parseAssetReferences(body.assetReferences);
       const basePrompt = enrichPromptWithAssetReferences(String(body.prompt || defaultPromptForBrief(brief, generationType)), generationType, assetReferences);
       const caption = String(body.caption || defaultCaptionForBrief(brief));
@@ -1544,7 +1572,7 @@ export async function POST(req: Request) {
     if (action === "generateDirectContent") {
       const generationType = (String(body.generationType || "video") as "video" | "image" | "text");
       const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "gpt-image-2" : "gemini-3.5-flash"));
-      const duration = Number(body.duration || 0) || (generationType === "video" ? 8 : undefined);
+      const duration = generationType === "video" ? closestVideoDuration(body.duration || 8, model) : undefined;
       const assetReferences = parseAssetReferences(body.assetReferences);
       const workspace = db.workspaces.find((entry) => entry.id === workspaceId);
       const context = workspace?.niche?.trim() || "the configured brand";
@@ -1680,7 +1708,10 @@ export async function POST(req: Request) {
         assetId: generatedAsset?.id,
         type: generatedAsset?.type,
         model: generatedAsset?.generationModel,
+        duration: generatedAsset?.generationSettings?.duration,
+        aspectRatio: generatedAsset?.generationSettings?.aspectRatio,
         referenceCount: generatedAsset?.assetReferences?.length || 0,
+        references: generatedAsset?.assetReferences || [],
         status: generatedAsset?.status
       }
     });

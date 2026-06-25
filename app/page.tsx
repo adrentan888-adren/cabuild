@@ -1522,7 +1522,9 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
     try {
       const draft = await post("generateBriefWithAi", {
         idea,
-        requestedFormat: preferredFormatForKind(kind, activeInitial.aspectRatio)
+        requestedFormat: preferredFormatForKind(kind, activeInitial.aspectRatio),
+        requestedDuration: kind === "video" ? duration : undefined,
+        requestedModel: model
       }) as PlanDraft;
       resetFormFromInitial(createContentInitialFromDraft(draft));
       setAiPromptOpen(false);
@@ -1567,25 +1569,26 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
   return (
     <form key={formVersion} onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }} className="generation-form create-generation-form">
       <section className="create-card">
-        <div className="clbl">Input source</div>
+        <div className="step-label"><span>1</span>Build the brief</div>
         <div className="brief-preview">
           <span>{activeInitial.sourceLabel}</span>
           <b>{activeInitial.sourceTitle}</b>
           <p>{activeInitial.sourceDescription}</p>
         </div>
         <div className="source-actions">
-          {allowAiAssist && <button type="button" className="primary" onClick={() => setAiPromptOpen(true)} disabled={aiGenerating}><Sparkles size={14} />Generate with AI</button>}
-          {onUsePlan && <button type="button" className="linkish" onClick={onUsePlan}>Use a content plan instead</button>}
+          {allowAiAssist && <button type="button" className="primary" onClick={() => setAiPromptOpen(true)} disabled={aiGenerating}><Sparkles size={14} />Fill fields with AI</button>}
+          {onUsePlan && <button type="button" className="linkish secondary-plan-link" onClick={onUsePlan}>Load from Content Plan</button>}
         </div>
+        <p className="step-helper">This step only prepares editable prompt, caption, and hashtags. It will not spend generation credits or create a video/image yet.</p>
         {aiPromptOpen && (
           <div className="ai-plan-box compact">
             <div className="ai-plan-inner">
-              <label>Tell me in a sentence or few, then I can create anything for you.
+              <label>Tell me in a sentence or few, then I will fill the fields below.
                 <textarea name="idea" value={aiIdea} onChange={(event) => setAiIdea(event.target.value)} placeholder="Example: Create a 9:16 product demo video for busy SME founders about invoice follow-up automation." autoFocus />
               </label>
               {aiError && <div className="provider-error">{aiError}</div>}
               <div className="row-actions">
-                <button className="primary" type="button" onClick={() => void generateAiDraft()} disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Generating" /> : "Generate"}</button>
+                <button className="primary" type="button" onClick={() => void generateAiDraft()} disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Filling fields" /> : "Fill fields"}</button>
                 <button type="button" onClick={() => setAiPromptOpen(false)} disabled={aiGenerating}>Cancel</button>
               </div>
             </div>
@@ -1594,7 +1597,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
       </section>
 
       <section className="create-card">
-        <div className="clbl">Content type & platforms</div>
+        <div className="step-label"><span>2</span>Choose format, model, and references</div>
         <div className="modal-grid">
           <label>Content type<select value={kind} onChange={(event) => changeKind(event.target.value as GenerationKind)}>
             <option value="video">Video</option>
@@ -1631,7 +1634,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
 
       {visualAssetsEnabled && (
         <section className="create-card">
-          <div className="clbl">Optional assets</div>
+          <div className="clbl">Optional reference assets</div>
           <div className="upload-pair three">
             <AssetUploadBox icon={<Palette size={18} />} title="Product photo" helper="Optional visual reference" role="product photo" refs={assetRefs} onChange={updateAssetRef} />
             <AssetUploadBox icon={<UserRound size={18} />} title="Override avatar" helper="Optional persona reference" role="avatar/persona" refs={assetRefs} onChange={updateAssetRef} />
@@ -1665,7 +1668,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
       </section>
 
       <section className="create-card">
-        <div className="clbl">Creative inputs</div>
+        <div className="step-label"><span>3</span>Review and generate final asset</div>
         <label>Generation prompt<textarea name="prompt" defaultValue={activeInitial.prompt} /></label>
         <label>Caption<textarea name="caption" defaultValue={activeInitial.caption} /></label>
         <label>Hashtags<input name="hashtags" defaultValue={activeInitial.hashtags} /></label>
@@ -1673,7 +1676,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
           <div>Selected: <b>{model}</b></div>
           <div className="row-actions">
             {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
-            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? <AnimatedDots label="Generating" /> : submitLabel}</button>
+            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? <AnimatedDots label="Sending to Publish" /> : submitLabel}</button>
           </div>
         </div>
       </section>
@@ -1769,6 +1772,8 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
 function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; pendingGeneration: PendingGeneration | null }) {
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [sourcePreview, setSourcePreview] = useState<SourceMediaPreview | null>(null);
+  const [generationNotice, setGenerationNotice] = useState("");
+  const notifiedRef = useRef<Set<string>>(new Set());
   const runRef = useRef(run);
   useEffect(() => {
     runRef.current = run;
@@ -1808,6 +1813,21 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
       window.clearInterval(timer);
     };
   }, [pollIds]);
+  useEffect(() => {
+    queue.forEach((item) => {
+      if (!["done", "failed"].includes(item.status) || notifiedRef.current.has(item.id)) return;
+      const createdAt = new Date(item.createdAt || item.scheduledAt).getTime();
+      if (Date.now() - createdAt > 1000 * 60 * 60) {
+        notifiedRef.current.add(item.id);
+        return;
+      }
+      notifiedRef.current.add(item.id);
+      setGenerationNotice(item.status === "done" ? `${item.title} is ready in Publish.` : `${item.title} failed. Open Logs for the provider error.`);
+    });
+    if (!generationNotice) return;
+    const timer = window.setTimeout(() => setGenerationNotice(""), 7000);
+    return () => window.clearTimeout(timer);
+  }, [queue, generationNotice]);
   return (
     <div className="publish-page">
       {sourcePreview && <SourceMediaModal source={sourcePreview} onClose={() => setSourcePreview(null)} />}
@@ -1820,6 +1840,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
         </div>
         <Metric label="Done drafts" value={queue.filter((item) => item.status === "done").length} />
       </section>
+      {generationNotice && <div className="generation-notice">{generationNotice}</div>}
       <div className="publish-list">
         {pendingGeneration && (
           <article className="publish-card with-video pending-publish-card">
@@ -1837,6 +1858,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
                   <span>{pendingGeneration.model}</span>
                   <span>{new Date(pendingGeneration.startedAt).toLocaleString()}</span>
                 </div>
+                <small className="generation-help">You can leave this page. Generation continues in the background and this row updates automatically.</small>
               </div>
             </div>
             <div className="publish-actions">
@@ -1889,6 +1911,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
                     <span>{new Date(item.createdAt || item.scheduledAt).toLocaleString()}</span>
                   </div>
                   {item.hashtags?.length ? <small>{item.hashtags.join(" ")}</small> : null}
+                  {item.status === "generating" && <small className="generation-help">Provider generation is running. You can switch tabs; Publish will keep polling automatically.</small>}
                   {sourceMedia && <button type="button" className="asset-link asset-button-link" onClick={() => setSourcePreview(sourceMedia)}><Eye size={14} />View source media</button>}
                   {videoUrl && <div className="asset-actions"><button type="button" onClick={() => asset && setPreviewAsset(asset)}><Film size={14} />Play video</button><a className="asset-link" href={`/api/assets/${asset?.id}/download`}>Download MP4</a></div>}
                   {!isVideo && imageUrl && asset && <button type="button" className="asset-link asset-button-link" onClick={() => setPreviewAsset({ ...asset, assetUrl: imageUrl, type: "image" })}>Preview image</button>}

@@ -18,6 +18,8 @@ type NormalizedSocialItem = {
   title: string;
   description: string;
   thumbnailUrl: string;
+  mediaUrl: string;
+  mediaType: "video" | "image" | "unknown";
   views: number;
   likes: number;
   comments: number;
@@ -121,15 +123,53 @@ function thumbnailFrom(item: Record<string, unknown>): string {
   );
 }
 
+function mediaUrlFrom(item: Record<string, unknown>): string {
+  return firstString(
+    item.videoUrl,
+    item.video_url,
+    item.videoDownloadUrl,
+    item.downloadUrl,
+    item.playUrl,
+    item.playAddr,
+    item.mediaUrl,
+    item.media_url,
+    item.imageUrl,
+    item.image,
+    item.displayUrl,
+    item.display_url,
+    item.thumbnailUrl,
+    nested(item, "video.url"),
+    nested(item, "video.playAddr"),
+    nested(item, "video.downloadAddr"),
+    nested(item, "video.downloadUrl"),
+    nested(item, "videoMeta.videoUrl"),
+    nested(item, "videoMeta.downloadUrl"),
+    nested(item, "videoMeta.playUrl"),
+    nested(item, "images.0"),
+    nested(item, "image.0.url")
+  );
+}
+
+function mediaTypeFrom(item: Record<string, unknown>, mediaUrl: string): "video" | "image" | "unknown" {
+  const hint = firstString(item.type, item.mediaType, item.productType, item.displayResourceType, item.__typename, item.url, item.webVideoUrl, item.postUrl, mediaUrl).toLowerCase();
+  if (/\.(mp4|mov|webm|m3u8)(\?|$)/i.test(mediaUrl) || hint.includes("video") || hint.includes("reel") || hint.includes("short")) return "video";
+  if (/\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(mediaUrl) || hint.includes("image") || hint.includes("photo") || hint.includes("carousel")) return "image";
+  return mediaUrl ? "unknown" : "unknown";
+}
+
 function normalizeSocialItem(item: Record<string, unknown>, index: number, fallbackUrl = ""): NormalizedSocialItem {
   const stats = typeof item.stats === "object" && item.stats ? item.stats as Record<string, unknown> : {};
   const title = firstString(item.title, item.text, item.caption, item.description, item.desc, item.name) || `Social post ${index + 1}`;
+  const mediaUrl = mediaUrlFrom(item);
+  const sourceUrl = firstString(item.url, item.webVideoUrl, item.postUrl, item.inputUrl, item.link, item.permalink, item.shortcodeUrl) || fallbackUrl || mediaUrl;
   return {
-    sourceUrl: firstString(item.url, item.webVideoUrl, item.postUrl, item.videoUrl, item.inputUrl, item.link) || fallbackUrl,
-    platform: platformFromText(firstString(item.url, item.webVideoUrl, item.postUrl, item.platform, item.source, fallbackUrl)),
+    sourceUrl,
+    platform: platformFromText(firstString(sourceUrl, item.platform, item.source, fallbackUrl)),
     title,
     description: firstString(item.description, item.caption, item.text, item.desc),
     thumbnailUrl: thumbnailFrom(item),
+    mediaUrl,
+    mediaType: mediaTypeFrom(item, mediaUrl),
     views: n(item.views) || n(item.playCount) || n(item.videoViewCount) || n(item.viewCount) || n(item.view_count) || n(item.playCountText) || n(stats.views) || n(stats.playCount),
     likes: n(item.likes) || n(item.likeCount) || n(item.diggCount) || n(item.likesCount) || n(item.likes_count) || n(item.likesCountText) || n(stats.likes),
     comments: n(item.comments) || n(item.commentCount) || n(item.commentsCount) || n(item.comment_count) || n(item.commentsCountText) || n(stats.comments),
@@ -207,12 +247,15 @@ async function scanUrlWithSearchActor(targetUrl: string, minViews: number): Prom
       const views = baseViews + (20 - index) * 3700;
       const sourceUrl = s(item.url) || targetUrl;
       const date = s(item.date);
+      const mediaUrl = mediaUrlFrom(record);
       return {
         sourceUrl,
         platform: platformFromText(sourceUrl),
         title: s(item.title) || `URL result ${index + 1}`,
         description: s(item.description),
         thumbnailUrl: thumbnailFrom(record),
+        mediaUrl,
+        mediaType: mediaTypeFrom(record, mediaUrl),
         views,
         likes: Math.round(views * (0.03 + (index % 4) * 0.007)),
         comments: Math.round(views * (0.0018 + (index % 3) * 0.001)),
@@ -419,12 +462,15 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
       const url = s(item.url);
       const date = s(item.date);
       const platform = platformFromText(`${url} ${s(item.displayedUrl)} ${sourceTerms}`);
+      const mediaUrl = mediaUrlFrom(record);
       return {
         sourceUrl: url,
         platform,
         title: s(item.title) || `Keyword result ${index + 1}`,
         description: s(item.description),
         thumbnailUrl: thumbnailFrom(record),
+        mediaUrl,
+        mediaType: mediaTypeFrom(record, mediaUrl),
         views,
         likes: Math.round(views * (0.035 + (index % 4) * 0.008)),
         comments: Math.round(views * (0.002 + (index % 3) * 0.001)),

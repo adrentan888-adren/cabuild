@@ -67,6 +67,11 @@ export function hasKie() {
 
 function referenceUrls(refs?: KieReferenceAsset[]) {
   return (refs || [])
+    .slice()
+    .sort((a, b) => {
+      const priority = (role?: string) => role === "logo" ? 0 : role === "product photo" ? 1 : role === "avatar/persona" ? 2 : 3;
+      return priority(a.role) - priority(b.role);
+    })
     .map((ref) => ref.url?.trim())
     .filter((url): url is string => Boolean(url));
 }
@@ -217,6 +222,9 @@ type PlanInput = {
   comments: number;
   publishedAt: string;
   description?: string;
+  thumbnailUrl?: string;
+  mediaUrl?: string;
+  mediaType?: string;
   niche?: string;
 };
 
@@ -329,6 +337,9 @@ Competitor post:
 Title: ${input.title}
 Description: ${input.description || ""}
 URL: ${input.url}
+Thumbnail URL: ${input.thumbnailUrl || ""}
+Direct media URL, if available: ${input.mediaUrl || ""}
+Media type: ${input.mediaType || "unknown"}
 Platform: ${input.platform}
 Views: ${input.views}
 Likes: ${input.likes}
@@ -336,6 +347,7 @@ Comments: ${input.comments}
 Published at: ${input.publishedAt}
 
 Create a content plan for this brand/niche: ${input.niche || "No brand/niche set. Follow the source post and user context without assuming a niche."}
+Use the competitor post as the source creative reference. If a direct media URL or thumbnail URL is available, infer the content format and visual direction from that exact source media rather than from the profile/page alone.
 Return this JSON shape:
 {
   "topic": "specific content topic",

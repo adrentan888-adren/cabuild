@@ -125,7 +125,7 @@ function enhanceVideoPromptForProvider(input: {
   const provider = input.model === "seedance-2.0" ? "Seedance 2.0" : "VEO Fast";
   const refs = input.references || [];
   const refRoles = refs.length
-    ? refs.map((ref, index) => `- Reference ${index + 1} (${ref.role}, ${ref.fileName}): use only for its stated role; keep logos/products visually clear and avoid inventing replacement branding.`).join("\n")
+    ? refs.map((ref, index) => `- Reference ${index + 1} (${ref.role}, ${ref.fileName}${ref.url ? `, URL: ${ref.url}` : ""}): use only for its stated role; keep logos/products visually clear and avoid inventing replacement branding.${ref.role === "logo" ? " This is the exact logo image; reproduce this logo, not a placeholder or generic wordmark." : ""}`).join("\n")
     : "- No uploaded visual references are attached.";
   const seedanceSpecific = input.model === "seedance-2.0"
     ? [
@@ -616,6 +616,8 @@ export async function POST(req: Request) {
         url: item.sourceUrl,
         title: item.title,
         thumbnailUrl: item.thumbnailUrl,
+        mediaUrl: item.mediaUrl,
+        mediaType: item.mediaType,
         description: item.description,
         views: item.views,
         likes: item.likes,
@@ -693,6 +695,8 @@ export async function POST(req: Request) {
           url: item.sourceUrl,
           title: item.title,
           thumbnailUrl: item.thumbnailUrl,
+          mediaUrl: item.mediaUrl,
+          mediaType: item.mediaType,
           description: item.description,
           views: item.views,
           likes: item.likes,
@@ -780,6 +784,8 @@ export async function POST(req: Request) {
         url: item.sourceUrl,
         title: item.title,
         thumbnailUrl: item.thumbnailUrl,
+        mediaUrl: item.mediaUrl,
+        mediaType: item.mediaType,
         description: item.description,
         views: item.views,
         likes: item.likes,
@@ -851,6 +857,8 @@ export async function POST(req: Request) {
         url: item.sourceUrl,
         title: item.title,
         thumbnailUrl: item.thumbnailUrl,
+        mediaUrl: item.mediaUrl,
+        mediaType: item.mediaType,
         description: item.description,
         views: item.views,
         likes: item.likes,
@@ -973,6 +981,13 @@ export async function POST(req: Request) {
         outline: Array.isArray(plan.outline) ? plan.outline : [],
         shotList: Array.isArray(plan.shotList) ? plan.shotList : [],
         creativeNotes: String(plan.creativeNotes || ""),
+        sourceResultId: result.id,
+        sourceUrl: result.url,
+        sourceTitle: result.title,
+        sourcePlatform: result.platform,
+        sourceThumbnailUrl: result.thumbnailUrl,
+        sourceMediaUrl: result.mediaUrl,
+        sourceMediaType: result.mediaType,
         caption: String(plan.caption || ""),
         hashtags: Array.isArray(plan.hashtags) ? plan.hashtags : [],
         optimalTime: String(plan.optimalTime || "Thu 10:00 AM"),
@@ -1466,6 +1481,11 @@ export async function POST(req: Request) {
         provider: isKieGeneration ? "kie" : "local",
         generationModel: model,
         generationSettings,
+        sourceUrl: brief.sourceUrl,
+        sourceTitle: brief.sourceTitle,
+        sourceThumbnailUrl: brief.sourceThumbnailUrl,
+        sourceMediaUrl: brief.sourceMediaUrl,
+        sourceMediaType: brief.sourceMediaType,
         prompt,
         assetReferences,
         assetUrl: isKieGeneration ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
@@ -1487,6 +1507,11 @@ export async function POST(req: Request) {
         generationSettings,
         duration,
         prompt,
+        sourceUrl: brief.sourceUrl,
+        sourceTitle: brief.sourceTitle,
+        sourceThumbnailUrl: brief.sourceThumbnailUrl,
+        sourceMediaUrl: brief.sourceMediaUrl,
+        sourceMediaType: brief.sourceMediaType,
         assetReferences,
         assetUrl: asset.assetUrl,
         createdAt: now

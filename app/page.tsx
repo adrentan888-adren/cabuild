@@ -9,6 +9,8 @@ import {
   Bug,
   CalendarDays,
   Check,
+  ExternalLink,
+  Eye,
   FileText,
   Film,
   Lightbulb,
@@ -111,6 +113,16 @@ type PlanDraft = {
   hashtags?: string;
   optimalTime?: string;
   expectedPerformance?: string;
+};
+
+type SourceMediaPreview = {
+  title: string;
+  platform?: Platform | string;
+  sourceUrl?: string;
+  thumbnailUrl?: string;
+  mediaUrl?: string;
+  mediaType?: "video" | "image" | "unknown";
+  description?: string;
 };
 
 async function post(action: string, payload: Record<string, unknown> = {}) {
@@ -765,6 +777,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
   const [pendingScan, setPendingScan] = useState<"url" | "keywords" | null>(null);
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
   const [scanElapsed, setScanElapsed] = useState(0);
+  const [sourcePreview, setSourcePreview] = useState<SourceMediaPreview | null>(null);
   const activeScanStatus = scanStatus || pendingScan;
   const activeScan = data.researchScans.find((scan) => scan.id === activeScanId) || data.researchScans[0];
   const visibleResults = activeScan
@@ -836,6 +849,17 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
       setPendingPlan(null);
     }
   };
+  const openSourcePreview = (item: CompetitorResult) => {
+    setSourcePreview({
+      title: item.title,
+      platform: item.platform,
+      sourceUrl: item.url,
+      thumbnailUrl: item.thumbnailUrl,
+      mediaUrl: item.mediaUrl,
+      mediaType: item.mediaType,
+      description: item.description
+    });
+  };
   const addKeyword = (keyword: string) => {
     const parts = keywordText.split(",").map((item) => item.trim()).filter(Boolean);
     if (!parts.some((item) => item.toLowerCase() === keyword.toLowerCase())) setKeywordText([...parts, keyword].join(", "));
@@ -843,6 +867,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
   const scanLabel = (scanItem: AppData["researchScans"][number]) => scanItem.query || (scanItem.url.startsWith("keyword:") ? scanItem.url.split("|")[0].replace("keyword:", "") : scanItem.url);
   return (
     <div className="research-page">
+      {sourcePreview && <SourceMediaModal source={sourcePreview} onClose={() => setSourcePreview(null)} />}
       <section className="research-hero">
         <div>
           <div className="clbl">Research</div>
@@ -952,13 +977,17 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
               <div className="result-rank">{index + 1}</div>
               <div className="result-thumb">{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" /> : <span>{item.platform.slice(0, 2).toUpperCase()}</span>}</div>
               <div className="result-main">
-                <a href={item.url} target="_blank">{item.title}</a>
+                <button className="result-title-button" type="button" onClick={() => openSourcePreview(item)}>{item.title}</button>
                 <span>{new Date(item.publishedAt).toLocaleString()} ﾂｷ captured {new Date(item.capturedAt).toLocaleDateString()}</span>
                 {item.description && <small>{item.description}</small>}
               </div>
               <div className="result-stat"><b>{compact(item.views)}</b><span>views</span></div>
               <div className="result-stat"><b>{compact(item.likes)}</b><span>likes</span></div>
-              <button className="plan-action" onClick={() => createPlan(item)}><FileText size={14} />Create plan</button>
+              <div className="result-actions">
+                <button type="button" onClick={() => openSourcePreview(item)}><Eye size={14} />Preview</button>
+                <a href={item.url} target="_blank" rel="noreferrer"><ExternalLink size={14} />Open</a>
+                <button className="plan-action" onClick={() => createPlan(item)}><FileText size={14} />Create plan</button>
+              </div>
             </article>
           ))}
           </div>
@@ -1210,6 +1239,8 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState("");
   const [aiDraft, setAiDraft] = useState<PlanDraft | null>(null);
+  const [sourcePreview, setSourcePreview] = useState<SourceMediaPreview | null>(null);
+  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const planTime = (value?: string) => {
     const time = value ? new Date(value).getTime() : 0;
     return Number.isFinite(time) ? time : 0;
@@ -1249,8 +1280,25 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
     }
   };
   const generate = (brief: Brief) => setGeneratingBrief(brief);
+  const sourceFromBrief = (brief: Brief): SourceMediaPreview | null => {
+    if (!brief.sourceUrl && !brief.sourceThumbnailUrl && !brief.sourceMediaUrl) return null;
+    return {
+      title: brief.sourceTitle || brief.topic,
+      platform: brief.sourcePlatform || brief.platforms[0],
+      sourceUrl: brief.sourceUrl,
+      thumbnailUrl: brief.sourceThumbnailUrl,
+      mediaUrl: brief.sourceMediaUrl,
+      mediaType: brief.sourceMediaType,
+      description: brief.description
+    };
+  };
+  const latestAssetForBrief = (brief: Brief) => [...data.assets]
+    .filter((asset) => asset.briefId === brief.id)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
   return (
     <div className="plan-page">
+      {sourcePreview && <SourceMediaModal source={sourcePreview} onClose={() => setSourcePreview(null)} />}
+      {previewAsset?.assetUrl && <AssetPreviewModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
       {creatingPlan && (
         <div className="modal-backdrop">
           <div className="generation-modal">
@@ -1329,6 +1377,12 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
               <PlanEditorForm brief={brief} onSubmit={save} onCancel={() => setEditingId(null)} submitLabel="Save" />
             ) : (
               <>
+                {(() => {
+                  const source = sourceFromBrief(brief);
+                  const latestAsset = latestAssetForBrief(brief);
+                  const hasGeneratedDraft = Boolean(latestAsset);
+                  const canPreviewOutput = Boolean(latestAsset?.assetUrl);
+                  return (
                 <div className="plan-card-head compact">
                   <div className="plan-number">{index + 1}</div>
                   <div>
@@ -1338,11 +1392,16 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
                   <div className="plan-type">{brief.format}</div>
                   <div className="plan-date">{brief.createdAt ? new Date(brief.createdAt).toLocaleString() : "No timestamp"}</div>
                   <div className="row-actions">
+                    {source && <button type="button" onClick={() => setSourcePreview(source)}><Eye size={14} />Source</button>}
+                    {canPreviewOutput && latestAsset && <button type="button" onClick={() => setPreviewAsset(latestAsset)}><Film size={14} />View output</button>}
+                    {hasGeneratedDraft && !canPreviewOutput && <button type="button" onClick={() => setScreen("publish")}><RefreshCcw size={14} />In Publish</button>}
                     <button onClick={() => setEditingId(brief.id)}>Edit</button>
                     <button onClick={() => run("deleteBrief", { id: brief.id }, "Content plan deleted")}>Delete</button>
-                    <button className="primary" onClick={() => generate(brief)}><Wand2 size={14} />Generate</button>
+                    <button className="primary" onClick={() => generate(brief)}><Wand2 size={14} />{hasGeneratedDraft ? "Generate new" : "Generate"}</button>
                   </div>
                 </div>
+                  );
+                })()}
               </>
             )}
           </article>
@@ -1665,6 +1724,7 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
 
 function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; pendingGeneration: PendingGeneration | null }) {
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
+  const [sourcePreview, setSourcePreview] = useState<SourceMediaPreview | null>(null);
   const runRef = useRef(run);
   useEffect(() => {
     runRef.current = run;
@@ -1706,6 +1766,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
   }, [pollIds]);
   return (
     <div className="publish-page">
+      {sourcePreview && <SourceMediaModal source={sourcePreview} onClose={() => setSourcePreview(null)} />}
       {previewAsset?.assetUrl && <AssetPreviewModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
       <section className="plan-hero">
         <div>
@@ -1746,6 +1807,17 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
           const isImage = item.generationType === "image" || asset?.type === "image" || asset?.type === "carousel";
           const videoUrl = isVideo ? item.assetUrl || asset?.assetUrl : "";
           const imageUrl = isImage ? item.assetUrl || asset?.assetUrl : "";
+          const sourceMedia: SourceMediaPreview | null = item.sourceUrl || item.sourceThumbnailUrl || item.sourceMediaUrl || asset?.sourceUrl || asset?.sourceThumbnailUrl || asset?.sourceMediaUrl
+            ? {
+              title: item.sourceTitle || asset?.sourceTitle || item.title,
+              platform: item.platform,
+              sourceUrl: item.sourceUrl || asset?.sourceUrl,
+              thumbnailUrl: item.sourceThumbnailUrl || asset?.sourceThumbnailUrl,
+              mediaUrl: item.sourceMediaUrl || asset?.sourceMediaUrl,
+              mediaType: item.sourceMediaType || asset?.sourceMediaType,
+              description: item.caption || asset?.prompt
+            }
+            : null;
           const startingProvider = item.status === "generating" && asset?.provider === "kie" && !asset.providerTaskId;
           return (
             <article className={`publish-card ${isVideo || isImage ? "with-video" : ""}`} key={item.id}>
@@ -1773,6 +1845,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
                     <span>{new Date(item.createdAt || item.scheduledAt).toLocaleString()}</span>
                   </div>
                   {item.hashtags?.length ? <small>{item.hashtags.join(" ")}</small> : null}
+                  {sourceMedia && <button type="button" className="asset-link asset-button-link" onClick={() => setSourcePreview(sourceMedia)}><Eye size={14} />View source media</button>}
                   {videoUrl && <div className="asset-actions"><button type="button" onClick={() => asset && setPreviewAsset(asset)}><Film size={14} />Play video</button><a className="asset-link" href={`/api/assets/${asset?.id}/download`}>Download MP4</a></div>}
                   {!isVideo && imageUrl && asset && <button type="button" className="asset-link asset-button-link" onClick={() => setPreviewAsset({ ...asset, assetUrl: imageUrl, type: "image" })}>Preview image</button>}
                   {item.error && <span className="provider-error inline">{item.error}</span>}
@@ -1788,6 +1861,44 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
         })}
         {queue.length === 0 && !pendingGeneration && <div className="empty-state">No generated drafts yet. Generate from a content plan to create the first publish item.</div>}
       </div>
+    </div>
+  );
+}
+
+function SourceMediaModal({ source, onClose }: { source: SourceMediaPreview; onClose: () => void }) {
+  const playable = source.mediaUrl || "";
+  const isVideo = source.mediaType === "video" || /\.(mp4|webm|mov|m3u8)(\?|$)/i.test(playable);
+  const isImage = source.mediaType === "image" || /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(playable);
+  const imageUrl = isImage ? playable : source.thumbnailUrl;
+  return (
+    <div className="modal-backdrop video-backdrop">
+      <section className="video-player-modal source-media-modal">
+        <div className="modal-head">
+          <div>
+            <div className="clbl">Source Media</div>
+            <h3>{source.title}</h3>
+            <p>{source.platform || "Research source"}</p>
+          </div>
+          <button type="button" className="icon-btn" onClick={onClose}>x</button>
+        </div>
+        {playable && isVideo ? (
+          <video src={playable} controls autoPlay playsInline />
+        ) : imageUrl ? (
+          <img className="asset-preview-image" src={imageUrl} alt={`${source.title} source preview`} />
+        ) : (
+          <div className="source-media-empty">
+            <Film size={28} />
+            <b>No direct media file returned by the source actor</b>
+            <span>The original post can still be opened for comparison.</span>
+          </div>
+        )}
+        {source.description && <p className="source-media-description">{source.description}</p>}
+        <div className="modal-actions">
+          {source.sourceUrl && <a className="asset-link" href={source.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink size={14} />Open original post</a>}
+          {playable && <a className="asset-link" href={playable} target="_blank" rel="noreferrer"><ExternalLink size={14} />Open media file</a>}
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+      </section>
     </div>
   );
 }

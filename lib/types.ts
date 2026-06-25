@@ -92,6 +92,8 @@ export type CompetitorResult = {
   url: string;
   title: string;
   thumbnailUrl?: string;
+  mediaUrl?: string;
+  mediaType?: "video" | "image" | "unknown";
   description?: string;
   views: number;
   likes: number;
@@ -164,6 +166,13 @@ export type Brief = {
   duration?: number;
   shotList?: string[];
   creativeNotes?: string;
+  sourceResultId?: string;
+  sourceUrl?: string;
+  sourceTitle?: string;
+  sourcePlatform?: Platform;
+  sourceThumbnailUrl?: string;
+  sourceMediaUrl?: string;
+  sourceMediaType?: "video" | "image" | "unknown";
   caption: string;
   hashtags: string[];
   optimalTime: string;
@@ -188,6 +197,11 @@ export type Asset = {
   generationModel?: string;
   generationSettings?: Record<string, unknown>;
   assetUrl?: string;
+  sourceUrl?: string;
+  sourceTitle?: string;
+  sourceThumbnailUrl?: string;
+  sourceMediaUrl?: string;
+  sourceMediaType?: "video" | "image" | "unknown";
   prompt?: string;
   assetReferences?: GenerationAssetReference[];
   error?: string;
@@ -211,6 +225,11 @@ export type PublishItem = {
   duration?: number;
   prompt?: string;
   assetUrl?: string;
+  sourceUrl?: string;
+  sourceTitle?: string;
+  sourceThumbnailUrl?: string;
+  sourceMediaUrl?: string;
+  sourceMediaType?: "video" | "image" | "unknown";
   assetReferences?: GenerationAssetReference[];
   createdAt?: string;
   error?: string;

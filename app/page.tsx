@@ -855,9 +855,11 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan }: { 
     setSortOpen(false);
   };
   const scanUrl = async (form: FormData) => {
-    setPendingScan("url");
-    setScanStatus("url");
-    setScanStartedAt(Date.now());
+    flushSync(() => {
+      setPendingScan("url");
+      setScanStatus("url");
+      setScanStartedAt(Date.now());
+    });
     try {
       const result = await run("scanResearchUrl", Object.fromEntries(form.entries()), "Research scan started. You can leave and come back later.");
       if (result?.id) setActiveScanId(result.id);
@@ -868,9 +870,11 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan }: { 
     }
   };
   const scanKeywords = async (form: FormData) => {
-    setPendingScan("keywords");
-    setScanStatus("keywords");
-    setScanStartedAt(Date.now());
+    flushSync(() => {
+      setPendingScan("keywords");
+      setScanStatus("keywords");
+      setScanStartedAt(Date.now());
+    });
     try {
       const result = await run("scanKeywordResearch", {
         keywords: keywordText,
@@ -954,15 +958,41 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan }: { 
         {searchMode === "url" ? (
           <form onSubmit={(event) => { event.preventDefault(); if (!activeScanStatus) void scanUrl(new FormData(event.currentTarget)); }} className="research-form">
             <label>Social URL<input name="url" type="url" placeholder="LinkedIn profile/page, TikTok, Instagram, YouTube, Facebook, or X URL" required /></label>
-            <label>Minimum views<input name="minViews" type="number" min="0" step="1000" defaultValue="10000" /></label>
-            <button className="primary" disabled={activeScanStatus !== null} aria-busy={activeScanStatus === "url"}><Radar size={14} />{activeScanStatus === "url" ? "Scanning..." : "Scan"}</button>
+            <label>Minimum views<input name="minViews" type="number" min="0" step="1" defaultValue="0" /></label>
+            <button
+              type="button"
+              className="primary"
+              disabled={activeScanStatus !== null}
+              aria-busy={activeScanStatus === "url"}
+              onClick={(event) => {
+                const form = event.currentTarget.form;
+                if (!form || activeScanStatus) return;
+                if (!form.reportValidity()) return;
+                void scanUrl(new FormData(form));
+              }}
+            >
+              <Radar size={14} />{activeScanStatus === "url" ? "Scanning..." : "Scan"}
+            </button>
           </form>
         ) : (
           <form onSubmit={(event) => { event.preventDefault(); if (!activeScanStatus) void scanKeywords(new FormData(event.currentTarget)); }} className="keyword-form">
             <div className="keyword-input-row">
-              <label>Keywords<input value={keywordText} onChange={(event) => setKeywordText(event.target.value)} placeholder="AI automation, founder productivity, n8n workflows" required /></label>
-              <label>Minimum views<input name="minViews" type="number" min="0" step="1000" defaultValue="10000" /></label>
-              <button className="primary" disabled={activeScanStatus !== null} aria-busy={activeScanStatus === "keywords"}><Search size={14} />{activeScanStatus === "keywords" ? "Scanning..." : "Search"}</button>
+              <label>Keywords<input name="keywords" value={keywordText} onChange={(event) => setKeywordText(event.target.value)} placeholder="AI automation, founder productivity, n8n workflows" required /></label>
+              <label>Minimum views<input name="minViews" type="number" min="0" step="1" defaultValue="0" /></label>
+              <button
+                type="button"
+                className="primary"
+                disabled={activeScanStatus !== null}
+                aria-busy={activeScanStatus === "keywords"}
+                onClick={(event) => {
+                  const form = event.currentTarget.form;
+                  if (!form || activeScanStatus) return;
+                  if (!form.reportValidity()) return;
+                  void scanKeywords(new FormData(form));
+                }}
+              >
+                <Search size={14} />{activeScanStatus === "keywords" ? "Scanning..." : "Search"}
+              </button>
             </div>
             <div className="suggested-keywords">
               {suggestedResearchKeywords.map(([keyword, score]) => (
@@ -998,7 +1028,7 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan }: { 
             </div>
           </form>
         )}
-        {activeScanStatus && <div className="scan-progress"><span />{activeScanStatus === "keywords" ? "Searching Apify for matching platform/type filters" : "Scanning only the submitted URL/profile with Apify. You can leave this page and come back later."}<b>{scanElapsed}s</b></div>}
+        {activeScanStatus && <div className="scan-progress"><span />{activeScanStatus === "keywords" ? "Searching Apify in the background. You can leave this page and come back later." : "Scanning only the submitted URL/profile with Apify in the background. You can leave this page and come back later."}<b>{scanElapsed}s</b></div>}
         {!activeScanStatus && activeScan && activeScan.status !== "failed" && (
           <div className={`scan-outcome ${activeScan.source}`}>
             {activeScan.source === "apify" ? "Apify search completed" : "Fallback results shown"}
@@ -1030,8 +1060,8 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan }: { 
         <div className="result-list">
           {activeScanStatus && (
             <div className="result-loading">
-              <b>{activeScanStatus === "keywords" ? "Searching content sources" : "Scanning source URL"}</b>
-              <p>Apify is collecting and filtering results in the background. You can switch tabs, leave Research, or come back later; this scan will stay in History.</p>
+              <b>{activeScanStatus === "keywords" ? "Background keyword scan saved" : "Background URL scan saved"}</b>
+              <p>Apify is collecting and filtering results now. You can switch tabs, leave Research, refresh, or come back later; this scan will stay in History until it finishes.</p>
               <div><span /></div>
             </div>
           )}

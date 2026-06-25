@@ -76,6 +76,7 @@ Demo web app login:
 ## Current Feature State
 - Auth exists with local users and workspace data.
 - Research supports URL scans and keyword scans through Apify with local fallback.
+- Research scan UX: URL and keyword searches create a saved background scan, show copy telling users they can leave and come back later, and poll `syncResearchScan` when a running scan is active. Minimum views defaults to `0` and accepts any integer; stale sync ids return a harmless missing state instead of a visible API error.
 - Social Audit is connected-account-only. It reads connected social accounts from the Upload-Post profile, shows a `Connect social media` button that opens the same Upload-Post connection page as Settings, and auto-runs `auditConnectedSocials` when connected accounts do not have audits yet.
 - `auditConnectedSocials` scans every connected Upload-Post account URL with Apify, stores one `socialAudit` per connected account, and the Social Audit tab shows only those connected-account results.
 - Social Audit follows the mock dashboard layout more closely: authority hero, reach/engagement/posts/follower signal metrics, engagement trend, connected-account breakdown, content pillar ratings, top posts, AI diagnostic, and visible `Analysing...` progress while Apify runs.

@@ -870,7 +870,7 @@ export async function POST(req: Request) {
   if (action === "syncResearchScan") {
     const scanId = String(body.id || "");
     const scan = await mutateDb((db) => (db.researchScans || []).find((item) => item.id === scanId && item.workspaceId === workspaceId) || null);
-    if (!scan) return NextResponse.json({ error: "Research scan not found" }, { status: 404 });
+    if (!scan) return NextResponse.json({ id: scanId, status: "missing", error: "Research scan no longer exists." });
     if (scan.status !== "running") return NextResponse.json(scan);
     if (!scan.apifyRunId || !scan.apifyDatasetId || !scan.apifyActorId) {
       const failed = await mutateDb((db) => {

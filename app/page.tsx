@@ -1519,7 +1519,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
                     {hasGeneratedDraft && !canPreviewOutput && <button type="button" onClick={() => setScreen("publish")}><RefreshCcw size={14} />In Publish</button>}
                     <button onClick={() => setEditingId(brief.id)}>Edit</button>
                     <button onClick={() => run("deleteBrief", { id: brief.id }, "Content plan deleted")}>Delete</button>
-                    <button className="primary" onClick={() => generate(brief)}><Wand2 size={14} />{hasGeneratedDraft ? "Create another asset" : "Create asset"}</button>
+                    <button className="primary plan-create-button" onClick={() => generate(brief)}><Wand2 size={14} />{hasGeneratedDraft ? "Create again" : "Create asset"}</button>
                   </div>
                 </div>
                   );

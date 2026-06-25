@@ -1507,7 +1507,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
                   return (
                 <div className="plan-card-head compact">
                   <div className="plan-number">{index + 1}</div>
-                  <div>
+                  <div className="plan-summary-text">
                     <h3>{brief.topic}</h3>
                     <p>{brief.description || brief.hooks[0]}</p>
                   </div>

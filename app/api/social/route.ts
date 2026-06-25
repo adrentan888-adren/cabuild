@@ -384,6 +384,16 @@ function contentKindFromFormat(format: string): "video" | "image" | "text" {
   return "text";
 }
 
+function sourceFormatFromResearchResult(result: Pick<CompetitorResult, "platform" | "mediaType" | "title" | "description">) {
+  const text = `${result.title || ""} ${result.description || ""}`.toLowerCase();
+  if (result.mediaType === "image" || text.includes("carousel")) return "Image 1:1";
+  if (result.mediaType === "video") return result.platform === "YouTube" ? "Long-form video 16:9" : "Short video 9:16";
+  if (result.platform === "LinkedIn" || result.platform === "X") return "Text post";
+  if (text.includes("image") || text.includes("photo")) return "Image 1:1";
+  if (text.includes("video") || text.includes("reel") || text.includes("tiktok")) return result.platform === "YouTube" ? "Long-form video 16:9" : "Short video 9:16";
+  return result.platform === "Instagram" || result.platform === "Facebook" ? "Image 1:1" : "Short video 9:16";
+}
+
 function platformFromActorSource(value: string): Platform {
   return ({
     instagram: "Instagram",
@@ -996,6 +1006,8 @@ export async function POST(req: Request) {
     if ((sourceTitle && sourceTitle !== result.title) || (sourceUrl && sourceUrl !== result.url)) {
       return NextResponse.json({ error: "Selected research result changed before the plan could be created. Please click Create plan on the result again." }, { status: 409 });
     }
+    const sourceFormat = sourceFormatFromResearchResult(result);
+    const sourceKind = contentKindFromFormat(sourceFormat);
     const geminiPrompt = buildContentPlanPrompt({ ...result, niche });
     await debugLog(workspaceId, {
       action,
@@ -1027,7 +1039,7 @@ export async function POST(req: Request) {
       const context = niche || "the selected brand";
       plan = {
         topic: `Turn "${result.title}" into a content lesson`,
-        format: result.platform === "LinkedIn" || result.platform === "X" ? "Text post" : "Short video 9:16",
+        format: sourceFormat,
         platforms: [result.platform],
         description: `Recreate the winning angle from "${result.title}" for ${context}.`,
         videoPrompt: `Vertical founder-led social video about ${result.title}. Open with a clear pain point, show a practical example for ${context}, use clean visuals, add concise text overlays, and end with a practical CTA.`,
@@ -1053,11 +1065,11 @@ export async function POST(req: Request) {
         workspaceId,
         opportunityId: result.id,
         topic: String(plan.topic || result.title),
-        format: String(plan.format || "Short video 9:16"),
+        format: sourceFormat,
         platforms: Array.isArray(plan.platforms) ? plan.platforms : [result.platform],
         description: String(plan.description || ""),
         videoPrompt: String(plan.videoPrompt || ""),
-        duration: Number(plan.duration || defaultDuration(String(plan.format || "Short video 9:16")) || 0) || undefined,
+        duration: sourceKind === "video" ? Number(plan.duration || defaultDuration(sourceFormat) || 0) || undefined : undefined,
         hooks: Array.isArray(plan.hooks) ? plan.hooks : [],
         outline: Array.isArray(plan.outline) ? plan.outline : [],
         shotList: Array.isArray(plan.shotList) ? plan.shotList : [],

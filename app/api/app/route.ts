@@ -2,6 +2,26 @@ import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { readDb } from "@/lib/store";
 import { getConnectedUploadPostAccounts } from "@/lib/providers/uploadPost";
+import type { Brief } from "@/lib/types";
+
+function contentKindFromFormat(format: string) {
+  const lower = format.toLowerCase();
+  if (lower.includes("video") || lower.includes("short") || lower.includes("reel") || lower.includes("tiktok") || lower.includes("youtube")) return "video";
+  if (lower.includes("image") || lower.includes("carousel")) return "image";
+  return "text";
+}
+
+function normalizedResearchBrief(brief: Brief) {
+  if (!brief.sourceResultId) return brief;
+  const sourceKind = brief.sourceMediaType === "image"
+    ? "image"
+    : brief.sourceMediaType === "video"
+      ? "video"
+      : (brief.sourcePlatform === "LinkedIn" || brief.sourcePlatform === "X" ? "text" : "");
+  if (!sourceKind || contentKindFromFormat(brief.format) === sourceKind) return brief;
+  const format = sourceKind === "image" ? "Image 1:1" : sourceKind === "text" ? "Text post" : brief.sourcePlatform === "YouTube" ? "Long-form video 16:9" : "Short video 9:16";
+  return { ...brief, format, duration: sourceKind === "video" ? brief.duration : undefined };
+}
 
 export async function GET() {
   const user = await currentUser();
@@ -21,7 +41,7 @@ export async function GET() {
     socialAudits: (db.socialAudits || []).filter((item) => item.workspaceId === workspace.id).slice(-5).reverse(),
     connectedSocialAccounts,
     opportunities: db.opportunities.filter((item) => item.workspaceId === workspace.id),
-    briefs: db.briefs.filter((item) => item.workspaceId === workspace.id),
+    briefs: db.briefs.filter((item) => item.workspaceId === workspace.id).map(normalizedResearchBrief),
     assets: workspaceAssets,
     publishQueue: db.publishQueue
       .filter((item) => item.workspaceId === workspace.id)

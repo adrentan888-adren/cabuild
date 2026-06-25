@@ -59,6 +59,7 @@ type AppData = {
       actorSources?: string[];
       contentTypes?: string[];
       formats?: string[];
+      contentType?: string;
       uploadDate?: string;
       sourceOwnershipFilter?: string;
     };
@@ -66,7 +67,12 @@ type AppData = {
     minViews: number;
     resultIds: string[];
     createdAt: string;
+    completedAt?: string;
+    status?: "running" | "done" | "failed";
     source: "apify" | "cache" | "fallback";
+    apifyRunId?: string;
+    apifyDatasetId?: string;
+    apifyActorId?: string;
     error?: string;
   }[];
   activity: { id: string; message: string; createdAt: string }[];
@@ -338,7 +344,7 @@ export default function Home() {
           {screen === "home" && <HomePanel data={data} setScreen={setScreen} run={run} />}
           {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
-          {screen === "research" && <IntelligencePanel data={data} run={run} setScreen={setScreen} setPendingPlan={setPendingPlan} />}
+          {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setScreen={setScreen} setPendingPlan={setPendingPlan} />}
           {screen === "plan" && <BriefPanel data={data} run={run} setScreen={setScreen} pendingPlan={pendingPlan} setPendingGeneration={setPendingGeneration} />}
           {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
           {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
@@ -785,7 +791,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   );
 }
 
-function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; setScreen: (screen: string) => void; setPendingPlan: (plan: PendingPlan | null) => void }) {
+function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; refresh: () => Promise<void>; setScreen: (screen: string) => void; setPendingPlan: (plan: PendingPlan | null) => void }) {
   const [searchMode, setSearchMode] = useState<"url" | "keywords">("url");
   const [sortBy, setSortBy] = useState<"views" | "likes" | "date">("views");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -801,8 +807,8 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
   const [scanElapsed, setScanElapsed] = useState(0);
   const [sourcePreview, setSourcePreview] = useState<SourceMediaPreview | null>(null);
-  const activeScanStatus = scanStatus || pendingScan;
   const activeScan = data.researchScans.find((scan) => scan.id === activeScanId) || data.researchScans[0];
+  const activeScanStatus = scanStatus || pendingScan || (activeScan?.status === "running" ? (activeScan.query ? "keywords" : "url") : null);
   const visibleResults = activeScan
     ? data.competitorResults.filter((item) => activeScan.resultIds.includes(item.id))
     : data.competitorResults;
@@ -816,15 +822,30 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
   const totalViews = sortedResults.reduce((sum, item) => sum + item.views, 0);
   const topResult = sortedResults[0];
   useEffect(() => {
-    if (!activeScanStatus || !scanStartedAt) {
+    if (!activeScanStatus) {
       setScanElapsed(0);
       return;
     }
-    const tick = () => setScanElapsed(Math.max(1, Math.floor((Date.now() - scanStartedAt) / 1000)));
+    const startedAt = scanStartedAt || (activeScan?.status === "running" ? new Date(activeScan.createdAt).getTime() : Date.now());
+    const tick = () => setScanElapsed(Math.max(1, Math.floor((Date.now() - startedAt) / 1000)));
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [activeScanStatus, scanStartedAt]);
+  }, [activeScanStatus, scanStartedAt, activeScan?.createdAt, activeScan?.status]);
+  useEffect(() => {
+    if (!activeScan || activeScan.status !== "running") return;
+    let cancelled = false;
+    const sync = async () => {
+      await post("syncResearchScan", { id: activeScan.id }).catch(() => null);
+      if (!cancelled) await refresh();
+    };
+    void sync();
+    const timer = window.setInterval(sync, 7000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeScan?.id, activeScan?.status, refresh]);
   const chooseSort = (next: "views" | "likes" | "date") => {
     if (next === sortBy) setSortDir((dir) => (dir === "desc" ? "asc" : "desc"));
     else {
@@ -838,7 +859,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
     setScanStatus("url");
     setScanStartedAt(Date.now());
     try {
-      const result = await run("scanResearchUrl", Object.fromEntries(form.entries()), "Research scan complete");
+      const result = await run("scanResearchUrl", Object.fromEntries(form.entries()), "Research scan started. You can leave and come back later.");
       if (result?.id) setActiveScanId(result.id);
     } finally {
       setScanStatus(null);
@@ -909,7 +930,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
                 <button key={scanItem.id} onClick={() => { setActiveScanId(scanItem.id); setHistoryOpen(false); }}>
                   <b>{scanItem.query ? "Keyword search" : scanItem.platform}</b>
                   <span>{scanLabel(scanItem)}</span>
-                  <small>{new Date(scanItem.createdAt).toLocaleString()} ﾂｷ min {compact(scanItem.minViews)}</small>
+                  <small>{scanItem.status === "running" ? "Scanning in background" : new Date(scanItem.createdAt).toLocaleString()} ﾂｷ min {compact(scanItem.minViews)}</small>
                 </button>
               ))}
               {data.researchScans.length === 0 && <div className="history-empty">No previous scans</div>}
@@ -977,15 +998,16 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
             </div>
           </form>
         )}
-        {activeScanStatus && <div className="scan-progress"><span />{activeScanStatus === "keywords" ? "Searching Apify for matching platform/type filters" : "Scanning only the submitted URL/profile with Apify"}<b>{scanElapsed}s</b></div>}
-        {!activeScanStatus && activeScan && (
+        {activeScanStatus && <div className="scan-progress"><span />{activeScanStatus === "keywords" ? "Searching Apify for matching platform/type filters" : "Scanning only the submitted URL/profile with Apify. You can leave this page and come back later."}<b>{scanElapsed}s</b></div>}
+        {!activeScanStatus && activeScan && activeScan.status !== "failed" && (
           <div className={`scan-outcome ${activeScan.source}`}>
             {activeScan.source === "apify" ? "Apify search completed" : "Fallback results shown"}
             <b>{activeScanResultCount}</b>
             <span>qualified results</span>
           </div>
         )}
-        {activeScan?.error && <p className="provider-error">Apify fallback used: {activeScan.error}</p>}
+        {activeScan?.status === "failed" && <p className="provider-error">Apify scan failed: {activeScan.error}</p>}
+        {activeScan?.status !== "failed" && activeScan?.error && <p className="provider-error">Apify fallback used: {activeScan.error}</p>}
       </section>
 
       <section className={`research-card results-card ${activeScanStatus ? "loading" : ""}`} aria-busy={activeScanStatus ? "true" : "false"}>
@@ -1009,7 +1031,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
           {activeScanStatus && (
             <div className="result-loading">
               <b>{activeScanStatus === "keywords" ? "Searching content sources" : "Scanning source URL"}</b>
-              <p>Apify is collecting and filtering results. This can take 10-30 seconds depending on the source.</p>
+              <p>Apify is collecting and filtering results in the background. You can switch tabs, leave Research, or come back later; this scan will stay in History.</p>
               <div><span /></div>
             </div>
           )}
@@ -1033,7 +1055,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
             </article>
           ))}
           </div>
-          {sortedResults.length === 0 && <div className="empty-state">{activeScan ? "Search completed, but no content matched the selected minimum views and filters. Lower the minimum views or broaden the content types." : "No qualified results yet. Search by URL or keywords to begin."}</div>}
+          {sortedResults.length === 0 && !activeScanStatus && <div className="empty-state">{activeScan ? "Search completed, but no content matched the selected minimum views and filters. Lower the minimum views or broaden the content types." : "No qualified results yet. Search by URL or keywords to begin."}</div>}
         </div>
       </section>
 

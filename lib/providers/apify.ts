@@ -28,6 +28,14 @@ type NormalizedSocialItem = {
 };
 
 type ActorSource = "instagram" | "tiktok" | "youtube" | "facebook" | "linkedin";
+type ResearchRunMeta = {
+  actorId: string;
+  runId: string;
+  datasetId: string;
+  source: ActorSource;
+  fallbackUrl: string;
+  minViews: number;
+};
 
 function token() {
   return process.env.APIFY_API_TOKEN;
@@ -495,6 +503,70 @@ async function runApifyActor(actorId: string, input: Record<string, unknown>) {
   const text = await res.text();
   if (!res.ok) throw new Error(`Apify actor ${actorId} failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
   return JSON.parse(text) as Array<Record<string, unknown>>;
+}
+
+async function startApifyActor(actorId: string, input: Record<string, unknown>) {
+  const endpoint = `https://api.apify.com/v2/acts/${actorId.replace("/", "~")}/runs?token=${token()}`;
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Apify actor ${actorId} start failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
+  const json = JSON.parse(text) as { data?: { id?: string; defaultDatasetId?: string } };
+  const runId = json.data?.id || "";
+  const datasetId = json.data?.defaultDatasetId || "";
+  if (!runId || !datasetId) throw new Error("Apify did not return a run ID and dataset ID.");
+  return { runId, datasetId };
+}
+
+export async function startSocialUrlScanRun(url: string, minViews: number): Promise<ResearchRunMeta> {
+  if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
+  const source = actorSourceFromUrl(url);
+  const actorId = process.env.APIFY_SOCIAL_ACTOR_ID || sourceActorId(source);
+  if (!actorId) throw new Error(`No Apify actor configured for ${source}.`);
+  const run = await startApifyActor(actorId, platformUrlInput(source, url));
+  return { actorId, runId: run.runId, datasetId: run.datasetId, source, fallbackUrl: url, minViews };
+}
+
+export async function startKeywordScanRun(keywords: string, dimensions: KeywordDimensions, minViews: number): Promise<ResearchRunMeta & { contentType: string }> {
+  if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
+  const source = selectedSource(dimensions);
+  const actorId = sourceActorId(source);
+  if (!actorId) throw new Error(`No Apify actor configured for ${source}.`);
+  const contentType = dimensions.contentType || dimensions.contentTypes?.[0] || "";
+  const run = await startApifyActor(actorId, platformSearchInput(source, keywords, dimensions.uploadDate || "", contentType));
+  return { actorId, runId: run.runId, datasetId: run.datasetId, source, fallbackUrl: "", minViews, contentType };
+}
+
+export async function completeSocialUrlScanRun(meta: ResearchRunMeta) {
+  if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
+  const runRes = await fetch(`https://api.apify.com/v2/actor-runs/${meta.runId}?token=${token()}`, { cache: "no-store" });
+  const runText = await runRes.text();
+  if (!runRes.ok) throw new Error(`Apify run status failed with HTTP ${runRes.status}: ${runText.slice(0, 180)}`);
+  const runJson = JSON.parse(runText) as { data?: { status?: string } };
+  const status = runJson.data?.status || "";
+  if (["READY", "RUNNING"].includes(status)) return { status: "running" as const, items: [] as NormalizedSocialItem[] };
+  if (status !== "SUCCEEDED") throw new Error(`Apify run ended with status ${status || "unknown"}.`);
+
+  const itemsRes = await fetch(`https://api.apify.com/v2/datasets/${meta.datasetId}/items?token=${token()}&clean=true`, { cache: "no-store" });
+  const itemsText = await itemsRes.text();
+  if (!itemsRes.ok) throw new Error(`Apify dataset fetch failed with HTTP ${itemsRes.status}: ${itemsText.slice(0, 180)}`);
+  const actorItems = JSON.parse(itemsText) as Array<Record<string, unknown>>;
+  return {
+    status: "done" as const,
+    items: normalizeActorItems(actorItems, meta.source, meta.minViews, meta.fallbackUrl)
+  };
+}
+
+export async function completeKeywordScanRun(meta: ResearchRunMeta & { contentType?: string }) {
+  const completed = await completeSocialUrlScanRun(meta);
+  if (completed.status === "running") return completed;
+  return {
+    status: "done" as const,
+    items: completed.items.filter((item) => matchesContentType(item, meta.contentType || ""))
+  };
 }
 
 function matchesContentType(item: NormalizedSocialItem, contentType = "") {

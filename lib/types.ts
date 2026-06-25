@@ -119,7 +119,12 @@ export type ResearchScan = {
   minViews: number;
   resultIds: string[];
   createdAt: string;
+  completedAt?: string;
+  status?: "running" | "done" | "failed";
   source: "apify" | "cache" | "fallback";
+  apifyRunId?: string;
+  apifyDatasetId?: string;
+  apifyActorId?: string;
   error?: string;
 };
 

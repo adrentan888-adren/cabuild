@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { defaultPersonaProfile, id, mutateDb } from "@/lib/store";
-import type { Asset, Brief, CompetitorResult, GenerationAssetReference, PersonaProfile, Platform, PublishItem } from "@/lib/types";
-import { crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl } from "@/lib/providers/apify";
+import type { Asset, Brief, CompetitorResult, GenerationAssetReference, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
+import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl, startKeywordScanRun, startSocialUrlScanRun } from "@/lib/providers/apify";
 import { buildAiBriefPrompt, buildContentPlanPrompt, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 
@@ -434,6 +434,22 @@ const contentPlanFormats = [
 
 const researchUrlSourceOwnershipFilter = "owner-v2";
 
+function apifyItemsToResearchResults(items: Awaited<ReturnType<typeof scanSocialUrl>>) {
+  return items.map((item) => ({
+    platform: item.platform,
+    url: item.sourceUrl,
+    title: item.title,
+    thumbnailUrl: item.thumbnailUrl,
+    mediaUrl: item.mediaUrl,
+    mediaType: item.mediaType,
+    description: item.description,
+    views: item.views,
+    likes: item.likes,
+    comments: item.comments,
+    publishedAt: item.publishedAt
+  }));
+}
+
 function defaultPromptForBrief(brief: Brief, generationType: "video" | "image" | "text") {
   const existing = brief.videoPrompt || [brief.description, brief.outline?.join(". "), brief.creativeNotes].filter(Boolean).join("\n");
   if (existing.trim()) return existing;
@@ -817,60 +833,104 @@ export async function POST(req: Request) {
     });
     if (cached) return NextResponse.json(cached);
 
-    let normalized: Omit<CompetitorResult, "id" | "workspaceId" | "competitorId" | "platform" | "capturedAt">[];
-    let source: "apify" | "fallback" = "apify";
-    let error = "";
+    let runMeta: Awaited<ReturnType<typeof startSocialUrlScanRun>> | null = null;
+    let startError = "";
     try {
-      const apifyItems = await scanSocialUrl(url, minViews);
-      normalized = apifyItems.map((item) => ({
-        url: item.sourceUrl,
-        title: item.title,
-        thumbnailUrl: item.thumbnailUrl,
-        mediaUrl: item.mediaUrl,
-        mediaType: item.mediaType,
-        description: item.description,
-        views: item.views,
-        likes: item.likes,
-        comments: item.comments,
-        publishedAt: item.publishedAt
-      }));
+      runMeta = await startSocialUrlScanRun(url, minViews);
     } catch (err) {
-      source = "fallback";
-      error = err instanceof Error ? err.message : "Apify scan failed";
-      normalized = mockCompetitorResults({ workspaceId, competitorId: "fallback", platform, url, minViews }).map((item) => ({
-        url: item.url,
-        title: item.title,
-        thumbnailUrl: item.thumbnailUrl,
-        description: item.description,
-        views: item.views,
-        likes: item.likes,
-        comments: item.comments,
-        publishedAt: item.publishedAt
-      }));
+      startError = err instanceof Error ? err.message : "Apify scan failed to start";
     }
 
     const scan = await mutateDb((db) => {
-      db.competitors ||= [];
-      db.competitorResults ||= [];
       db.researchScans ||= [];
-      const competitor = { id: id("cmp"), workspaceId, platform, handle: handleFromUrl(url), url, minViews, cadence: "weekly" as const, lastScraped: new Date().toISOString() };
-      db.competitors.push(competitor);
-      const results: CompetitorResult[] = normalized.map((item) => ({
-        id: id("res"),
+      const created: ResearchScan = {
+        id: id("scan"),
         workspaceId,
-        competitorId: competitor.id,
+        url,
+        dimensions: { sourceOwnershipFilter: researchUrlSourceOwnershipFilter },
         platform,
-        capturedAt: new Date().toISOString(),
-        ...item
-      }));
-      db.competitorResults.push(...results);
-      const created = { id: id("scan"), workspaceId, url, dimensions: { sourceOwnershipFilter: researchUrlSourceOwnershipFilter }, platform, minViews, resultIds: results.map((item) => item.id), createdAt: new Date().toISOString(), source, error };
+        minViews,
+        resultIds: [],
+        createdAt: new Date().toISOString(),
+        source: "apify",
+        status: runMeta ? "running" : "failed",
+        apifyRunId: runMeta?.runId,
+        apifyDatasetId: runMeta?.datasetId,
+        apifyActorId: runMeta?.actorId,
+        error: startError
+      };
       db.researchScans.push(created);
       db.researchScans = db.researchScans.filter((item) => item.workspaceId !== workspaceId).concat(db.researchScans.filter((item) => item.workspaceId === workspaceId).slice(-10));
-      db.activity.push({ id: id("act"), workspaceId, message: `Research scan completed for ${handleFromUrl(url)} using ${source}.`, createdAt: new Date().toISOString() });
+      db.activity.push({ id: id("act"), workspaceId, message: runMeta ? `Research scan started for ${handleFromUrl(url)} using Apify. You can leave Research and come back later.` : `Research scan failed to start for ${handleFromUrl(url)}.`, createdAt: new Date().toISOString() });
       return created;
     });
     return NextResponse.json(scan);
+  }
+
+  if (action === "syncResearchScan") {
+    const scanId = String(body.id || "");
+    const scan = await mutateDb((db) => (db.researchScans || []).find((item) => item.id === scanId && item.workspaceId === workspaceId) || null);
+    if (!scan) return NextResponse.json({ error: "Research scan not found" }, { status: 404 });
+    if (scan.status !== "running") return NextResponse.json(scan);
+    if (!scan.apifyRunId || !scan.apifyDatasetId || !scan.apifyActorId) {
+      const failed = await mutateDb((db) => {
+        const item = db.researchScans.find((entry) => entry.id === scanId && entry.workspaceId === workspaceId)!;
+        item.status = "failed";
+        item.error = "Research scan is missing Apify run metadata.";
+        item.completedAt = new Date().toISOString();
+        return item;
+      });
+      return NextResponse.json(failed);
+    }
+    try {
+      const runMeta = {
+        actorId: scan.apifyActorId,
+        runId: scan.apifyRunId,
+        datasetId: scan.apifyDatasetId,
+        source: scan.platform === "Instagram" ? "instagram" : scan.platform === "YouTube" ? "youtube" : scan.platform === "Facebook" ? "facebook" : scan.platform === "LinkedIn" ? "linkedin" : "tiktok",
+        fallbackUrl: scan.url,
+        minViews: scan.minViews
+      } as const;
+      const completed = scan.query
+        ? await completeKeywordScanRun({ ...runMeta, contentType: scan.dimensions?.contentType || scan.dimensions?.contentTypes?.[0] || "" })
+        : await completeSocialUrlScanRun(runMeta);
+      if (completed.status === "running") return NextResponse.json(scan);
+      const normalized = apifyItemsToResearchResults(completed.items);
+      const updated = await mutateDb((db) => {
+        db.competitors ||= [];
+        db.competitorResults ||= [];
+        db.researchScans ||= [];
+        const item = db.researchScans.find((entry) => entry.id === scanId && entry.workspaceId === workspaceId)!;
+        const competitor = { id: id("cmp"), workspaceId, platform: scan.platform, handle: handleFromUrl(scan.url), url: scan.url, minViews: scan.minViews, cadence: "weekly" as const, lastScraped: new Date().toISOString() };
+        db.competitors.push(competitor);
+        const results: CompetitorResult[] = normalized.map((result) => ({
+          ...result,
+          id: id("res"),
+          workspaceId,
+          competitorId: competitor.id,
+          platform: result.platform || scan.platform,
+          capturedAt: new Date().toISOString()
+        }));
+        db.competitorResults.push(...results);
+        item.resultIds = results.map((result) => result.id);
+        item.status = "done";
+        item.completedAt = new Date().toISOString();
+        item.error = "";
+        db.activity.push({ id: id("act"), workspaceId, message: `Research scan completed for ${handleFromUrl(scan.url)} using Apify.`, createdAt: new Date().toISOString() });
+        return item;
+      });
+      return NextResponse.json(updated);
+    } catch (err) {
+      const failed = await mutateDb((db) => {
+        const item = db.researchScans.find((entry) => entry.id === scanId && entry.workspaceId === workspaceId)!;
+        item.status = "failed";
+        item.error = err instanceof Error ? err.message : "Apify scan failed";
+        item.completedAt = new Date().toISOString();
+        db.activity.push({ id: id("act"), workspaceId, message: `Research scan failed for ${handleFromUrl(scan.url)}.`, createdAt: new Date().toISOString() });
+        return item;
+      });
+      return NextResponse.json(failed);
+    }
   }
 
   if (action === "scanKeywordResearch") {
@@ -889,59 +949,37 @@ export async function POST(req: Request) {
     });
     if (cached) return NextResponse.json(cached);
 
-    let normalized: Omit<CompetitorResult, "id" | "workspaceId" | "competitorId" | "capturedAt">[];
-    let source: "apify" | "fallback" = "apify";
-    let error = "";
     const selectedPlatform = platformFromActorSource(dimensions.actorSources[0] || "");
+    let runMeta: Awaited<ReturnType<typeof startKeywordScanRun>> | null = null;
+    let startError = "";
     try {
-      const apifyItems = await scanKeywordsWithApify(query, dimensions, minViews);
-      normalized = apifyItems.map((item) => ({
-        platform: item.platform,
-        url: item.sourceUrl,
-        title: item.title,
-        thumbnailUrl: item.thumbnailUrl,
-        mediaUrl: item.mediaUrl,
-        mediaType: item.mediaType,
-        description: item.description,
-        views: item.views,
-        likes: item.likes,
-        comments: item.comments,
-        publishedAt: item.publishedAt
-      }));
+      runMeta = await startKeywordScanRun(query, dimensions, minViews);
     } catch (err) {
-      source = "fallback";
-      error = err instanceof Error ? err.message : "Apify keyword scan failed";
-      normalized = mockKeywordResults({ workspaceId, competitorId: "fallback", query, minViews, dimensions }).map((item) => ({
-        platform: item.platform,
-        url: item.url,
-        title: item.title,
-        thumbnailUrl: item.thumbnailUrl,
-        description: item.description,
-        views: item.views,
-        likes: item.likes,
-        comments: item.comments,
-        publishedAt: item.publishedAt
-      }));
+      startError = err instanceof Error ? err.message : "Apify keyword scan failed to start";
     }
 
     const scan = await mutateDb((db) => {
-      db.competitors ||= [];
-      db.competitorResults ||= [];
       db.researchScans ||= [];
-      const competitor = { id: id("cmp"), workspaceId, platform: selectedPlatform, handle: query, url: cacheKey, minViews, cadence: "weekly" as const, lastScraped: new Date().toISOString() };
-      db.competitors.push(competitor);
-      const results: CompetitorResult[] = normalized.map((item) => ({
-        id: id("res"),
+      const created: ResearchScan = {
+        id: id("scan"),
         workspaceId,
-        competitorId: competitor.id,
-        capturedAt: new Date().toISOString(),
-        ...item
-      }));
-      db.competitorResults.push(...results);
-      const created = { id: id("scan"), workspaceId, url: cacheKey, query, dimensions, platform: selectedPlatform, minViews, resultIds: results.map((item) => item.id), createdAt: new Date().toISOString(), source, error };
+        url: cacheKey,
+        query,
+        dimensions,
+        platform: selectedPlatform,
+        minViews,
+        resultIds: [],
+        createdAt: new Date().toISOString(),
+        source: "apify",
+        status: runMeta ? "running" : "failed",
+        apifyRunId: runMeta?.runId,
+        apifyDatasetId: runMeta?.datasetId,
+        apifyActorId: runMeta?.actorId,
+        error: startError
+      };
       db.researchScans.push(created);
       db.researchScans = db.researchScans.filter((item) => item.workspaceId !== workspaceId).concat(db.researchScans.filter((item) => item.workspaceId === workspaceId).slice(-10));
-      db.activity.push({ id: id("act"), workspaceId, message: `Keyword research completed for "${query}" using ${source}.`, createdAt: new Date().toISOString() });
+      db.activity.push({ id: id("act"), workspaceId, message: runMeta ? `Keyword research started for "${query}" using Apify. You can leave Research and come back later.` : `Keyword research failed to start for "${query}".`, createdAt: new Date().toISOString() });
       return created;
     });
     return NextResponse.json(scan);

@@ -69,6 +69,17 @@ async function waitForScanDone(page) {
   await page.waitForFunction(() => !document.body.innerText.includes("Scanning source URL") && !document.body.innerText.includes("Scanning..."), null, { timeout: 180000 });
 }
 
+async function fairviewResult(page) {
+  const rows = page.locator(".result-row");
+  const count = await rows.count();
+  for (let index = 0; index < count; index += 1) {
+    const row = rows.nth(index);
+    const text = (await row.innerText()).toLowerCase();
+    if (text.includes("fairview")) return row;
+  }
+  throw new Error("No visible Fairview-owned result was found after the Instagram profile scan. Refusing to create a plan from unrelated results.");
+}
+
 async function waitForPlanDone(page) {
   await page.waitForFunction(() => document.body.innerText.includes("Generating content plan"), null, { timeout: 10000 }).catch(() => {});
   await page.waitForFunction(() => !document.body.innerText.includes("Generating content plan"), null, { timeout: 180000 });
@@ -124,13 +135,14 @@ async function main() {
   await waitForScanDone(page);
   await caption(page, "Apify results are now displayed with thumbnails, timestamps, Preview, Open, and Create plan actions.");
 
-  const firstPreview = page.locator('button:has-text("Preview")').first();
+  const selectedResult = await fairviewResult(page);
+  const firstPreview = selectedResult.locator('button:has-text("Preview")').first();
   await firstPreview.click();
   await caption(page, "Preview opens inside the app. This verifies source media metadata is retained instead of jumping straight to Instagram.");
   await closeModal(page);
 
   await caption(page, "Create a content plan from the selected Research result. The selected result ID and source URL are passed forward.");
-  await page.locator('button:has-text("Create plan")').first().click();
+  await selectedResult.locator('button:has-text("Create plan")').first().click();
   await caption(page, "The app jumps to Content Plan immediately and shows the plan is being generated.");
   await waitForPlanDone(page);
   await caption(page, "The created Content Plan keeps the selected source metadata, so the Source button can reopen the original media context.");

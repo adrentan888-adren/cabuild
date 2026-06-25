@@ -231,6 +231,50 @@ function urlScope(targetUrl: string) {
   }
 }
 
+function actorOwnerSignals(item: Record<string, unknown>) {
+  return [
+    item.ownerUsername,
+    item.ownerFullName,
+    item.username,
+    item.userName,
+    item.account,
+    item.author,
+    item.channelName,
+    item.pageName,
+    item.profileName,
+    item.name,
+    nested(item, "owner.username"),
+    nested(item, "owner.userName"),
+    nested(item, "owner.fullName"),
+    nested(item, "user.username"),
+    nested(item, "user.userName"),
+    nested(item, "author.username"),
+    nested(item, "author.name"),
+    nested(item, "authorMeta.name"),
+    nested(item, "authorMeta.nickName"),
+    nested(item, "channel.name"),
+    nested(item, "page.name")
+  ].map((value) => String(value || "").toLowerCase()).filter(Boolean);
+}
+
+function actorItemBelongsToUrl(item: Record<string, unknown>, targetUrl = "") {
+  if (!targetUrl) return true;
+  const scope = urlScope(targetUrl);
+  if (!scope.handle) return true;
+
+  const normalizedHandle = scope.handle.replace(/^@/, "").toLowerCase();
+  const exactPostUrl = firstString(item.url, item.webVideoUrl, item.postUrl, item.link, item.permalink, item.shortcodeUrl).replace(/\/$/, "").toLowerCase();
+  const targetExact = targetUrl.replace(/\/$/, "").toLowerCase();
+  if (exactPostUrl && exactPostUrl === targetExact) return true;
+
+  const ownerSignals = actorOwnerSignals(item);
+  if (!ownerSignals.length) return false;
+  return ownerSignals.some((signal) => {
+    const normalizedSignal = signal.replace(/^@/, "").replace(/\s+/g, "_");
+    return normalizedSignal === normalizedHandle || signal.includes(normalizedHandle);
+  });
+}
+
 function scopedToUrl(item: Record<string, unknown>, targetUrl: string) {
   const scope = urlScope(targetUrl);
   const haystack = [
@@ -466,6 +510,7 @@ function matchesContentType(item: NormalizedSocialItem, contentType = "") {
 
 function normalizeActorItems(items: Array<Record<string, unknown>>, source: ActorSource, minViews: number, fallbackUrl = "", contentType = "") {
   return items
+    .filter((item) => actorItemBelongsToUrl(item, fallbackUrl))
     .map((item, index) => ({ ...normalizeSocialItem(item, index, fallbackUrl), platform: sourcePlatform(source) }))
     .filter((item) => item.views >= minViews && matchesContentType(item, contentType));
 }

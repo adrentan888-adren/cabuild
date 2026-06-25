@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import {
   Activity,
+  ArrowLeft,
   BarChart3,
   Bug,
   CalendarDays,
@@ -1251,6 +1252,15 @@ function PlanEditorForm({ brief, draft, onSubmit, onCancel, submitLabel }: { bri
   }, [source?.format]);
   return (
     <form action={onSubmit} className="plan-edit">
+      {brief && (
+        <div className="plan-edit-head">
+          <div>
+            <div className="clbl">Editing content plan</div>
+            <p>Review or change the fields used to create the final asset.</p>
+          </div>
+          <button type="button" onClick={onCancel}><ArrowLeft size={14} />Back to plans</button>
+        </div>
+      )}
       {brief && <input type="hidden" name="id" value={brief.id} />}
       <label>Topic<input name="topic" defaultValue={source?.topic || ""} required /></label>
       <label>Format<select name="format" value={format} onChange={(event) => setFormat(event.target.value)}>{contentFormatOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
@@ -1269,7 +1279,7 @@ function PlanEditorForm({ brief, draft, onSubmit, onCancel, submitLabel }: { bri
       </div>
       <div className="row-actions">
         <button className="primary" type="submit"><Check size={14} />{submitLabel}</button>
-        <button type="button" onClick={onCancel}>Cancel</button>
+        <button type="button" onClick={onCancel}>{brief ? "Back to plans" : "Cancel"}</button>
       </div>
     </form>
   );
@@ -1349,10 +1359,10 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
             <div className="modal-head">
               <div>
                 <h3>New content plan</h3>
-                <p>Create a plan manually using the same editable fields as generated plans.</p>
+                <p>Optional manual entry. Most plans can also be created from Research or filled with AI first.</p>
               </div>
               <div className="row-actions">
-                <button className="primary" onClick={() => setAiPromptOpen(true)}><Sparkles size={14} />Generate with AI</button>
+                <button className="primary" onClick={() => setAiPromptOpen(true)}><Sparkles size={14} />Fill fields with AI</button>
                 <button onClick={closeCreate}>Close</button>
               </div>
             </div>
@@ -1364,7 +1374,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
                   </label>
                   {aiError && <div className="provider-error">{aiError}</div>}
                   <div className="row-actions">
-                    <button className="primary" type="submit" disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Generating" /> : "Generate"}</button>
+                    <button className="primary" type="submit" disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Generating" /> : "Fill fields"}</button>
                     <button type="button" onClick={() => setAiPromptOpen(false)} disabled={aiGenerating}>Cancel</button>
                   </div>
                 </form>
@@ -1395,11 +1405,14 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
         <div>
           <div className="clbl">Content Plan</div>
           <h2>Review and refine generated plans</h2>
-          <p>Each plan includes Gemini analysis, video prompt, caption, hashtags, and production notes before generating a draft.</p>
+          <p>Plans are editable briefs. Review the prompt, caption, hashtags, format, and notes, then create the final asset in Publish.</p>
         </div>
         <div className="plan-hero-actions">
-          <Metric label="Plans" value={plans.length} />
-          <button className="primary" onClick={() => setCreatingPlan(true)}><Plus size={14} />New</button>
+          <div className="plan-count-pill">
+            <strong>{plans.length}</strong>
+            <span>Total saved plans</span>
+          </div>
+          <button onClick={() => setCreatingPlan(true)}><Plus size={14} />Manual plan</button>
         </div>
       </section>
       <div className="plan-list">
@@ -1441,7 +1454,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
                     {hasGeneratedDraft && !canPreviewOutput && <button type="button" onClick={() => setScreen("publish")}><RefreshCcw size={14} />In Publish</button>}
                     <button onClick={() => setEditingId(brief.id)}>Edit</button>
                     <button onClick={() => run("deleteBrief", { id: brief.id }, "Content plan deleted")}>Delete</button>
-                    <button className="primary" onClick={() => generate(brief)}><Wand2 size={14} />{hasGeneratedDraft ? "Generate new" : "Generate"}</button>
+                    <button className="primary" onClick={() => generate(brief)}><Wand2 size={14} />{hasGeneratedDraft ? "Create another asset" : "Create asset"}</button>
                   </div>
                 </div>
                   );
@@ -1450,7 +1463,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
             )}
           </article>
         ))}
-        {plans.length === 0 && <div className="empty-state">No content plans yet. Create one from Research results.</div>}
+        {plans.length === 0 && <div className="empty-state">No content plans yet. Create one from Research results, or use Manual plan when you already know the brief.</div>}
       </div>
     </div>
   );
@@ -1715,13 +1728,13 @@ function GenerationModal({ brief, onClose, onStart, onSubmit }: { brief: Brief; 
       <section className="generation-modal">
         <div className="modal-head">
           <div>
-            <div className="clbl">Generate Draft</div>
+            <div className="clbl">Create final asset</div>
             <h3>{brief.topic}</h3>
-            <p>{brief.format}</p>
+            <p>Fields are prefilled from this content plan. Confirm them to send the asset to Publish.</p>
           </div>
           <button type="button" className="icon-btn" onClick={onClose}>x</button>
         </div>
-        <CreateContentModule initial={initial} onCancel={onClose} onStart={onStart} submitLabel="Generate" onSubmit={(payload) => onSubmit({ ...payload, id: brief.id })} />
+        <CreateContentModule initial={initial} onCancel={onClose} onStart={onStart} submitLabel="Create asset" onSubmit={(payload) => onSubmit({ ...payload, id: brief.id })} />
       </section>
     </div>
   );

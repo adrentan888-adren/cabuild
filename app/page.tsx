@@ -135,6 +135,18 @@ type SourceMediaPreview = {
   description?: string;
 };
 
+function proxiedMediaUrl(url?: string) {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (host.includes("cdninstagram.com") || host.includes("fbcdn.net")) return `/api/media-proxy?url=${encodeURIComponent(url)}`;
+  } catch {
+    return url;
+  }
+  return url;
+}
+
 async function post(action: string, payload: Record<string, unknown> = {}) {
   const res = await fetch("/api/social", {
     method: "POST",
@@ -1005,7 +1017,7 @@ function IntelligencePanel({ data, run, setScreen, setPendingPlan }: { data: App
           {sortedResults.map((item, index) => (
             <article className="result-row" key={item.id}>
               <div className="result-rank">{index + 1}</div>
-              <div className="result-thumb">{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" /> : <span>{item.platform.slice(0, 2).toUpperCase()}</span>}</div>
+              <div className="result-thumb">{item.thumbnailUrl ? <img src={proxiedMediaUrl(item.thumbnailUrl)} alt="" /> : <span>{item.platform.slice(0, 2).toUpperCase()}</span>}</div>
               <div className="result-main">
                 <button className="result-title-button" type="button" onClick={() => openSourcePreview(item)}>{item.title}</button>
                 <span>{new Date(item.publishedAt).toLocaleString()} ﾂｷ captured {new Date(item.capturedAt).toLocaleDateString()}</span>
@@ -1951,6 +1963,7 @@ function SourceMediaModal({ source, onClose }: { source: SourceMediaPreview; onC
   const isVideo = source.mediaType === "video" || /\.(mp4|webm|mov|m3u8)(\?|$)/i.test(playable);
   const isImage = source.mediaType === "image" || /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(playable);
   const imageUrl = isImage ? playable : source.thumbnailUrl;
+  const displayImageUrl = proxiedMediaUrl(imageUrl);
   return (
     <div className="modal-backdrop video-backdrop">
       <section className="video-player-modal source-media-modal">
@@ -1964,8 +1977,8 @@ function SourceMediaModal({ source, onClose }: { source: SourceMediaPreview; onC
         </div>
         {playable && isVideo ? (
           <video src={playable} controls autoPlay playsInline />
-        ) : imageUrl ? (
-          <img className="asset-preview-image" src={imageUrl} alt={`${source.title} source preview`} />
+        ) : displayImageUrl ? (
+          <img className="asset-preview-image" src={displayImageUrl} alt={`${source.title} source preview`} />
         ) : (
           <div className="source-media-empty">
             <Film size={28} />

@@ -453,6 +453,7 @@ function platformSearchInput(source: ActorSource, keywords: string, uploadDate: 
   const maxItems = 30;
   const dateTerm = uploadDateQuery(uploadDate);
   const query = `${keywords} ${contentTypeQuery(contentType)} ${dateTerm}`.replace(/\s+/g, " ").trim();
+  const hasSpacedKeyword = /\s/.test(keywords.trim());
   if (source === "tiktok") {
     return {
       searchQueries: [query],
@@ -465,10 +466,12 @@ function platformSearchInput(source: ActorSource, keywords: string, uploadDate: 
   }
   if (source === "instagram") {
     const search = instagramKeywordToken(keywords) || query;
+    const searchType = hasSpacedKeyword ? "user" : "hashtag";
     return {
-      search,
-      searchType: "hashtag",
-      resultsType: "posts",
+      search: searchType === "user" ? keywords.trim() : search,
+      searchType,
+      searchLimit: 10,
+      resultsType: contentType === "video" ? "reels" : "posts",
       resultsLimit: maxItems,
       maxItems,
       addParentData: false,

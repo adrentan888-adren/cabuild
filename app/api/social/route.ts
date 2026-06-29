@@ -448,6 +448,7 @@ const contentPlanFormats = [
 ];
 
 const researchUrlSourceOwnershipFilter = "owner-v2";
+const keywordResearchCacheVersion = "kw-v3";
 
 function apifyItemsToResearchResults(items: Awaited<ReturnType<typeof scanSocialUrl>>) {
   return items.map((item) => ({
@@ -969,7 +970,7 @@ export async function POST(req: Request) {
     const minViews = Number(body.minViews || 0);
     const dimensions = normalizeDimensions(body.dimensions);
     if (!query) return NextResponse.json({ error: "Keywords are required" }, { status: 400 });
-    const cacheKey = `keyword:${query.toLowerCase()}|${JSON.stringify(dimensions)}|min:${minViews}`;
+    const cacheKey = `keyword:${query.toLowerCase()}|${JSON.stringify(dimensions)}|min:${minViews}|${keywordResearchCacheVersion}`;
     const cached = await mutateDb((db) => {
       db.researchScans ||= [];
       db.competitorResults ||= [];

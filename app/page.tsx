@@ -23,7 +23,6 @@ import {
   Radar,
   RefreshCcw,
   Search,
-  Send,
   Settings,
   Sparkles,
   UserRound,
@@ -2185,7 +2184,6 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
               <div className="publish-actions">
                 <span className={`status ${item.status}`}>{item.status === "done" ? "Done" : item.status}</span>
                 {item.status === "generating" && <span className="auto-poll"><RefreshCcw size={13} /><AnimatedDots label={startingProvider ? "Starting provider" : "Auto-checking"} /></span>}
-                {item.status === "done" && <button className="primary" onClick={() => run("publishNow", { id: item.id }, "Upload-Post publish requested for Mariana accounts")}><Send size={14} />Publish now</button>}
               </div>
             </article>
           );

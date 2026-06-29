@@ -147,6 +147,7 @@ Demo web app login:
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+- 2026-06-29: Removed the visible `Publish now` button from the `My Contents` generated-content rows. Backend Upload-Post publish action remains in code for future publishing workflow work.
 - 2026-06-29: Removed Research keyword recommendations and selected-keyword chips. The keyword search input now starts empty and users type their own keywords directly.
 - 2026-06-29: Renamed the visible `Publish` sidebar/page title to `My Contents` while keeping the internal `publish` screen and backend publish actions unchanged.
 - 2026-06-29: Restored the earlier accurate Instagram keyword behavior while keeping platform/content-type filters. Reverted spaced Instagram keyword searches away from fuzzy `searchType: "user"` profile scraping, added keyword relevance filtering before accepting platform actor rows, passed the original query into background scan completion, applied the same relevance check to Google-style fallback rows, and bumped keyword cache to `kw-v7-fallback-keyword-relevance`. Local tests: `sheila majid` + Instagram + All types now falls back to broader Apify keyword results with 19 relevant Instagram rows; `sheila majid` + Instagram + Short video no longer returns broad random reels and produced only the stricter matching row. Local `npm run build` passed.

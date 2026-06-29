@@ -448,7 +448,22 @@ const contentPlanFormats = [
 ];
 
 const researchUrlSourceOwnershipFilter = "owner-v2";
-const keywordResearchCacheVersion = "kw-v4";
+const keywordResearchCacheVersion = "kw-v5-platform-content-types";
+
+const keywordContentTypesByPlatform: Record<string, string[]> = {
+  instagram: ["short-video", "image"],
+  tiktok: ["short-video"],
+  youtube: ["long-video", "short-video"],
+  facebook: ["short-video", "long-video", "image", "text", "link", "article"],
+  linkedin: ["short-video", "long-video", "image", "text", "link", "article"]
+};
+
+function normalizeKeywordContentType(platform: string, value: string) {
+  const legacyMap: Record<string, string> = { video: "short-video", carousel: "image", "text-post": "text" };
+  const normalized = legacyMap[value] || value;
+  if (!normalized) return "";
+  return (keywordContentTypesByPlatform[platform] || []).includes(normalized) ? normalized : "";
+}
 
 function apifyItemsToResearchResults(items: Awaited<ReturnType<typeof scanSocialUrl>>) {
   return items.map((item) => ({
@@ -969,6 +984,9 @@ export async function POST(req: Request) {
     const query = String(body.keywords || "").trim();
     const minViews = Number(body.minViews || 0);
     const dimensions = normalizeDimensions(body.dimensions);
+    const selectedSource = dimensions.actorSources[0] || "instagram";
+    dimensions.contentType = normalizeKeywordContentType(selectedSource, dimensions.contentType || dimensions.contentTypes[0] || "");
+    dimensions.contentTypes = dimensions.contentType ? [dimensions.contentType] : [];
     if (!query) return NextResponse.json({ error: "Keywords are required" }, { status: 400 });
     const cacheKey = `keyword:${query.toLowerCase()}|${JSON.stringify(dimensions)}|min:${minViews}|${keywordResearchCacheVersion}`;
     const cached = await mutateDb((db) => {

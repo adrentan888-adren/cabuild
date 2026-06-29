@@ -434,6 +434,8 @@ function sourcePlatform(source: ActorSource): Platform {
 function contentTypeQuery(value?: string) {
   return ({
     video: "video reel short watch",
+    "short-video": "short video reel shorts vertical",
+    "long-video": "long video watch full video",
     image: "image photo carousel graphic",
     text: "text post status update",
     link: "link post article shared link",
@@ -471,7 +473,7 @@ function platformSearchInput(source: ActorSource, keywords: string, uploadDate: 
       search: searchType === "user" ? keywords.trim() : search,
       searchType,
       searchLimit: 10,
-      resultsType: contentType === "video" ? "reels" : "posts",
+      resultsType: contentType === "short-video" || contentType === "video" ? "reels" : "posts",
       resultsLimit: maxItems,
       maxItems,
       addParentData: false,
@@ -479,10 +481,12 @@ function platformSearchInput(source: ActorSource, keywords: string, uploadDate: 
     };
   }
   if (source === "youtube") {
+    const wantsShorts = contentType === "short-video";
+    const wantsLong = contentType === "long-video";
     return {
       searchQueries: [query],
-      maxResults: maxItems,
-      maxResultsShorts: maxItems,
+      maxResults: wantsShorts ? 0 : maxItems,
+      maxResultsShorts: wantsLong ? 0 : maxItems,
       sort: "relevance",
       startUrls: []
     };
@@ -607,6 +611,15 @@ function matchesContentType(item: NormalizedSocialItem, contentType = "") {
   const haystack = `${item.title} ${item.description} ${item.sourceUrl} ${item.mediaType}`.toLowerCase();
   if (!contentType) return true;
   if (contentType === "video") return item.mediaType === "video" || /(video|reel|short|watch|tiktok|youtube)/.test(haystack);
+  if (contentType === "short-video") {
+    if (/(shorts|reel|tiktok|vertical|9:16)/.test(haystack)) return true;
+    if (item.platform === "TikTok" && item.mediaType !== "image") return true;
+    return item.mediaType === "video" && typeof item.duration === "number" && item.duration <= 90;
+  }
+  if (contentType === "long-video") {
+    if (/(youtube\.com\/watch|facebook\.com\/watch|long video|16:9)/.test(haystack)) return true;
+    return item.mediaType === "video" && typeof item.duration === "number" && item.duration > 90;
+  }
   if (contentType === "image") return item.mediaType === "image" || /(image|photo|carousel|graphic)/.test(haystack);
   if (contentType === "text") return /(text|post|status|linkedin|twitter|x\.com|threads)/.test(haystack) && !/(watch|reel|shorts)/.test(haystack);
   if (contentType === "link") return /(http|link|article|shared)/.test(haystack);

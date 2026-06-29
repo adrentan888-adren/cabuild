@@ -107,13 +107,21 @@ const researchActors = [
   { id: "linkedin", label: "LinkedIn", dimensions: ["Text post (feed)", "Article (editorial)", "Image / carousel (1:1 or 4:5)"] }
 ] as const;
 const researchContentTypes = [
-  { id: "", label: "All types", description: "Posts, images, links, and videos" },
-  { id: "video", label: "Video", description: "Reels, shorts, uploads, and native videos" },
-  { id: "image", label: "Image / graphic", description: "Photos, graphics, and carousel-style posts" },
+  { id: "", label: "All types", description: "All supported formats for this platform" },
+  { id: "short-video", label: "Short video", description: "Reels, Shorts, TikTok, and vertical video" },
+  { id: "long-video", label: "Long video", description: "YouTube/Facebook landscape or longer uploads" },
+  { id: "image", label: "Image", description: "Photos, graphics, and carousel-style posts" },
   { id: "text", label: "Text post", description: "Feed text/status posts without video focus" },
-  { id: "link", label: "Link post", description: "Shared links, external pages, and article links" },
+  { id: "link", label: "Link post", description: "Shared links and external page posts" },
   { id: "article", label: "Long-form article", description: "LinkedIn Pulse, blogs, and long-form posts" }
 ] as const;
+const researchContentTypeByPlatform: Record<string, string[]> = {
+  instagram: ["short-video", "image"],
+  tiktok: ["short-video"],
+  youtube: ["long-video", "short-video"],
+  facebook: ["short-video", "long-video", "image", "text", "link", "article"],
+  linkedin: ["short-video", "long-video", "image", "text", "link", "article"]
+};
 type IntegrationData = Record<string, { configured?: boolean; ok?: boolean; status?: number; error?: string; baseUrl?: string; actor?: string }>;
 type PendingPlan = { title: string; description: string; startedAt: number };
 type PendingGeneration = { title: string; description: string; kind: GenerationKind; model: string; startedAt: number };
@@ -915,6 +923,13 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
   const [scanElapsed, setScanElapsed] = useState(0);
   const [sourcePreview, setSourcePreview] = useState<SourceMediaPreview | null>(null);
   const activeScan = data.researchScans.find((scan) => scan.id === activeScanId) || data.researchScans[0];
+  const availableContentTypes = useMemo(
+    () => [
+      researchContentTypes[0],
+      ...(researchContentTypeByPlatform[actorSource] || []).map((id) => researchContentTypes.find((item) => item.id === id)).filter(Boolean) as typeof researchContentTypes[number][]
+    ],
+    [actorSource]
+  );
   const activeScanStatus = scanStatus || pendingScan || (activeScan?.status === "running" ? (activeScan.query ? "keywords" : "url") : null);
   const visibleResults = activeScan
     ? data.competitorResults.filter((item) => activeScan.resultIds.includes(item.id))
@@ -939,6 +954,9 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
   }, [activeScanStatus, scanStartedAt, activeScan?.createdAt, activeScan?.status]);
+  useEffect(() => {
+    if (contentType && !availableContentTypes.some((item) => item.id === contentType)) setContentType("");
+  }, [actorSource, availableContentTypes, contentType]);
   useEffect(() => {
     if (!activeScan || activeScan.status !== "running") return;
     let cancelled = false;
@@ -1025,7 +1043,7 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
   const keywordParts = keywordText.split(",").map((item) => item.trim()).filter(Boolean);
   const removeKeyword = (keyword: string) => setKeywordText(keywordParts.filter((item) => item !== keyword).join(", "));
   const selectedActor = researchActors.find((item) => item.id === actorSource);
-  const selectedContentType = researchContentTypes.find((item) => item.id === contentType);
+  const selectedContentType = availableContentTypes.find((item) => item.id === contentType);
   const scanLabel = (scanItem: AppData["researchScans"][number]) => scanItem.query || (scanItem.url.startsWith("keyword:") ? scanItem.url.split("|")[0].replace("keyword:", "") : scanItem.url);
   return (
     <div className="research-page">
@@ -1129,11 +1147,11 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
                 <option value="this-year">This Year</option>
               </select></label>
               <ActorSourceSelector selected={actorSource} onSelect={setActorSource} />
-              <ContentTypeSelector selected={contentType} onSelect={setContentType} />
+              <ContentTypeSelector selected={contentType} onSelect={setContentType} items={availableContentTypes} platform={selectedActor?.label || "Instagram"} />
               <div className="research-filter-summary">
                 <b>Apify query scope</b>
                 <span>Platform: {selectedActor?.label || "Instagram"} · Type: {selectedContentType?.label || "All types"} · Upload date: {uploadDate ? uploadDate.replace("-", " ") : "Any time"}</span>
-                <small>Workspace niche is not injected into keyword search; only the keywords and filters above are sent.</small>
+                <small>Native Apify filters are used where available; otherwise results are classified and filtered after scraping. Workspace niche is not injected.</small>
               </div>
             </div>
           </form>
@@ -1220,12 +1238,13 @@ function ActorSourceSelector({ selected, onSelect }: { selected: string; onSelec
   );
 }
 
-function ContentTypeSelector({ selected, onSelect }: { selected: string; onSelect: (item: string) => void }) {
+function ContentTypeSelector({ selected, onSelect, items, platform }: { selected: string; onSelect: (item: string) => void; items: typeof researchContentTypes[number][]; platform: string }) {
   return (
     <div className="content-type-group">
       <b>Content type</b>
+      <small>{platform} supports {items.filter((item) => item.id).map((item) => item.label.toLowerCase()).join(", ")} in keyword research.</small>
       <div>
-        {researchContentTypes.map((item) => (
+        {items.map((item) => (
           <button type="button" key={item.id || "all"} className={selected === item.id ? "on" : ""} onClick={() => onSelect(item.id)}>
             <span><input type="radio" checked={selected === item.id} readOnly tabIndex={-1} />{item.label}</span>
             <small>{item.description}</small>

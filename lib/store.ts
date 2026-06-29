@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
-import type { Database, PersonaProfile, Platform } from "./types";
+import type { Database, PersonaProfile, Platform, PromptTemplates } from "./types";
 
 const dataDir = path.join(process.cwd(), "data");
 const dataFile = path.join(dataDir, "app.json");
@@ -61,6 +61,11 @@ export function defaultPersonaProfile(workspaceId: string): PersonaProfile {
     updatedAt: new Date().toISOString()
   };
 }
+
+export const defaultPromptTemplates: PromptTemplates = {
+  researchVideoRecreate: "Please analyse the attached video and write the prompt to recreate this video in JSON format in very detailed terms, no more than 3000 characters. Source video: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{assetInstruction}}",
+  researchImageRecreate: "Please analyse the attached image/graphic and write the prompt to recreate this image in JSON format in very detailed terms, no more than 3000 characters. Source image: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{assetInstruction}}"
+};
 
 function seeded(): Database {
   const workspaceId = "ws_demo";
@@ -165,7 +170,8 @@ function seeded(): Database {
     activity: [
       { id: id("act"), workspaceId, message: "Detected TikTok automation topic crossing high-priority threshold.", createdAt: new Date().toISOString() }
     ],
-    debugLogs: []
+    debugLogs: [],
+    promptTemplates: defaultPromptTemplates
   };
 }
 
@@ -175,6 +181,7 @@ function normalizeDb(db: Database): Database {
   db.socialAudits ||= [];
   db.activity ||= [];
   db.debugLogs ||= [];
+  db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
   db.personaProfiles ||= [];
   for (const workspace of db.workspaces || []) {
     const existing = db.personaProfiles.find((item) => item.workspaceId === workspace.id);

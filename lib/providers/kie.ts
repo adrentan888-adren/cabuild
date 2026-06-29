@@ -55,6 +55,7 @@ export type KieReferenceAsset = {
   role?: string;
   fileName?: string;
   url?: string;
+  contentType?: string;
 };
 
 function token() {
@@ -72,6 +73,7 @@ function referenceUrls(refs?: KieReferenceAsset[]) {
       const priority = (role?: string) => role === "logo" ? 0 : role === "product photo" ? 1 : role === "avatar/persona" ? 2 : 3;
       return priority(a.role) - priority(b.role);
     })
+    .filter((ref) => !ref.contentType || ref.contentType.startsWith("image/"))
     .map((ref) => ref.url?.trim())
     .filter((url): url is string => Boolean(url));
 }

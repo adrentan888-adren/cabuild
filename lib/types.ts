@@ -270,6 +270,11 @@ export type DebugLog = {
   createdAt: string;
 };
 
+export type PromptTemplates = {
+  researchVideoRecreate: string;
+  researchImageRecreate: string;
+};
+
 export type Database = {
   users: User[];
   workspaces: Workspace[];
@@ -285,4 +290,5 @@ export type Database = {
   publishQueue: PublishItem[];
   activity: Activity[];
   debugLogs: DebugLog[];
+  promptTemplates: PromptTemplates;
 };

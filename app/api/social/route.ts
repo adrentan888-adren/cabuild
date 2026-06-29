@@ -86,11 +86,13 @@ function enrichPromptWithAssetReferences(prompt: string, generationType: "video"
   const productRef = refs.find((ref) => ref.role === "product photo");
   const avatarRef = refs.find((ref) => ref.role === "avatar/persona");
   const logoRef = refs.find((ref) => ref.role === "logo");
+  const audioRef = refs.find((ref) => ref.role === "audio");
   const refLabel = (ref: GenerationAssetReference) => `"${ref.fileName}"${ref.url ? ` at ${ref.url}` : ""}`;
   const lines = [
     productRef ? `- Product photo reference ${refLabel(productRef)}: include the product/photo visibly as a main visual element. Preserve important details and integrate it naturally.` : "",
     avatarRef ? `- Avatar/persona reference ${refLabel(avatarRef)}: use this as the on-screen person/creator/persona reference and keep it recognizable.` : "",
-    logoRef ? `- Logo reference ${refLabel(logoRef)}: include this exact brand logo clearly in the ${mediaLabel}. Do not replace it with generic text or an invented logo.` : ""
+    logoRef ? `- Logo reference ${refLabel(logoRef)}: include this exact brand logo clearly in the ${mediaLabel}. Do not replace it with generic text or an invented logo.` : "",
+    audioRef && generationType === "video" ? `- Audio reference ${refLabel(audioRef)}: use this only as user-approved audio direction. Replace the source video's original audio with a new safe audio/voice style based on this reference when supported; otherwise describe the intended audio in the prompt.` : ""
   ].filter(Boolean);
   return [
     prompt,
@@ -125,7 +127,7 @@ function enhanceVideoPromptForProvider(input: {
   const provider = input.model === "seedance-2.0" ? "Seedance 2.0" : "VEO Fast";
   const refs = input.references || [];
   const refRoles = refs.length
-    ? refs.map((ref, index) => `- Reference ${index + 1} (${ref.role}, ${ref.fileName}${ref.url ? `, URL: ${ref.url}` : ""}): use only for its stated role; keep logos/products visually clear and avoid inventing replacement branding.${ref.role === "logo" ? " This is the exact logo image; reproduce this logo, not a placeholder or generic wordmark." : ""}`).join("\n")
+    ? refs.map((ref, index) => `- Reference ${index + 1} (${ref.role}, ${ref.fileName}${ref.url ? `, URL: ${ref.url}` : ""}): use only for its stated role; keep logos/products visually clear and avoid inventing replacement branding.${ref.role === "logo" ? " This is the exact logo image; reproduce this logo, not a placeholder or generic wordmark." : ""}${ref.role === "audio" ? " This is an audio direction/reference; do not send it as visual branding, use it only for audio/voice style guidance if supported." : ""}`).join("\n")
     : "- No uploaded visual references are attached.";
   const seedanceSpecific = input.model === "seedance-2.0"
     ? [
@@ -169,6 +171,9 @@ function enhanceVideoPromptForProvider(input: {
       : "",
     refs.some((ref) => ref.role === "avatar/persona")
       ? "Avatar/persona enforcement: use the uploaded persona reference only for character/person appearance, not for branding."
+      : "",
+    refs.some((ref) => ref.role === "audio")
+      ? "Audio reference enforcement: replace the original source audio. If the provider cannot clone or use the uploaded audio directly, create a new royalty-safe voice/music/sound direction inspired by the uploaded audio reference metadata and prompt notes."
       : "",
     "",
     seedanceSpecific
@@ -1380,6 +1385,34 @@ export async function POST(req: Request) {
     }
   }
 
+  if (action === "updatePromptTemplates") {
+    const username = String(body.adminUsername || "");
+    const password = String(body.adminPassword || "");
+    if (username !== "admin" || password !== "admin") {
+      return NextResponse.json({ error: "Invalid prompt admin username or password." }, { status: 401 });
+    }
+    const video = String(body.researchVideoRecreate || "").trim();
+    const image = String(body.researchImageRecreate || "").trim();
+    if (!video || !image) return NextResponse.json({ error: "Both Research video and image prompt templates are required." }, { status: 400 });
+    const templates = await mutateDb((db) => {
+      db.promptTemplates = {
+        ...(db.promptTemplates || {}),
+        researchVideoRecreate: video,
+        researchImageRecreate: image
+      };
+      db.activity.push({ id: id("act"), workspaceId, message: "Prompt templates updated by admin.", createdAt: new Date().toISOString() });
+      return db.promptTemplates;
+    });
+    await debugLog(workspaceId, {
+      action,
+      label: "Prompt templates updated",
+      status: "success",
+      provider: "system",
+      details: { keys: Object.keys(templates) }
+    });
+    return NextResponse.json(templates);
+  }
+
   const data = await mutateDb((db) => {
     const activity = (message: string) => db.activity.push({ id: id("act"), workspaceId, message, createdAt: new Date().toISOString() });
 
@@ -1646,6 +1679,11 @@ export async function POST(req: Request) {
       const now = new Date().toISOString();
       const title = prompt.split(/\n|\.|\?/)[0].slice(0, 96) || "Direct content draft";
       const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? "image" : "text";
+      const sourceUrl = String(body.sourceUrl || "");
+      const sourceTitle = String(body.sourceTitle || "");
+      const sourceThumbnailUrl = String(body.sourceThumbnailUrl || "");
+      const sourceMediaUrl = String(body.sourceMediaUrl || "");
+      const sourceMediaType = String(body.sourceMediaType || "") as "video" | "image" | "unknown";
       const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
       const isKieImage = generationType === "image" && isKieImageModel(model);
       const isKieGeneration = isKieVideo || isKieImage;
@@ -1663,6 +1701,11 @@ export async function POST(req: Request) {
         generationSettings,
         prompt,
         assetReferences,
+        sourceUrl,
+        sourceTitle,
+        sourceThumbnailUrl,
+        sourceMediaUrl,
+        sourceMediaType,
         assetUrl: isKieGeneration ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
       };
       db.assets.push(asset);
@@ -1683,6 +1726,11 @@ export async function POST(req: Request) {
         duration,
         prompt,
         assetReferences,
+        sourceUrl,
+        sourceTitle,
+        sourceThumbnailUrl,
+        sourceMediaUrl,
+        sourceMediaType,
         assetUrl: asset.assetUrl,
         createdAt: now
       };

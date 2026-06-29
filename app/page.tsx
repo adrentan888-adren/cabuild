@@ -14,6 +14,7 @@ import {
   Eye,
   FileText,
   Film,
+  Mic,
   Lightbulb,
   LogOut,
   Megaphone,
@@ -28,7 +29,7 @@ import {
   UserRound,
   Wand2
 } from "lucide-react";
-import type { Asset, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PublishItem, SocialAudit, Workspace } from "@/lib/types";
+import type { Asset, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 import type { PersonaProfile } from "@/lib/types";
 
 type AppData = {
@@ -51,6 +52,7 @@ type AppData = {
   briefs: Brief[];
   assets: Asset[];
   publishQueue: PublishItem[];
+  promptTemplates: PromptTemplates;
   researchScans: {
     id: string;
     url: string;
@@ -131,6 +133,27 @@ type PlanDraft = {
   expectedPerformance?: string;
 };
 
+type GenerationKind = "video" | "image" | "text";
+type CreateContentInitial = {
+  sourceLabel: string;
+  sourceTitle: string;
+  sourceDescription: string;
+  kind: GenerationKind;
+  model?: string;
+  duration?: number | string;
+  aspectRatio?: string;
+  prompt: string;
+  caption: string;
+  hashtags: string;
+  platform?: Platform;
+  sourceResultId?: string;
+  sourceUrl?: string;
+  sourceTitleUrl?: string;
+  sourceThumbnailUrl?: string;
+  sourceMediaUrl?: string;
+  sourceMediaType?: "video" | "image" | "unknown";
+};
+
 type SourceMediaPreview = {
   title: string;
   platform?: Platform | string;
@@ -153,6 +176,60 @@ function proxiedMediaUrl(url?: string) {
   return url;
 }
 
+function renderTemplate(template: string, values: Record<string, string>) {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => values[key] || "");
+}
+
+function researchResultKind(item: CompetitorResult): GenerationKind {
+  if (item.mediaType === "image") return "image";
+  if (item.mediaType === "video") return "video";
+  if (item.platform === "LinkedIn" || item.platform === "X") return "text";
+  const text = `${item.title} ${item.description || ""} ${item.url}`.toLowerCase();
+  if (/(image|photo|carousel|graphic)/.test(text)) return "image";
+  if (/(video|reel|short|watch|tiktok|youtube)/.test(text)) return "video";
+  return item.platform === "Instagram" || item.platform === "Facebook" ? "image" : "video";
+}
+
+function researchAssetInstruction(kind: GenerationKind) {
+  if (kind === "text") return "";
+  const media = kind === "image" ? "image" : "video";
+  if (kind === "image") return `If the user attaches logo/person references in Step 2, use only those attached assets to replace the original logo/person in the ${media}. If no matching user attachment is provided, remove the original logo and change the person instead of copying the original identity.`;
+  return `If the user attaches logo/person/audio references in Step 2, use only those attached assets to replace the original logo/person/audio in the ${media}. If no matching user attachment is provided, remove the original logo, change the person, and replace or change the audio instead of copying the original identity/audio.`;
+}
+
+function createInitialFromResearchResult(item: CompetitorResult, templates: PromptTemplates): CreateContentInitial {
+  const kind = researchResultKind(item);
+  const sourceMediaUrl = item.mediaUrl || item.thumbnailUrl || item.url;
+  const template = kind === "image" ? templates.researchImageRecreate : templates.researchVideoRecreate;
+  const prompt = kind === "text"
+    ? `Analyze this source post and write a new high-conversion text post in the same strategic style without copying it. Source: ${item.url}. Title: ${item.title}. Keep the final post original, platform-native, and ready for social publishing.`
+    : renderTemplate(template, {
+      sourceMediaUrl,
+      sourceUrl: item.url,
+      sourceTitle: item.title,
+      sourceDescription: item.description || "",
+      assetInstruction: researchAssetInstruction(kind)
+    });
+  return {
+    sourceLabel: "Research result",
+    sourceTitle: item.title,
+    sourceDescription: item.description || `${item.platform} result with ${compact(item.views)} views.`,
+    kind,
+    model: kind === "image" ? "gpt-image-2" : kind === "text" ? "gemini-3.5-flash" : "veo-fast",
+    duration: kind === "video" ? 8 : undefined,
+    aspectRatio: kind === "image" ? "1:1" : "9:16",
+    prompt,
+    caption: item.description || item.title,
+    hashtags: "",
+    platform: item.platform,
+    sourceResultId: item.id,
+    sourceUrl: item.url,
+    sourceThumbnailUrl: item.thumbnailUrl,
+    sourceMediaUrl: item.mediaUrl,
+    sourceMediaType: item.mediaType
+  };
+}
+
 async function post(action: string, payload: Record<string, unknown> = {}) {
   const res = await fetch("/api/social", {
     method: "POST",
@@ -172,6 +249,7 @@ export default function Home() {
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
   const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
   const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);
+  const [directCreateInitial, setDirectCreateInitial] = useState<CreateContentInitial | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -344,9 +422,9 @@ export default function Home() {
           {screen === "home" && <HomePanel data={data} setScreen={setScreen} run={run} />}
           {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
-          {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setScreen={setScreen} setPendingPlan={setPendingPlan} />}
+          {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setScreen={setScreen} setPendingPlan={setPendingPlan} setDirectCreateInitial={setDirectCreateInitial} />}
           {screen === "plan" && <BriefPanel data={data} run={run} setScreen={setScreen} pendingPlan={pendingPlan} setPendingGeneration={setPendingGeneration} />}
-          {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
+          {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} directInitial={directCreateInitial} clearDirectInitial={() => setDirectCreateInitial(null)} />}
           {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
           {screen === "analyse" && <AnalyticsPanel data={data} />}
@@ -791,7 +869,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   );
 }
 
-function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; refresh: () => Promise<void>; setScreen: (screen: string) => void; setPendingPlan: (plan: PendingPlan | null) => void }) {
+function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setDirectCreateInitial }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; refresh: () => Promise<void>; setScreen: (screen: string) => void; setPendingPlan: (plan: PendingPlan | null) => void; setDirectCreateInitial: (initial: CreateContentInitial) => void }) {
   const [searchMode, setSearchMode] = useState<"url" | "keywords">("url");
   const [sortBy, setSortBy] = useState<"views" | "likes" | "date">("views");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -896,6 +974,10 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan }: { 
     } finally {
       setPendingPlan(null);
     }
+  };
+  const generateContentFromResearch = (item: CompetitorResult) => {
+    setDirectCreateInitial(createInitialFromResearchResult(item, data.promptTemplates));
+    setScreen("create");
   };
   const openSourcePreview = (item: CompetitorResult) => {
     setSourcePreview({
@@ -1081,6 +1163,7 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan }: { 
                 <button type="button" onClick={() => openSourcePreview(item)}><Eye size={14} />Preview</button>
                 <a href={item.url} target="_blank" rel="noreferrer"><ExternalLink size={14} />Open</a>
                 <button className="plan-action" onClick={() => createPlan(item)}><FileText size={14} />Create plan</button>
+                <button className="plan-action generate-action" onClick={() => generateContentFromResearch(item)}><Wand2 size={14} />Generate Content</button>
               </div>
             </article>
           ))}
@@ -1164,22 +1247,8 @@ const generationModels = {
   ]
 } as const;
 
-type GenerationKind = "video" | "image" | "text";
-type AssetReference = { role: "product photo" | "avatar/persona" | "logo"; fileName: string; previewUrl: string; file: File };
+type AssetReference = { role: "product photo" | "avatar/persona" | "logo" | "audio"; fileName: string; previewUrl: string; file: File };
 type GenerationAssetReference = Pick<AssetReference, "role" | "fileName"> & { url?: string; storageKey?: string; contentType?: string };
-type CreateContentInitial = {
-  sourceLabel: string;
-  sourceTitle: string;
-  sourceDescription: string;
-  kind: GenerationKind;
-  model?: string;
-  duration?: number | string;
-  aspectRatio?: string;
-  prompt: string;
-  caption: string;
-  hashtags: string;
-  platform?: Platform;
-};
 
 function createContentInitialFromDraft(draft: PlanDraft): CreateContentInitial {
   const format = draft.format && contentFormatOptions.includes(draft.format) ? draft.format : "Short video 9:16";
@@ -1292,10 +1361,12 @@ function enrichPromptForSocialConversion(basePrompt: string, kind: GenerationKin
   const productRef = refs.find((ref) => ref.role === "product photo");
   const avatarRef = refs.find((ref) => ref.role === "avatar/persona");
   const logoRef = refs.find((ref) => ref.role === "logo");
+  const audioRef = refs.find((ref) => ref.role === "audio");
   const lines = [
     productRef ? `- Product photo reference ${referenceLabel(productRef)}: include the product/photo visibly as a main visual element. Preserve its important details and integrate it naturally into the scene/composition.` : "",
     avatarRef ? `- Avatar/persona reference ${referenceLabel(avatarRef)}: use this as the on-screen person/creator/persona reference. Keep the face/persona recognizable and consistent with the uploaded reference.` : "",
-    logoRef ? `- Logo reference ${referenceLabel(logoRef)}: include this exact brand logo clearly in the ${mediaLabel}, preferably in a clean corner, product lockup, end frame, or brand-safe area. Do not replace it with generic text or an invented logo.` : ""
+    logoRef ? `- Logo reference ${referenceLabel(logoRef)}: include this exact brand logo clearly in the ${mediaLabel}, preferably in a clean corner, product lockup, end frame, or brand-safe area. Do not replace it with generic text or an invented logo.` : "",
+    audioRef && kind === "video" ? `- Audio reference ${referenceLabel(audioRef)}: use this only as the user-approved audio direction. Replace the source video's original audio with a new safe audio/voice style based on this reference when the provider supports it; otherwise describe the intended audio clearly in the video prompt.` : ""
   ].filter(Boolean);
   const visualDirection = [
     `Required uploaded reference usage for this ${mediaLabel}:`,
@@ -1717,6 +1788,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
             <AssetUploadBox icon={<Palette size={18} />} title="Product photo" helper="Optional visual reference" role="product photo" refs={assetRefs} onChange={updateAssetRef} />
             <AssetUploadBox icon={<UserRound size={18} />} title="Override avatar" helper="Optional persona reference" role="avatar/persona" refs={assetRefs} onChange={updateAssetRef} />
             <AssetUploadBox icon={<Sparkles size={18} />} title="Logo" helper="Optional brand mark" role="logo" refs={assetRefs} onChange={updateAssetRef} />
+            {kind === "video" && <AssetUploadBox icon={<Mic size={18} />} title="Audio" helper="Optional audio reference" role="audio" refs={assetRefs} onChange={updateAssetRef} />}
           </div>
         </section>
       )}
@@ -1764,10 +1836,11 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
 
 function AssetUploadBox({ icon, title, helper, role, refs, onChange }: { icon: ReactNode; title: string; helper: string; role: AssetReference["role"]; refs: AssetReference[]; onChange: (role: AssetReference["role"], file?: File | null) => void }) {
   const selected = refs.find((item) => item.role === role);
+  const accept = role === "audio" ? "audio/*" : "image/*";
   return (
     <label className={`upbox ${selected ? "selected" : ""}`}>
-      <input type="file" accept="image/*" onChange={(event) => onChange(role, event.currentTarget.files?.[0])} />
-      {selected ? <img className="upload-thumb" src={selected.previewUrl} alt={`${title} preview`} /> : icon}
+      <input type="file" accept={accept} onChange={(event) => onChange(role, event.currentTarget.files?.[0])} />
+      {selected && selected.file.type.startsWith("image/") ? <img className="upload-thumb" src={selected.previewUrl} alt={`${title} preview`} /> : icon}
       <b>{title}</b>
       <span>{selected?.fileName || helper}</span>
     </label>
@@ -1805,9 +1878,9 @@ function GenerationModal({ brief, onClose, onStart, onSubmit }: { brief: Brief; 
   );
 }
 
-function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
+function CreateContentPanel({ data, run, setScreen, setPendingGeneration, directInitial, clearDirectInitial }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void; directInitial: CreateContentInitial | null; clearDirectInitial: () => void }) {
   const context = data.workspace.niche?.trim() || "your brand";
-  const initial: CreateContentInitial = {
+  const defaultInitial: CreateContentInitial = {
     sourceLabel: "Direct generation",
     sourceTitle: "Generate from scratch",
     sourceDescription: "Use this when there is no approved content plan. All outputs are sent to Publish after generation starts.",
@@ -1819,6 +1892,7 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
     hashtags: "#ContentStrategy, #SocialMedia, #Creator",
     platform: "TikTok"
   };
+  const initial = directInitial || defaultInitial;
   return (
     <div className="create-page">
       <div className="create-top">
@@ -1828,6 +1902,7 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
         </div>
         <div className="credit-pill">Generated assets move to <b>Publish</b></div>
       </div>
+      {directInitial && <div className="drift-banner"><div><b>Research source loaded</b> - Review the prefilled recreation prompt, attach your logo/person/audio references if needed, then create the final asset.</div><button type="button" onClick={clearDirectInitial}>Clear source</button></div>}
       <CreateContentModule
         initial={initial}
         allowAiAssist
@@ -1839,7 +1914,15 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
           });
         }}
         onSubmit={async (payload) => {
-          await run("generateDirectContent", payload, "Generation queued in Publish");
+          await run("generateDirectContent", {
+            ...payload,
+            sourceResultId: initial.sourceResultId,
+            sourceUrl: initial.sourceUrl,
+            sourceTitle: initial.sourceTitle,
+            sourceThumbnailUrl: initial.sourceThumbnailUrl,
+            sourceMediaUrl: initial.sourceMediaUrl,
+            sourceMediaType: initial.sourceMediaType
+          }, "Generation queued in Publish");
           setPendingGeneration(null);
         }}
       />
@@ -2186,7 +2269,41 @@ function SettingsPanel({ data, run, integrations }: { data: AppData; run: (a: st
     setConnectUrl(url);
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   }
-  return <div className="grid two"><PanelCard title="Workspace context"><form className="brand-form" action={(form) => run("updateWorkspace", Object.fromEntries(form.entries()), "Workspace context saved")}><label>Workspace name<input name="name" defaultValue={data.workspace.name} /></label><label>Brand / niche<textarea name="niche" defaultValue={data.workspace.niche} /></label><p className="muted">This Brand / niche value is passed into AI content-plan generation as context.</p><button className="primary">Save workspace context</button></form></PanelCard><PanelCard title="Provider status"><div className="provider-list">{Object.entries(integrations || {}).map(([name, value]) => <div className="provider-row" key={name}><b>{name}</b><span className={value.ok || value.configured ? "good" : "bad"}>{value.ok ? "verified" : value.configured ? "configured" : "missing"}</span>{value.status && <small>HTTP {value.status}</small>}{value.error && <small>{value.error}</small>}</div>)}</div></PanelCard><PanelCard title="Connect social accounts"><p className="muted">Demo is configured to Upload-Post profile Mariana and publishes to TikTok, Facebook, and X. Use this only if you need to re-open the connection page.</p><button className="primary" onClick={createConnectUrl}><Megaphone size={14} />Open Mariana connect link</button>{connectUrl && <p className="muted">Connection page opened in a new tab.</p>}{connectError && <p className="provider-error">{connectError}</p>}</PanelCard><PanelCard title="Token handling"><p>Keys are loaded from ignored local environment variables. Rotate the pasted keys before production because they were exposed in chat.</p><code>KIE_API_TOKEN, APIFY_API_TOKEN, UPLOAD_POST_API_KEY</code></PanelCard><PanelCard title="Recommended production shape"><p>GCP Cloud Run or a VPS can run this app later. Keep Postgres, queue, object storage, and provider keys outside the client.</p></PanelCard></div>;
+  return (
+    <div className="grid two">
+      <PanelCard title="Workspace context">
+        <form className="brand-form" action={(form) => run("updateWorkspace", Object.fromEntries(form.entries()), "Workspace context saved")}>
+          <label>Workspace name<input name="name" defaultValue={data.workspace.name} /></label>
+          <label>Brand / niche<textarea name="niche" defaultValue={data.workspace.niche} /></label>
+          <p className="muted">This Brand / niche value is passed into AI content-plan generation as context.</p>
+          <button className="primary">Save workspace context</button>
+        </form>
+      </PanelCard>
+      <PanelCard title="Prompt admin">
+        <form className="brand-form prompt-admin-form" action={(form) => run("updatePromptTemplates", Object.fromEntries(form.entries()), "Prompt templates saved")}>
+          <div className="modal-grid">
+            <label>Username<input name="adminUsername" defaultValue="admin" autoComplete="username" /></label>
+            <label>Password<input name="adminPassword" type="password" defaultValue="admin" autoComplete="current-password" /></label>
+          </div>
+          <p className="muted">These templates power Research result to Generate Content. Available variables: <code>{"{{sourceMediaUrl}}"}</code>, <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>, <code>{"{{assetInstruction}}"}</code>.</p>
+          <label>Research video recreate prompt<textarea name="researchVideoRecreate" defaultValue={data.promptTemplates.researchVideoRecreate} /></label>
+          <label>Research image recreate prompt<textarea name="researchImageRecreate" defaultValue={data.promptTemplates.researchImageRecreate} /></label>
+          <button className="primary"><Settings size={14} />Save prompt templates</button>
+        </form>
+      </PanelCard>
+      <PanelCard title="Provider status">
+        <div className="provider-list">{Object.entries(integrations || {}).map(([name, value]) => <div className="provider-row" key={name}><b>{name}</b><span className={value.ok || value.configured ? "good" : "bad"}>{value.ok ? "verified" : value.configured ? "configured" : "missing"}</span>{value.status && <small>HTTP {value.status}</small>}{value.error && <small>{value.error}</small>}</div>)}</div>
+      </PanelCard>
+      <PanelCard title="Connect social accounts">
+        <p className="muted">Demo is configured to Upload-Post profile Mariana and publishes to TikTok, Facebook, and X. Use this only if you need to re-open the connection page.</p>
+        <button className="primary" onClick={createConnectUrl}><Megaphone size={14} />Open Mariana connect link</button>
+        {connectUrl && <p className="muted">Connection page opened in a new tab.</p>}
+        {connectError && <p className="provider-error">{connectError}</p>}
+      </PanelCard>
+      <PanelCard title="Token handling"><p>Keys are loaded from ignored local environment variables. Rotate the pasted keys before production because they were exposed in chat.</p><code>KIE_API_TOKEN, APIFY_API_TOKEN, UPLOAD_POST_API_KEY</code></PanelCard>
+      <PanelCard title="Recommended production shape"><p>GCP Cloud Run or a VPS can run this app later. Keep Postgres, queue, object storage, and provider keys outside the client.</p></PanelCard>
+    </div>
+  );
 }
 
 function PanelCard({ title, children }: { title: string; children: React.ReactNode }) {

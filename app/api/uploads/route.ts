@@ -3,8 +3,8 @@ import { currentUser } from "@/lib/session";
 import { id, mutateDb } from "@/lib/store";
 import { encodeUploadKey, saveUpload, uploadKey } from "@/lib/providers/uploads";
 
-const maxUploadBytes = 10 * 1024 * 1024;
-const allowedRoles = new Set(["product photo", "avatar/persona", "logo"]);
+const maxUploadBytes = 20 * 1024 * 1024;
+const allowedRoles = new Set(["product photo", "avatar/persona", "logo", "audio"]);
 
 export async function POST(req: NextRequest) {
   const user = await currentUser();
@@ -16,8 +16,10 @@ export async function POST(req: NextRequest) {
 
   if (!allowedRoles.has(role)) return NextResponse.json({ error: "Invalid upload role." }, { status: 400 });
   if (!(file instanceof File)) return NextResponse.json({ error: "Missing file." }, { status: 400 });
-  if (!file.type.startsWith("image/")) return NextResponse.json({ error: "Only image uploads are supported." }, { status: 400 });
-  if (file.size > maxUploadBytes) return NextResponse.json({ error: "Upload must be 10MB or smaller." }, { status: 400 });
+  const isAudio = role === "audio";
+  if (isAudio && !file.type.startsWith("audio/")) return NextResponse.json({ error: "Audio reference must be an audio file." }, { status: 400 });
+  if (!isAudio && !file.type.startsWith("image/")) return NextResponse.json({ error: "Visual references must be image files." }, { status: 400 });
+  if (file.size > maxUploadBytes) return NextResponse.json({ error: "Upload must be 20MB or smaller." }, { status: 400 });
 
   const key = uploadKey(user.workspaceId, file.name);
   const stored = await saveUpload(key, Buffer.from(await file.arrayBuffer()), file.type || "application/octet-stream");

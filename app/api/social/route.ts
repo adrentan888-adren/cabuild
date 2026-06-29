@@ -914,7 +914,7 @@ export async function POST(req: Request) {
       let completedSource: ResearchScan["source"] = "apify";
       let completedError = "";
       if (scan.query && completed.items.length === 0) {
-        const fallbackItems = await scanKeywordsWithApify(scan.query, scan.dimensions || {}, scan.minViews);
+        const fallbackItems = await scanKeywordsWithApify(scan.query, scan.dimensions || {}, scan.minViews, { skipPlatformActor: true });
         if (fallbackItems.length) {
           completed = { status: "done" as const, items: fallbackItems };
           completedSource = "fallback";

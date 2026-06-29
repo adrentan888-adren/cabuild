@@ -287,6 +287,7 @@ function actorOwnerSignals(item: Record<string, unknown>) {
 }
 
 function actorItemBelongsToUrl(item: Record<string, unknown>, targetUrl = "") {
+  if (item.error || item.errorDescription) return false;
   if (!targetUrl) return true;
   const scope = urlScope(targetUrl);
   if (!scope.handle) return true;
@@ -605,16 +606,17 @@ function normalizeActorItems(items: Array<Record<string, unknown>>, source: Acto
   return items
     .filter((item) => actorItemBelongsToUrl(item, fallbackUrl))
     .map((item, index) => ({ ...normalizeSocialItem(item, index, fallbackUrl), platform: sourcePlatform(source) }))
+    .filter((item) => Boolean(item.sourceUrl || item.mediaUrl || item.thumbnailUrl))
     .filter((item) => item.views >= minViews && matchesContentType(item, contentType));
 }
 
-export async function scanKeywordsWithApify(keywords: string, dimensions: KeywordDimensions, minViews: number) {
+export async function scanKeywordsWithApify(keywords: string, dimensions: KeywordDimensions, minViews: number, options: { skipPlatformActor?: boolean } = {}) {
   if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = selectedSource(dimensions);
   const actorId = sourceActorId(source);
   const uploadDate = dimensions.uploadDate || "";
   const contentType = dimensions.contentType || dimensions.contentTypes?.[0] || "";
-  if (actorId) {
+  if (actorId && !options.skipPlatformActor) {
     try {
       const actorItems = await runApifyActor(actorId, platformSearchInput(source, keywords, uploadDate, contentType));
       const directItems = normalizeActorItems(actorItems, source, minViews, "", contentType);

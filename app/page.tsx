@@ -2369,10 +2369,20 @@ function PromptAdminCard({ data, run }: { data: AppData; run: (a: string, p?: Re
           <label>Username<input name="adminUsername" defaultValue="admin" autoComplete="username" /></label>
           <label>Password<input name="adminPassword" type="password" defaultValue="admin" autoComplete="current-password" /></label>
         </div>
-        <p className="muted">These templates power Research result to Generate Content. First-stage variables: <code>{"{{sourceMediaUrl}}"}</code>, <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>, <code>{"{{durationLine}}"}</code>, <code>{"{{assetInstruction}}"}</code>. Final-stage variable: <code>{"{{prompt}}"}</code>.</p>
-        <label>Research video recreate prompt<textarea name="researchVideoRecreate" defaultValue={data.promptTemplates.researchVideoRecreate} /></label>
+        <p className="muted">These templates power Research result to Generate Content. The video flow stays two-stage internally because Step 2 runs after the user edits the modal fields and uploads logo/person/audio references.</p>
+        <section className="prompt-module">
+          <div className="prompt-module-head">
+            <div>
+              <b>Research Video Prompt</b>
+              <span>One video prompt configuration, executed in two steps.</span>
+            </div>
+          </div>
+          <label><span className="prompt-step">Step 1 - Source to editable prompt</span><textarea name="researchVideoRecreate" defaultValue={data.promptTemplates.researchVideoRecreate} /></label>
+          <p className="muted compact">Variables: <code>{"{{sourceMediaUrl}}"}</code>, <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>, <code>{"{{durationLine}}"}</code>, <code>{"{{assetInstruction}}"}</code>.</p>
+          <label><span className="prompt-step">Step 2 - Edited prompt to final G01 JSON</span><textarea name="researchVideoPromptRefine" defaultValue={data.promptTemplates.researchVideoPromptRefine} /></label>
+          <p className="muted compact">Variable: <code>{"{{prompt}}"}</code>. This step controls the final GPT-5.5 instruction, including uploaded logo/person/audio replacement rules.</p>
+        </section>
         <label>Research image recreate prompt<textarea name="researchImageRecreate" defaultValue={data.promptTemplates.researchImageRecreate} /></label>
-        <label>Research video final prompt generator<textarea name="researchVideoPromptRefine" defaultValue={data.promptTemplates.researchVideoPromptRefine} /></label>
         <button className="primary"><Settings size={14} />Save prompt templates</button>
       </form>
     </PanelCard>

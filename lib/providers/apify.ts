@@ -441,6 +441,14 @@ function contentTypeQuery(value?: string) {
   } as Record<string, string>)[value || ""] || "";
 }
 
+function instagramKeywordToken(keywords: string) {
+  return keywords
+    .replace(/#/g, "")
+    .split(/[,|]/)[0]
+    .replace(/[^a-z0-9_]/gi, "")
+    .toLowerCase();
+}
+
 function platformSearchInput(source: ActorSource, keywords: string, uploadDate: string, contentType = "") {
   const maxItems = 30;
   const dateTerm = uploadDateQuery(uploadDate);
@@ -456,8 +464,9 @@ function platformSearchInput(source: ActorSource, keywords: string, uploadDate: 
     };
   }
   if (source === "instagram") {
+    const search = instagramKeywordToken(keywords) || query;
     return {
-      search: query,
+      search,
       searchType: "hashtag",
       resultsType: "posts",
       resultsLimit: maxItems,

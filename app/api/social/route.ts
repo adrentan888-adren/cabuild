@@ -466,6 +466,10 @@ function apifyItemsToResearchResults(items: Awaited<ReturnType<typeof scanSocial
   }));
 }
 
+function usableResearchResult(item: { url?: string; title?: string; thumbnailUrl?: string; mediaUrl?: string }) {
+  return Boolean((item.url || item.thumbnailUrl || item.mediaUrl) && item.title && item.title !== "Social post 1");
+}
+
 function defaultPromptForBrief(brief: Brief, generationType: "video" | "image" | "text") {
   const existing = brief.videoPrompt || [brief.description, brief.outline?.join(". "), brief.creativeNotes].filter(Boolean).join("\n");
   if (existing.trim()) return existing;
@@ -972,7 +976,10 @@ export async function POST(req: Request) {
       const existing = db.researchScans
         .filter((scan) => scan.workspaceId === workspaceId && scan.url === cacheKey)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-      if (existing?.status === "done" && existing.source === "apify" && existing.resultIds.length === 0) return null;
+      if (existing?.status === "done") {
+        const linked = db.competitorResults.filter((result) => existing.resultIds.includes(result.id));
+        if (!linked.some(usableResearchResult)) return null;
+      }
       return existing || null;
     });
     if (cached) return NextResponse.json(cached);

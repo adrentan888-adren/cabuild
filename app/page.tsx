@@ -360,7 +360,8 @@ export default function Home() {
     ["publish", "Publish", CalendarDays],
     ["automation", "Automation", RefreshCcw],
     ["analyse", "Analyse", BarChart3],
-    ["logs", "Logs", Bug]
+    ["logs", "Logs", Bug],
+    ["admin", "Backend", Settings]
   ] as const;
 
   return (
@@ -429,6 +430,7 @@ export default function Home() {
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
           {screen === "analyse" && <AnalyticsPanel data={data} />}
           {screen === "logs" && <LogPanel data={data} />}
+          {screen === "admin" && <AdminPanel data={data} run={run} integrations={integrations} />}
           {screen === "settings" && <SettingsPanel data={data} run={run} integrations={integrations} />}
         </section>
       </main>
@@ -437,7 +439,7 @@ export default function Home() {
 }
 
 function title(screen: string) {
-  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", plan: "Content Plan", create: "Create Content", publish: "Publish", automation: "Automation", analyse: "Analyse", logs: "Logs", settings: "Settings" } as Record<string, string>)[screen];
+  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", plan: "Content Plan", create: "Create Content", publish: "Publish", automation: "Automation", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
 }
 
 function AnimatedDots({ label }: { label: string }) {
@@ -1168,7 +1170,7 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
             </article>
           ))}
           </div>
-          {sortedResults.length === 0 && !activeScanStatus && <div className="empty-state">{activeScan ? "Search completed, but no content matched the selected minimum views and filters. Lower the minimum views or broaden the content types." : "No qualified results yet. Search by URL or keywords to begin."}</div>}
+          {sortedResults.length === 0 && !activeScanStatus && <div className="empty-state">{activeScan ? "Search completed, but no content matched the selected minimum views and filters. Generate Content appears beside each result entry, so lower the minimum views, broaden the filters, or open a previous non-empty scan from History." : "No qualified results yet. Search by URL or keywords to begin."}</div>}
         </div>
       </section>
 
@@ -2254,6 +2256,53 @@ function BrandPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<
   return <PanelCard title="Brand kit"><form className="brand-form" action={(form) => run("updateBrandKit", { brandKit: Object.fromEntries(form.entries()) }, "Brand kit saved")}><label>Primary<input name="primary" type="color" defaultValue={data.brandKit.primary} /></label><label>Secondary<input name="secondary" type="color" defaultValue={data.brandKit.secondary} /></label><label>Accent<input name="accent" type="color" defaultValue={data.brandKit.accent} /></label><label>Voice<textarea name="voice" defaultValue={data.brandKit.voice} /></label><button className="primary">Save brand kit</button></form></PanelCard>;
 }
 
+function PromptAdminCard({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+  return (
+    <PanelCard title="Prompt admin">
+      <form className="brand-form prompt-admin-form" action={(form) => run("updatePromptTemplates", Object.fromEntries(form.entries()), "Prompt templates saved")}>
+        <div className="modal-grid">
+          <label>Username<input name="adminUsername" defaultValue="admin" autoComplete="username" /></label>
+          <label>Password<input name="adminPassword" type="password" defaultValue="admin" autoComplete="current-password" /></label>
+        </div>
+        <p className="muted">These templates power Research result to Generate Content. Available variables: <code>{"{{sourceMediaUrl}}"}</code>, <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>, <code>{"{{assetInstruction}}"}</code>.</p>
+        <label>Research video recreate prompt<textarea name="researchVideoRecreate" defaultValue={data.promptTemplates.researchVideoRecreate} /></label>
+        <label>Research image recreate prompt<textarea name="researchImageRecreate" defaultValue={data.promptTemplates.researchImageRecreate} /></label>
+        <button className="primary"><Settings size={14} />Save prompt templates</button>
+      </form>
+    </PanelCard>
+  );
+}
+
+function AdminPanel({ data, run, integrations }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; integrations: IntegrationData | null }) {
+  return (
+    <div className="admin-page">
+      <section className="plan-hero">
+        <div>
+          <div className="clbl">Backend</div>
+          <h2>Backend controls</h2>
+          <p>Edit generation prompt templates and inspect runtime provider status. Admin template changes are saved to the same cloud data store used by the app.</p>
+        </div>
+        <div className="plan-count-pill"><strong>admin</strong><span>Default login</span></div>
+      </section>
+      <div className="grid two">
+        <PromptAdminCard data={data} run={run} />
+        <PanelCard title="Provider status">
+          <div className="provider-list">{Object.entries(integrations || {}).map(([name, value]) => <div className="provider-row" key={name}><b>{name}</b><span className={value.ok || value.configured ? "good" : "bad"}>{value.ok ? "verified" : value.configured ? "configured" : "missing"}</span>{value.status && <small>HTTP {value.status}</small>}{value.error && <small>{value.error}</small>}</div>)}</div>
+        </PanelCard>
+        <PanelCard title="Backend credentials">
+          <p className="muted">Prompt admin uses the requested default credentials. Change these before production.</p>
+          <code>username: admin</code>
+          <code>password: admin</code>
+        </PanelCard>
+        <PanelCard title="Cloud backend">
+          <p>Current production backend is served by the same Cloud Run service as the frontend.</p>
+          <code>https://contentagent-social-mkhae4sjlq-as.a.run.app/api</code>
+        </PanelCard>
+      </div>
+    </div>
+  );
+}
+
 function SettingsPanel({ data, run, integrations }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; integrations: IntegrationData | null }) {
   const [connectUrl, setConnectUrl] = useState("");
   const [connectError, setConnectError] = useState("");
@@ -2279,18 +2328,7 @@ function SettingsPanel({ data, run, integrations }: { data: AppData; run: (a: st
           <button className="primary">Save workspace context</button>
         </form>
       </PanelCard>
-      <PanelCard title="Prompt admin">
-        <form className="brand-form prompt-admin-form" action={(form) => run("updatePromptTemplates", Object.fromEntries(form.entries()), "Prompt templates saved")}>
-          <div className="modal-grid">
-            <label>Username<input name="adminUsername" defaultValue="admin" autoComplete="username" /></label>
-            <label>Password<input name="adminPassword" type="password" defaultValue="admin" autoComplete="current-password" /></label>
-          </div>
-          <p className="muted">These templates power Research result to Generate Content. Available variables: <code>{"{{sourceMediaUrl}}"}</code>, <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>, <code>{"{{assetInstruction}}"}</code>.</p>
-          <label>Research video recreate prompt<textarea name="researchVideoRecreate" defaultValue={data.promptTemplates.researchVideoRecreate} /></label>
-          <label>Research image recreate prompt<textarea name="researchImageRecreate" defaultValue={data.promptTemplates.researchImageRecreate} /></label>
-          <button className="primary"><Settings size={14} />Save prompt templates</button>
-        </form>
-      </PanelCard>
+      <PromptAdminCard data={data} run={run} />
       <PanelCard title="Provider status">
         <div className="provider-list">{Object.entries(integrations || {}).map(([name, value]) => <div className="provider-row" key={name}><b>{name}</b><span className={value.ok || value.configured ? "good" : "bad"}>{value.ok ? "verified" : value.configured ? "configured" : "missing"}</span>{value.status && <small>HTTP {value.status}</small>}{value.error && <small>{value.error}</small>}</div>)}</div>
       </PanelCard>

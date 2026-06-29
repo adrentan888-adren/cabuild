@@ -377,15 +377,44 @@ function keywordSearchQueries(keywords: string, actorSources: string[], uploadDa
   const dateTerm = uploadDateQuery(uploadDate);
   const typeTerm = contentTypeQuery(contentType);
   const selected = actorSources.length ? actorSources : ["instagram", "tiktok", "youtube"];
-  const queryMap: Record<string, string> = {
-    instagram: "site:instagram.com/reel OR site:instagram.com/p Instagram Reels posts",
-    tiktok: "site:tiktok.com/@ TikTok videos",
-    youtube: "site:youtube.com/shorts OR site:youtube.com/watch YouTube videos Shorts",
-    facebook: "site:facebook.com/reel OR site:facebook.com/watch OR site:facebook.com/posts Facebook Reels posts videos",
-    linkedin: "site:linkedin.com/posts OR site:linkedin.com/pulse LinkedIn posts articles"
+  const queryMap: Record<string, Record<string, string>> = {
+    instagram: {
+      "short-video": "site:instagram.com/reel Instagram Reels",
+      image: "site:instagram.com/p Instagram photo carousel image post",
+      default: "site:instagram.com/reel OR site:instagram.com/p Instagram Reels posts"
+    },
+    tiktok: {
+      default: "site:tiktok.com/@ TikTok videos"
+    },
+    youtube: {
+      "short-video": "site:youtube.com/shorts YouTube Shorts",
+      "long-video": "site:youtube.com/watch YouTube video",
+      default: "site:youtube.com/shorts OR site:youtube.com/watch YouTube videos Shorts"
+    },
+    facebook: {
+      "short-video": "site:facebook.com/reel Facebook Reel",
+      "long-video": "site:facebook.com/watch Facebook video",
+      image: "site:facebook.com/posts Facebook photo image post",
+      text: "site:facebook.com/posts Facebook text post",
+      link: "site:facebook.com/posts Facebook shared link post",
+      article: "site:facebook.com Facebook article post",
+      default: "site:facebook.com/reel OR site:facebook.com/watch OR site:facebook.com/posts Facebook Reels posts videos"
+    },
+    linkedin: {
+      "short-video": "site:linkedin.com/posts LinkedIn video post",
+      "long-video": "site:linkedin.com/posts LinkedIn video post",
+      image: "site:linkedin.com/posts LinkedIn image post",
+      text: "site:linkedin.com/posts LinkedIn text post",
+      link: "site:linkedin.com/posts LinkedIn link post",
+      article: "site:linkedin.com/pulse LinkedIn article",
+      default: "site:linkedin.com/posts OR site:linkedin.com/pulse LinkedIn posts articles"
+    }
   };
   return selected
-    .map((source) => `${keywords} ${queryMap[source] || source} ${typeTerm} ${dateTerm}`.replace(/\s+/g, " ").trim())
+    .map((source) => {
+      const platformTerms = queryMap[source]?.[contentType] || queryMap[source]?.default || source;
+      return `${keywords} ${platformTerms} ${typeTerm} ${dateTerm}`.replace(/\s+/g, " ").trim();
+    })
     .join("\n");
 }
 
@@ -613,13 +642,15 @@ function matchesContentType(item: NormalizedSocialItem, contentType = "") {
   if (!contentType) return true;
   if (contentType === "video") return item.mediaType === "video" || /(video|reel|short|watch|tiktok|youtube)/.test(haystack);
   if (contentType === "short-video") {
+    if (typeof item.duration === "number") return item.duration <= 90;
     if (/(shorts|reel|tiktok|vertical|9:16)/.test(haystack)) return true;
     if (item.platform === "TikTok" && item.mediaType !== "image") return true;
-    return item.mediaType === "video" && typeof item.duration === "number" && item.duration <= 90;
+    return false;
   }
   if (contentType === "long-video") {
+    if (typeof item.duration === "number") return item.duration > 90;
     if (/(youtube\.com\/watch|facebook\.com\/watch|long video|16:9)/.test(haystack)) return true;
-    return item.mediaType === "video" && typeof item.duration === "number" && item.duration > 90;
+    return false;
   }
   if (contentType === "image") return item.mediaType === "image" || /(image|photo|carousel|graphic)/.test(haystack);
   if (contentType === "text") return /(text|post|status|linkedin|twitter|x\.com|threads)/.test(haystack) && !/(watch|reel|shorts)/.test(haystack);
@@ -717,7 +748,6 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
   return items
     .flatMap((item) => item.organicResults || item.nonPromotedSearchResults || [])
     .filter((item) => item.title)
-    .slice(0, 20)
     .map((item, index) => {
       const record = item as Record<string, unknown>;
       const views = baseViews + (20 - index) * 4300;
@@ -739,7 +769,8 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
         publishedAt: date && Number.isFinite(new Date(date).getTime()) ? new Date(date).toISOString() : new Date(Date.now() - 1000 * 60 * 60 * (index + 8)).toISOString()
       };
     })
-    .filter((item) => item.views >= minViews && matchesContentType(item, contentType) && matchesKeywordIntent(item, keywords));
+    .filter((item) => item.views >= minViews && matchesContentType(item, contentType) && matchesKeywordIntent(item, keywords))
+    .slice(0, 20);
 }
 
 export async function crawlPersonaSourcesWithApify(urls: Record<string, string>) {

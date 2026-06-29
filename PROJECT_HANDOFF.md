@@ -147,6 +147,7 @@ Demo web app login:
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+- 2026-06-29: Improved keyword research fallback accuracy before retesting. Missing platform actors such as LinkedIn now create fallback keyword scans instead of immediate failed scans, weak Instagram/Facebook actor runs with fewer than three useful rows can be replaced by broader fallback results, keyword cache bumped to `kw-v8-keyword-fallback-fixes`, fallback query terms are now platform/content-type specific, fallback filtering applies before slicing top rows, and short/long video classification now trusts known duration before URL patterns so very short YouTube `watch` URLs do not pass as long-form videos. Local `npm run build` passed.
 - 2026-06-29: Removed the visible `Publish now` button from the `My Contents` generated-content rows. Backend Upload-Post publish action remains in code for future publishing workflow work.
 - 2026-06-29: Removed Research keyword recommendations and selected-keyword chips. The keyword search input now starts empty and users type their own keywords directly.
 - 2026-06-29: Renamed the visible `Publish` sidebar/page title to `My Contents` while keeping the internal `publish` screen and backend publish actions unchanged.

@@ -448,7 +448,7 @@ const contentPlanFormats = [
 ];
 
 const researchUrlSourceOwnershipFilter = "owner-v2";
-const keywordResearchCacheVersion = "kw-v7-fallback-keyword-relevance";
+const keywordResearchCacheVersion = "kw-v8-keyword-fallback-fixes";
 
 const keywordContentTypesByPlatform: Record<string, string[]> = {
   instagram: ["short-video", "image"],
@@ -933,12 +933,16 @@ export async function POST(req: Request) {
       if (completed.status === "running") return NextResponse.json(scan);
       let completedSource: ResearchScan["source"] = "apify";
       let completedError = "";
-      if (scan.query && completed.items.length === 0) {
-        const fallbackItems = await scanKeywordsWithApify(scan.query, scan.dimensions || {}, scan.minViews, { skipPlatformActor: true });
-        if (fallbackItems.length) {
+      const shouldTryKeywordFallback = Boolean(
+        scan.query &&
+        (completed.items.length === 0 || (completed.items.length < 3 && ["Instagram", "Facebook", "LinkedIn"].includes(scan.platform)))
+      );
+      if (shouldTryKeywordFallback) {
+        const fallbackItems = await scanKeywordsWithApify(scan.query || "", scan.dimensions || {}, scan.minViews, { skipPlatformActor: true });
+        if (fallbackItems.length > completed.items.length) {
           completed = { status: "done" as const, items: fallbackItems };
           completedSource = "fallback";
-          completedError = "Platform actor returned no usable keyword results, so a broader Apify keyword fallback was used.";
+          completedError = "Platform actor returned too few usable keyword results, so a broader Apify keyword fallback was used.";
         }
       }
       const normalized = apifyItemsToResearchResults(completed.items);
@@ -1010,6 +1014,51 @@ export async function POST(req: Request) {
       runMeta = await startKeywordScanRun(query, dimensions, minViews);
     } catch (err) {
       startError = err instanceof Error ? err.message : "Apify keyword scan failed to start";
+    }
+
+    if (!runMeta) {
+      try {
+        const fallbackItems = await scanKeywordsWithApify(query, dimensions, minViews, { skipPlatformActor: true });
+        const normalized = apifyItemsToResearchResults(fallbackItems);
+        const scan = await mutateDb((db) => {
+          db.researchScans ||= [];
+          db.competitors ||= [];
+          db.competitorResults ||= [];
+          const competitor = { id: id("cmp"), workspaceId, platform: selectedPlatform, handle: query, url: cacheKey, minViews, cadence: "weekly" as const, lastScraped: new Date().toISOString() };
+          db.competitors.push(competitor);
+          const results: CompetitorResult[] = normalized.map((result) => ({
+            ...result,
+            id: id("res"),
+            workspaceId,
+            competitorId: competitor.id,
+            platform: result.platform || selectedPlatform,
+            capturedAt: new Date().toISOString()
+          }));
+          db.competitorResults.push(...results);
+          const created: ResearchScan = {
+            id: id("scan"),
+            workspaceId,
+            url: cacheKey,
+            query,
+            dimensions,
+            platform: selectedPlatform,
+            minViews,
+            resultIds: results.map((result) => result.id),
+            createdAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            source: "fallback",
+            status: "done",
+            error: startError ? `${startError}; broader Apify keyword fallback used.` : "Broader Apify keyword fallback used."
+          };
+          db.researchScans.push(created);
+          db.researchScans = db.researchScans.filter((item) => item.workspaceId !== workspaceId).concat(db.researchScans.filter((item) => item.workspaceId === workspaceId).slice(-10));
+          db.activity.push({ id: id("act"), workspaceId, message: `Keyword research completed for "${query}" using fallback search.`, createdAt: new Date().toISOString() });
+          return created;
+        });
+        return NextResponse.json(scan);
+      } catch (err) {
+        startError = err instanceof Error ? `${startError}; fallback failed: ${err.message}` : `${startError}; fallback failed`;
+      }
     }
 
     const scan = await mutateDb((db) => {

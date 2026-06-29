@@ -448,7 +448,7 @@ const contentPlanFormats = [
 ];
 
 const researchUrlSourceOwnershipFilter = "owner-v2";
-const keywordResearchCacheVersion = "kw-v3";
+const keywordResearchCacheVersion = "kw-v4";
 
 function apifyItemsToResearchResults(items: Awaited<ReturnType<typeof scanSocialUrl>>) {
   return items.map((item) => ({
@@ -909,7 +909,7 @@ export async function POST(req: Request) {
         runId: scan.apifyRunId,
         datasetId: scan.apifyDatasetId,
         source: scan.platform === "Instagram" ? "instagram" : scan.platform === "YouTube" ? "youtube" : scan.platform === "Facebook" ? "facebook" : scan.platform === "LinkedIn" ? "linkedin" : "tiktok",
-        fallbackUrl: scan.url,
+        fallbackUrl: scan.query ? "" : scan.url,
         minViews: scan.minViews
       } as const;
       let completed = scan.query

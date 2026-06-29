@@ -907,10 +907,20 @@ export async function POST(req: Request) {
         fallbackUrl: scan.url,
         minViews: scan.minViews
       } as const;
-      const completed = scan.query
+      let completed = scan.query
         ? await completeKeywordScanRun({ ...runMeta, contentType: scan.dimensions?.contentType || scan.dimensions?.contentTypes?.[0] || "" })
         : await completeSocialUrlScanRun(runMeta);
       if (completed.status === "running") return NextResponse.json(scan);
+      let completedSource: ResearchScan["source"] = "apify";
+      let completedError = "";
+      if (scan.query && completed.items.length === 0) {
+        const fallbackItems = await scanKeywordsWithApify(scan.query, scan.dimensions || {}, scan.minViews);
+        if (fallbackItems.length) {
+          completed = { status: "done" as const, items: fallbackItems };
+          completedSource = "fallback";
+          completedError = "Platform actor returned no usable keyword results, so a broader Apify keyword fallback was used.";
+        }
+      }
       const normalized = apifyItemsToResearchResults(completed.items);
       const updated = await mutateDb((db) => {
         db.competitors ||= [];
@@ -930,9 +940,10 @@ export async function POST(req: Request) {
         db.competitorResults.push(...results);
         item.resultIds = results.map((result) => result.id);
         item.status = "done";
+        item.source = completedSource;
         item.completedAt = new Date().toISOString();
-        item.error = "";
-        db.activity.push({ id: id("act"), workspaceId, message: `Research scan completed for ${handleFromUrl(scan.url)} using Apify.`, createdAt: new Date().toISOString() });
+        item.error = completedError;
+        db.activity.push({ id: id("act"), workspaceId, message: `Research scan completed for ${handleFromUrl(scan.url)} using ${completedSource === "fallback" ? "Apify fallback" : "Apify"}.`, createdAt: new Date().toISOString() });
         return item;
       });
       return NextResponse.json(updated);
@@ -961,6 +972,7 @@ export async function POST(req: Request) {
       const existing = db.researchScans
         .filter((scan) => scan.workspaceId === workspaceId && scan.url === cacheKey)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+      if (existing?.status === "done" && existing.source === "apify" && existing.resultIds.length === 0) return null;
       return existing || null;
     });
     if (cached) return NextResponse.json(cached);

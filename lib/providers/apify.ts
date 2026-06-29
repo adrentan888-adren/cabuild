@@ -682,6 +682,13 @@ function matchesKeywordIntent(item: NormalizedSocialItem, keywords: string) {
   return tokens.every((token) => haystack.includes(token)) || haystack.includes(tokens.join(""));
 }
 
+function matchesVisibleKeywordIntent(item: NormalizedSocialItem, keywords: string) {
+  const tokens = keywordTokens(keywords);
+  if (!tokens.length) return true;
+  const haystack = `${item.title} ${item.sourceUrl}`.toLowerCase();
+  return tokens.every((token) => haystack.includes(token)) || haystack.includes(tokens.join(""));
+}
+
 export async function scanKeywordsWithApify(keywords: string, dimensions: KeywordDimensions, minViews: number, options: { skipPlatformActor?: boolean } = {}) {
   if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = selectedSource(dimensions);
@@ -769,7 +776,7 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
         publishedAt: date && Number.isFinite(new Date(date).getTime()) ? new Date(date).toISOString() : new Date(Date.now() - 1000 * 60 * 60 * (index + 8)).toISOString()
       };
     })
-    .filter((item) => item.views >= minViews && matchesContentType(item, contentType) && matchesKeywordIntent(item, keywords))
+    .filter((item) => item.views >= minViews && matchesContentType(item, contentType) && matchesVisibleKeywordIntent(item, keywords))
     .slice(0, 20);
 }
 

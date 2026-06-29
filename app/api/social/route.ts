@@ -448,7 +448,7 @@ const contentPlanFormats = [
 ];
 
 const researchUrlSourceOwnershipFilter = "owner-v2";
-const keywordResearchCacheVersion = "kw-v8-keyword-fallback-fixes";
+const keywordResearchCacheVersion = "kw-v9-visible-keyword-fallback";
 
 const keywordContentTypesByPlatform: Record<string, string[]> = {
   instagram: ["short-video", "image"],

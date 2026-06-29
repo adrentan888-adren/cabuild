@@ -455,7 +455,6 @@ function platformSearchInput(source: ActorSource, keywords: string, uploadDate: 
   const maxItems = 30;
   const dateTerm = uploadDateQuery(uploadDate);
   const query = `${keywords} ${contentTypeQuery(contentType)} ${dateTerm}`.replace(/\s+/g, " ").trim();
-  const hasSpacedKeyword = /\s/.test(keywords.trim());
   if (source === "tiktok") {
     return {
       searchQueries: [query],
@@ -468,10 +467,9 @@ function platformSearchInput(source: ActorSource, keywords: string, uploadDate: 
   }
   if (source === "instagram") {
     const search = instagramKeywordToken(keywords) || query;
-    const searchType = hasSpacedKeyword ? "user" : "hashtag";
     return {
-      search: searchType === "user" ? keywords.trim() : search,
-      searchType,
+      search,
+      searchType: "hashtag",
       searchLimit: 10,
       resultsType: contentType === "short-video" || contentType === "video" ? "reels" : "posts",
       resultsLimit: maxItems,
@@ -598,12 +596,15 @@ export async function completeSocialUrlScanRun(meta: ResearchRunMeta) {
   };
 }
 
-export async function completeKeywordScanRun(meta: ResearchRunMeta & { contentType?: string }) {
+export async function completeKeywordScanRun(meta: ResearchRunMeta & { contentType?: string; keywords?: string }) {
   const completed = await completeSocialUrlScanRun(meta);
   if (completed.status === "running") return completed;
+  const filtered = completed.items
+    .filter((item) => matchesContentType(item, meta.contentType || ""))
+    .filter((item) => !meta.keywords || matchesKeywordIntent(item, meta.keywords));
   return {
     status: "done" as const,
-    items: completed.items.filter((item) => matchesContentType(item, meta.contentType || ""))
+    items: filtered
   };
 }
 
@@ -635,6 +636,21 @@ function normalizeActorItems(items: Array<Record<string, unknown>>, source: Acto
     .filter((item) => item.views >= minViews && matchesContentType(item, contentType));
 }
 
+function keywordTokens(value: string) {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 2);
+}
+
+function matchesKeywordIntent(item: NormalizedSocialItem, keywords: string) {
+  const tokens = keywordTokens(keywords);
+  if (!tokens.length) return true;
+  const haystack = `${item.title} ${item.description} ${item.sourceUrl}`.toLowerCase();
+  return tokens.every((token) => haystack.includes(token)) || haystack.includes(tokens.join(""));
+}
+
 export async function scanKeywordsWithApify(keywords: string, dimensions: KeywordDimensions, minViews: number, options: { skipPlatformActor?: boolean } = {}) {
   if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = selectedSource(dimensions);
@@ -644,7 +660,7 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
   if (actorId && !options.skipPlatformActor) {
     try {
       const actorItems = await runApifyActor(actorId, platformSearchInput(source, keywords, uploadDate, contentType));
-      const directItems = normalizeActorItems(actorItems, source, minViews, "", contentType);
+      const directItems = normalizeActorItems(actorItems, source, minViews, "", contentType).filter((item) => matchesKeywordIntent(item, keywords));
       if (directItems.length) return directItems;
     } catch {
       // Fall through to Google search fallback for sources whose actor schema or search support differs.
@@ -696,7 +712,7 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
   const directItems = (items as unknown as Array<Record<string, unknown>>)
     .filter((item) => !Array.isArray(item.organicResults) && !Array.isArray(item.nonPromotedSearchResults))
     .map((item, index) => normalizeSocialItem(item, index))
-    .filter((item) => item.views >= minViews && matchesContentType(item, contentType));
+    .filter((item) => item.views >= minViews && matchesContentType(item, contentType) && matchesKeywordIntent(item, keywords));
   if (directItems.length) return directItems;
   return items
     .flatMap((item) => item.organicResults || item.nonPromotedSearchResults || [])
@@ -723,7 +739,7 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
         publishedAt: date && Number.isFinite(new Date(date).getTime()) ? new Date(date).toISOString() : new Date(Date.now() - 1000 * 60 * 60 * (index + 8)).toISOString()
       };
     })
-    .filter((item) => item.views >= minViews && matchesContentType(item, contentType));
+    .filter((item) => item.views >= minViews && matchesContentType(item, contentType) && matchesKeywordIntent(item, keywords));
 }
 
 export async function crawlPersonaSourcesWithApify(urls: Record<string, string>) {

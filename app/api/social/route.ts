@@ -448,7 +448,7 @@ const contentPlanFormats = [
 ];
 
 const researchUrlSourceOwnershipFilter = "owner-v2";
-const keywordResearchCacheVersion = "kw-v5-platform-content-types";
+const keywordResearchCacheVersion = "kw-v7-fallback-keyword-relevance";
 
 const keywordContentTypesByPlatform: Record<string, string[]> = {
   instagram: ["short-video", "image"],
@@ -928,7 +928,7 @@ export async function POST(req: Request) {
         minViews: scan.minViews
       } as const;
       let completed = scan.query
-        ? await completeKeywordScanRun({ ...runMeta, contentType: scan.dimensions?.contentType || scan.dimensions?.contentTypes?.[0] || "" })
+        ? await completeKeywordScanRun({ ...runMeta, contentType: scan.dimensions?.contentType || scan.dimensions?.contentTypes?.[0] || "", keywords: scan.query })
         : await completeSocialUrlScanRun(runMeta);
       if (completed.status === "running") return NextResponse.json(scan);
       let completedSource: ResearchScan["source"] = "apify";

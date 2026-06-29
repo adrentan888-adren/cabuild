@@ -3,7 +3,7 @@ import { currentUser } from "@/lib/session";
 import { defaultPersonaProfile, id, mutateDb } from "@/lib/store";
 import type { Asset, Brief, CompetitorResult, GenerationAssetReference, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
 import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl, startKeywordScanRun, startSocialUrlScanRun } from "@/lib/providers/apify";
-import { buildAiBriefPrompt, buildContentPlanPrompt, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
+import { buildAiBriefPrompt, buildContentPlanPrompt, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 
 async function requireUser() {
@@ -1231,6 +1231,47 @@ export async function POST(req: Request) {
         error: error instanceof Error ? error.message : "Kie GPT-5.5 generation failed"
       });
       return NextResponse.json({ error: error instanceof Error ? error.message : "Kie GPT-5.5 generation failed" }, { status: 502 });
+    }
+  }
+
+  if (action === "refineResearchVideoPrompt") {
+    const prompt = String(body.prompt || "").trim();
+    if (!prompt) return NextResponse.json({ error: "Video prompt is required." }, { status: 400 });
+    await debugLog(workspaceId, {
+      action,
+      label: "Prompt sent to Kie GPT-5.5 for final research video prompt",
+      status: "started",
+      provider: "kie",
+      prompt,
+      details: {
+        model: "gpt-5-5",
+        generationModel: String(body.generationModel || ""),
+        duration: body.duration,
+        sourceUrl: String(body.sourceUrl || ""),
+        assetReferences: parseAssetReferences(body.assetReferences).map((ref) => ({ role: ref.role, fileName: ref.fileName, url: ref.url || "" }))
+      }
+    });
+    try {
+      const videoPrompt = await generateFinalVideoPromptWithGpt55(prompt);
+      await debugLog(workspaceId, {
+        action,
+        label: "Kie GPT-5.5 returned final research video prompt for G01",
+        status: "success",
+        provider: "kie",
+        prompt: videoPrompt,
+        details: { model: "gpt-5-5", characters: videoPrompt.length }
+      });
+      return NextResponse.json({ videoPrompt });
+    } catch (error) {
+      await debugLog(workspaceId, {
+        action,
+        label: "Kie GPT-5.5 final research video prompt failed",
+        status: "failed",
+        provider: "kie",
+        prompt,
+        error: error instanceof Error ? error.message : "Kie GPT-5.5 video prompt failed"
+      });
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Kie GPT-5.5 video prompt failed" }, { status: 502 });
     }
   }
 

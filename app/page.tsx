@@ -436,7 +436,7 @@ export default function Home() {
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
           {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setScreen={setScreen} setPendingPlan={setPendingPlan} setDirectCreateInitial={setDirectCreateInitial} />}
           {screen === "plan" && <BriefPanel data={data} run={run} setScreen={setScreen} pendingPlan={pendingPlan} setPendingGeneration={setPendingGeneration} />}
-          {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} directInitial={directCreateInitial} clearDirectInitial={() => setDirectCreateInitial(null)} />}
+          {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
           {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
           {screen === "analyse" && <AnalyticsPanel data={data} />}
@@ -445,6 +445,15 @@ export default function Home() {
           {screen === "settings" && <SettingsPanel data={data} run={run} integrations={integrations} />}
         </section>
       </main>
+      {directCreateInitial && (
+        <ResearchGenerateModal
+          initial={directCreateInitial}
+          run={run}
+          onClose={() => setDirectCreateInitial(null)}
+          setScreen={setScreen}
+          setPendingGeneration={setPendingGeneration}
+        />
+      )}
     </div>
   );
 }
@@ -990,7 +999,6 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
   };
   const generateContentFromResearch = (item: CompetitorResult) => {
     setDirectCreateInitial(createInitialFromResearchResult(item, data.promptTemplates));
-    setScreen("create");
   };
   const openSourcePreview = (item: CompetitorResult) => {
     setSourcePreview({
@@ -1618,7 +1626,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
   );
 }
 
-function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate", allowAiAssist = false }: { initial: CreateContentInitial; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string; allowAiAssist?: boolean }) {
+function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate", busyLabel = "Sending to Publish", allowAiAssist = false }: { initial: CreateContentInitial; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string; busyLabel?: string; allowAiAssist?: boolean }) {
   const [activeInitial, setActiveInitial] = useState<CreateContentInitial>(initial);
   const [formVersion, setFormVersion] = useState(0);
   const [kind, setKind] = useState<GenerationKind>(initial.kind);
@@ -1840,7 +1848,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
           <div>Selected: <b>{model}</b></div>
           <div className="row-actions">
             {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
-            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? <AnimatedDots label="Sending to Publish" /> : submitLabel}</button>
+            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? <AnimatedDots label={busyLabel} /> : submitLabel}</button>
           </div>
         </div>
       </section>
@@ -1892,7 +1900,101 @@ function GenerationModal({ brief, onClose, onStart, onSubmit }: { brief: Brief; 
   );
 }
 
-function CreateContentPanel({ data, run, setScreen, setPendingGeneration, directInitial, clearDirectInitial }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void; directInitial: CreateContentInitial | null; clearDirectInitial: () => void }) {
+function ResearchGenerateModal({ initial, run, onClose, setScreen, setPendingGeneration }: { initial: CreateContentInitial; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onClose: () => void; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
+  const [debugPrompt, setDebugPrompt] = useState("");
+  const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const queueGeneration = async (payload: Record<string, unknown>) => {
+    flushSync(() => {
+      setPendingGeneration({
+        title: initial.sourceTitle,
+        description: "Preparing provider generation from the selected research result.",
+        kind: String(payload.generationType || initial.kind) as GenerationKind,
+        model: String(payload.generationModel || initial.model || ""),
+        startedAt: Date.now()
+      });
+      setScreen("publish");
+    });
+    onClose();
+    await run("generateDirectContent", {
+      ...payload,
+      sourceResultId: initial.sourceResultId,
+      sourceUrl: initial.sourceUrl,
+      sourceTitle: initial.sourceTitle,
+      sourceThumbnailUrl: initial.sourceThumbnailUrl,
+      sourceMediaUrl: initial.sourceMediaUrl,
+      sourceMediaType: initial.sourceMediaType
+    }, "Generation queued in Publish");
+    setPendingGeneration(null);
+  };
+  const prepareGeneration = async (payload: Record<string, unknown>) => {
+    if (payload.generationType !== "video") {
+      await queueGeneration(payload);
+      return;
+    }
+    const result = await run("refineResearchVideoPrompt", {
+      ...payload,
+      sourceUrl: initial.sourceUrl,
+      sourceTitle: initial.sourceTitle,
+      sourceMediaUrl: initial.sourceMediaUrl,
+      sourceMediaType: initial.sourceMediaType
+    }, "Final video prompt prepared");
+    const finalPrompt = String(result?.videoPrompt || "").trim();
+    if (!finalPrompt) return;
+    setPendingPayload({ ...payload, prompt: finalPrompt });
+    setDebugPrompt(finalPrompt);
+  };
+  const confirmDebugPrompt = async () => {
+    if (!pendingPayload || generating) return;
+    setGenerating(true);
+    try {
+      await queueGeneration(pendingPayload);
+    } finally {
+      setGenerating(false);
+      setPendingPayload(null);
+      setDebugPrompt("");
+    }
+  };
+  return (
+    <div className="modal-backdrop">
+      <section className="generation-modal research-generate-modal">
+        <div className="modal-head">
+          <div>
+            <div className="clbl">Generate from research</div>
+            <h3>{initial.sourceTitle}</h3>
+            <p>Review the prefilled fields, attach replacement logo/person/audio references if needed, then generate the final asset.</p>
+          </div>
+          <button type="button" className="icon-btn" onClick={onClose}>x</button>
+        </div>
+        <CreateContentModule initial={initial} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing G01" : "Sending to Publish"} onSubmit={prepareGeneration} />
+      </section>
+      {debugPrompt && (
+        <div className="modal-backdrop debug-gate-backdrop">
+          <section className="generation-modal debug-gate-modal">
+            <div className="modal-head">
+              <div>
+                <div className="clbl">Debug pop up G01</div>
+                <h3>Final video prompt</h3>
+                <p>This is the GPT-5.5 refined prompt that will be sent for video generation. Generation starts only after OK.</p>
+              </div>
+              <button type="button" className="icon-btn" onClick={() => { setDebugPrompt(""); setPendingPayload(null); }}>x</button>
+            </div>
+            <label>Final video prompt<textarea readOnly value={debugPrompt} /></label>
+            <div className="ftrow">
+              <div>{debugPrompt.length} characters</div>
+              <div className="row-actions">
+                <button type="button" onClick={() => { setDebugPrompt(""); setPendingPayload(null); }} disabled={generating}>Cancel</button>
+                <button type="button" className="primary" onClick={() => void confirmDebugPrompt()} disabled={generating}><Check size={14} />{generating ? <AnimatedDots label="Queuing" /> : "OK"}</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
   const context = data.workspace.niche?.trim() || "your brand";
   const defaultInitial: CreateContentInitial = {
     sourceLabel: "Direct generation",
@@ -1906,7 +2008,7 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration, direct
     hashtags: "#ContentStrategy, #SocialMedia, #Creator",
     platform: "TikTok"
   };
-  const initial = directInitial || defaultInitial;
+  const initial = defaultInitial;
   return (
     <div className="create-page">
       <div className="create-top">
@@ -1916,7 +2018,6 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration, direct
         </div>
         <div className="credit-pill">Generated assets move to <b>Publish</b></div>
       </div>
-      {directInitial && <div className="drift-banner"><div><b>Research source loaded</b> - Review the prefilled recreation prompt, attach your logo/person/audio references if needed, then create the final asset.</div><button type="button" onClick={clearDirectInitial}>Clear source</button></div>}
       <CreateContentModule
         initial={initial}
         allowAiAssist

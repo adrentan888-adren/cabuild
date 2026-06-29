@@ -249,3 +249,12 @@ Demo web app login:
 ### 2026-06-23 - Persona Auto-Fill Web GUI Tutorial
 - Added a static screenshot tutorial at `/tutorials/persona-autofill-tutorial.html`.
 - Generated four Playwright screenshots in `public/tutorials/` with red callouts showing: sign in, click Persona, click Auto-fill, and submit public profile URLs with Auto-fill persona.
+
+### 2026-06-29 - Research Generate Content Modal and G01 Debug Gate
+- Changed Research result `Generate Content` so it opens the shared Create Content module in a modal on the Research page instead of navigating to the Create Content tab.
+- The Create Content tab is again direct-from-scratch only; Research source prompts now stay inside the Research modal flow.
+- Added `/api/social` action `refineResearchVideoPrompt`, which sends the prepared Research video recreation prompt to Kie GPT-5.5 and logs the input/final prompt in Debug Logs.
+- Added `generateFinalVideoPromptWithGpt55` in `lib/providers/kie.ts`. It asks GPT-5.5 to return a provider-ready video prompt under 3000 characters, preserve the selected duration line, use only uploaded logo/person/audio references, and avoid copying original protected identity/audio.
+- For Research video generation only, clicking `Generate` now prepares the final prompt first and shows temporary debug popup `G01` with the final video prompt. The video is queued in Publish only after the user clicks `OK` in G01. This debug gate should be removed later when the user confirms the prompt quality.
+- Image/text Research `Generate Content` still use the same modal but continue directly to Publish because the extra GPT-5.5 rewrite was requested for video prompts.
+- Local verification: `npm run build` passed; Playwright confirmed the Research `Generate Content` button opens the modal without changing tabs.

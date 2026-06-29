@@ -303,6 +303,62 @@ export async function generateContentPlanWithGpt55(input: { idea: string; niche:
   return extractJson(content || text);
 }
 
+export async function generateFinalVideoPromptWithGpt55(prompt: string) {
+  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const instruction = `You are ContentAgent's senior video prompt engineer.
+
+Convert the user's research recreation instruction into ONE final provider-ready video generation prompt.
+
+Rules:
+- Return ONLY valid JSON with this shape: {"videoPrompt":"..."}
+- The videoPrompt must be no more than 3000 characters.
+- Preserve the selected duration requirement exactly if present, for example: "the video duration is supposed to be 8s".
+- Keep any source video/page context that helps recreate the structure, pacing, camera, hook, and conversion angle.
+- If user-uploaded references are mentioned, use only those attached assets for logo/person/audio replacement.
+- If no matching user attachment is provided, instruct the model to remove the original logo, change the person, and change or replace the audio.
+- Optimize for high-conversion social media output: strong 0-3 second hook, clear USP, platform-native pacing, readable mobile framing, CTA, and compliance-safe wording.
+- Do not copy protected identity, exact creator likeness, original brand/logo, or original audio unless the user explicitly provided replacement references.
+
+User instruction to transform:
+${prompt}`;
+  const res = await fetch(`${baseUrl}/codex/v1/responses`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token()}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "gpt-5-5",
+      stream: false,
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: instruction }]
+        }
+      ],
+      reasoning: { effort: "medium" }
+    })
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Kie GPT-5.5 video prompt failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
+  const parsed = JSON.parse(text) as KieResponsesResponse;
+  if (parsed.error?.message) throw new Error(parsed.error.message);
+  const content = (parsed.output || [])
+    .flatMap((item) => item.content || [])
+    .map((item) => item.text || "")
+    .join("")
+    .trim();
+  const raw = content || text;
+  try {
+    const json = extractJson(raw) as { videoPrompt?: unknown };
+    const videoPrompt = String(json.videoPrompt || "").trim();
+    if (videoPrompt) return videoPrompt;
+  } catch {
+    // Fall through to a cleaned text response when the provider returns plain text.
+  }
+  return raw.replace(/```(?:json)?/gi, "").trim().slice(0, 3000);
+}
+
 export async function generatePersonaAutofillWithGpt55(prompt: string) {
   if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
   const res = await fetch(`${baseUrl}/codex/v1/responses`, {

@@ -448,7 +448,7 @@ const contentPlanFormats = [
 ];
 
 const researchUrlSourceOwnershipFilter = "owner-v2";
-const keywordResearchCacheVersion = "kw-v10-platform-realistic-filters";
+const keywordResearchCacheVersion = "kw-v11-instagram-direct-hashtag-url";
 
 const keywordContentTypesByPlatform: Record<string, string[]> = {
   instagram: ["instagram-reels", "instagram-posts"],

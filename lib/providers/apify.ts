@@ -499,9 +499,7 @@ function platformSearchInput(source: ActorSource, keywords: string, uploadDate: 
   if (source === "instagram") {
     const search = instagramKeywordToken(keywords) || query;
     return {
-      search,
-      searchType: "hashtag",
-      searchLimit: 10,
+      directUrls: [`https://www.instagram.com/explore/tags/${encodeURIComponent(search)}/`],
       resultsType: contentType === "instagram-reels" || contentType === "short-video" || contentType === "video" ? "reels" : "posts",
       resultsLimit: maxItems,
       maxItems,

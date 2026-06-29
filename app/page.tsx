@@ -1901,7 +1901,7 @@ function GenerationModal({ brief, onClose, onStart, onSubmit }: { brief: Brief; 
 }
 
 function ResearchGenerateModal({ initial, run, onClose, setScreen, setPendingGeneration }: { initial: CreateContentInitial; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onClose: () => void; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
-  const [debugPrompt, setDebugPrompt] = useState("");
+  const [g01Review, setG01Review] = useState<{ videoPrompt: string; debugJson: string } | null>(null);
   const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | null>(null);
   const [generating, setGenerating] = useState(false);
   const queueGeneration = async (payload: Record<string, unknown>) => {
@@ -1941,8 +1941,9 @@ function ResearchGenerateModal({ initial, run, onClose, setScreen, setPendingGen
     }, "Final video prompt prepared");
     const finalPrompt = String(result?.videoPrompt || "").trim();
     if (!finalPrompt) return;
+    const debugJson = String(result?.debugJson || JSON.stringify({ videoPrompt: finalPrompt }, null, 2));
     setPendingPayload({ ...payload, prompt: finalPrompt });
-    setDebugPrompt(finalPrompt);
+    setG01Review({ videoPrompt: finalPrompt, debugJson });
   };
   const confirmDebugPrompt = async () => {
     if (!pendingPayload || generating) return;
@@ -1952,7 +1953,7 @@ function ResearchGenerateModal({ initial, run, onClose, setScreen, setPendingGen
     } finally {
       setGenerating(false);
       setPendingPayload(null);
-      setDebugPrompt("");
+      setG01Review(null);
     }
   };
   return (
@@ -1960,36 +1961,27 @@ function ResearchGenerateModal({ initial, run, onClose, setScreen, setPendingGen
       <section className="generation-modal research-generate-modal">
         <div className="modal-head">
           <div>
-            <div className="clbl">Generate from research</div>
-            <h3>{initial.sourceTitle}</h3>
-            <p>Review the prefilled fields, attach replacement logo/person/audio references if needed, then generate the final asset.</p>
+            <div className="clbl">{g01Review ? "Debug pop up G01" : "Generate from research"}</div>
+            <h3>{g01Review ? "Final video prompt JSON" : initial.sourceTitle}</h3>
+            <p>{g01Review ? "This is the GPT-5.5 refined JSON. Generation starts only after OK." : "Review the prefilled fields, attach replacement logo/person/audio references if needed, then generate the final asset."}</p>
           </div>
-          <button type="button" className="icon-btn" onClick={onClose}>x</button>
+          <button type="button" className="icon-btn" onClick={g01Review ? () => { setG01Review(null); setPendingPayload(null); } : onClose}>x</button>
         </div>
-        <CreateContentModule initial={initial} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing G01" : "Sending to Publish"} onSubmit={prepareGeneration} />
-      </section>
-      {debugPrompt && (
-        <div className="modal-backdrop debug-gate-backdrop">
-          <section className="generation-modal debug-gate-modal">
-            <div className="modal-head">
-              <div>
-                <div className="clbl">Debug pop up G01</div>
-                <h3>Final video prompt</h3>
-                <p>This is the GPT-5.5 refined prompt that will be sent for video generation. Generation starts only after OK.</p>
-              </div>
-              <button type="button" className="icon-btn" onClick={() => { setDebugPrompt(""); setPendingPayload(null); }}>x</button>
-            </div>
-            <label>Final video prompt<textarea readOnly value={debugPrompt} /></label>
+        {g01Review ? (
+          <div className="g01-review">
+            <label>G01 JSON<textarea readOnly value={g01Review.debugJson} /></label>
             <div className="ftrow">
-              <div>{debugPrompt.length} characters</div>
+              <div>{g01Review.videoPrompt.length} prompt characters</div>
               <div className="row-actions">
-                <button type="button" onClick={() => { setDebugPrompt(""); setPendingPayload(null); }} disabled={generating}>Cancel</button>
+                <button type="button" onClick={() => { setG01Review(null); setPendingPayload(null); }} disabled={generating}>Cancel</button>
                 <button type="button" className="primary" onClick={() => void confirmDebugPrompt()} disabled={generating}><Check size={14} />{generating ? <AnimatedDots label="Queuing" /> : "OK"}</button>
               </div>
             </div>
-          </section>
-        </div>
-      )}
+          </div>
+        ) : (
+          <CreateContentModule initial={initial} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing G01" : "Sending to Publish"} onSubmit={prepareGeneration} />
+        )}
+      </section>
     </div>
   );
 }

@@ -1252,16 +1252,16 @@ export async function POST(req: Request) {
       }
     });
     try {
-      const videoPrompt = await generateFinalVideoPromptWithGpt55(prompt);
+      const refined = await generateFinalVideoPromptWithGpt55(prompt);
       await debugLog(workspaceId, {
         action,
         label: "Kie GPT-5.5 returned final research video prompt for G01",
         status: "success",
         provider: "kie",
-        prompt: videoPrompt,
-        details: { model: "gpt-5-5", characters: videoPrompt.length }
+        prompt: refined.videoPrompt,
+        details: { model: "gpt-5-5", characters: refined.videoPrompt.length, debugJson: refined.debugJson }
       });
-      return NextResponse.json({ videoPrompt });
+      return NextResponse.json(refined);
     } catch (error) {
       await debugLog(workspaceId, {
         action,

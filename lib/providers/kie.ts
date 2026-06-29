@@ -352,11 +352,12 @@ ${prompt}`;
   try {
     const json = extractJson(raw) as { videoPrompt?: unknown };
     const videoPrompt = String(json.videoPrompt || "").trim();
-    if (videoPrompt) return videoPrompt;
+    if (videoPrompt) return { videoPrompt, debugJson: JSON.stringify({ videoPrompt }, null, 2) };
   } catch {
     // Fall through to a cleaned text response when the provider returns plain text.
   }
-  return raw.replace(/```(?:json)?/gi, "").trim().slice(0, 3000);
+  const videoPrompt = raw.replace(/```(?:json)?/gi, "").trim().slice(0, 3000);
+  return { videoPrompt, debugJson: JSON.stringify({ videoPrompt }, null, 2) };
 }
 
 export async function generatePersonaAutofillWithGpt55(prompt: string) {

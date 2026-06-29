@@ -274,6 +274,7 @@ export type DebugLog = {
 export type PromptTemplates = {
   researchVideoRecreate: string;
   researchImageRecreate: string;
+  researchVideoPromptRefine: string;
 };
 
 export type Database = {

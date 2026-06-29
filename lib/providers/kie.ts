@@ -303,9 +303,7 @@ export async function generateContentPlanWithGpt55(input: { idea: string; niche:
   return extractJson(content || text);
 }
 
-export async function generateFinalVideoPromptWithGpt55(prompt: string) {
-  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
-  const instruction = `You are ContentAgent's senior video prompt engineer.
+const fallbackVideoPromptRefineTemplate = `You are ContentAgent's senior video prompt engineer.
 
 Convert the user's research recreation instruction into ONE final provider-ready video generation prompt.
 
@@ -320,7 +318,17 @@ Rules:
 - Do not copy protected identity, exact creator likeness, original brand/logo, or original audio unless the user explicitly provided replacement references.
 
 User instruction to transform:
-${prompt}`;
+{{prompt}}`;
+
+export function buildFinalVideoPromptInstruction(prompt: string, template?: string) {
+  const source = (template || fallbackVideoPromptRefineTemplate).trim();
+  if (source.includes("{{prompt}}")) return source.replace(/\{\{prompt\}\}/g, prompt);
+  return `${source}\n\nUser instruction to transform:\n${prompt}`;
+}
+
+export async function generateFinalVideoPromptWithGpt55(prompt: string, template?: string) {
+  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const instruction = buildFinalVideoPromptInstruction(prompt, template);
   const res = await fetch(`${baseUrl}/codex/v1/responses`, {
     method: "POST",
     headers: {

@@ -64,7 +64,26 @@ export function defaultPersonaProfile(workspaceId: string): PersonaProfile {
 
 export const defaultPromptTemplates: PromptTemplates = {
   researchVideoRecreate: "Please analyse the attached video and write the prompt to recreate this video in JSON format in very detailed terms, no more than 3000 characters. Source video: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{durationLine}} {{assetInstruction}}",
-  researchImageRecreate: "Please analyse the attached image/graphic and write the prompt to recreate this image in JSON format in very detailed terms, no more than 3000 characters. Source image: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{assetInstruction}}"
+  researchImageRecreate: "Please analyse the attached image/graphic and write the prompt to recreate this image in JSON format in very detailed terms, no more than 3000 characters. Source image: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{assetInstruction}}",
+  researchVideoPromptRefine: `You are ContentAgent's senior video prompt engineer.
+
+Convert the user's research recreation instruction into ONE final provider-ready video generation prompt.
+
+Rules:
+- Return ONLY valid JSON with this shape: {"videoPrompt":"..."}
+- The videoPrompt must be no more than 3000 characters.
+- Preserve the selected duration requirement exactly if present, for example: "the video duration is supposed to be 8s".
+- Keep any source video/page context that helps recreate the structure, pacing, camera, hook, and conversion angle.
+- If user-uploaded references are mentioned, use only those attached assets for logo/person/audio replacement.
+- If a logo reference is attached, explicitly instruct the provider to use that exact uploaded logo and not a placeholder, invented wordmark, or original source logo.
+- If an avatar/person reference is attached, explicitly instruct the provider to replace the original person/creator with the uploaded persona reference.
+- If an audio reference is attached, explicitly instruct the provider to replace/change the original audio using that user-approved audio direction when supported.
+- If no matching user attachment is provided, instruct the model to remove the original logo, change the person, and change or replace the audio.
+- Optimize for high-conversion social media output: strong 0-3 second hook, clear USP, platform-native pacing, readable mobile framing, CTA, and compliance-safe wording.
+- Do not copy protected identity, exact creator likeness, original brand/logo, or original audio unless the user explicitly provided replacement references.
+
+User instruction to transform:
+{{prompt}}`
 };
 
 function seeded(): Database {

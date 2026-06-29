@@ -100,11 +100,11 @@ const suggestedResearchKeywords = [
   ["personal branding", 68]
 ] as const;
 const researchActors = [
-  { id: "instagram", label: "Instagram", dimensions: ["Reels (9:16)", "Image / carousel (1:1 or 4:5)"] },
-  { id: "tiktok", label: "TikTok", dimensions: ["Short-form video (9:16)"] },
-  { id: "youtube", label: "YouTube", dimensions: ["Long-form video (16:9)", "Shorts (9:16)"] },
-  { id: "facebook", label: "Facebook", dimensions: ["Feed post (1:1 or 4:5)", "Reels (9:16)", "Video (16:9)"] },
-  { id: "linkedin", label: "LinkedIn", dimensions: ["Text post (feed)", "Article (editorial)", "Image / carousel (1:1 or 4:5)"] }
+  { id: "instagram", label: "Instagram" },
+  { id: "tiktok", label: "TikTok" },
+  { id: "youtube", label: "YouTube" },
+  { id: "facebook", label: "Facebook" },
+  { id: "linkedin", label: "LinkedIn" }
 ] as const;
 const researchContentTypes = [
   { id: "", label: "All types", description: "All supported formats for this platform" },
@@ -1230,7 +1230,6 @@ function ActorSourceSelector({ selected, onSelect }: { selected: string; onSelec
         {researchActors.map((item) => (
           <button type="button" key={item.id} className={selected === item.id ? "on" : ""} onClick={() => onSelect(item.id)}>
             <span><input type="radio" checked={selected === item.id} readOnly tabIndex={-1} />{item.label}</span>
-            <small>{item.dimensions.join(", ")}</small>
           </button>
         ))}
       </div>

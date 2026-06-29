@@ -448,18 +448,27 @@ const contentPlanFormats = [
 ];
 
 const researchUrlSourceOwnershipFilter = "owner-v2";
-const keywordResearchCacheVersion = "kw-v9-visible-keyword-fallback";
+const keywordResearchCacheVersion = "kw-v10-platform-realistic-filters";
 
 const keywordContentTypesByPlatform: Record<string, string[]> = {
-  instagram: ["short-video", "image"],
-  tiktok: ["short-video"],
-  youtube: ["long-video", "short-video"],
-  facebook: ["short-video", "long-video", "image", "text", "link", "article"],
-  linkedin: ["short-video", "long-video", "image", "text", "link", "article"]
+  instagram: ["instagram-reels", "instagram-posts"],
+  tiktok: [],
+  youtube: [],
+  facebook: [],
+  linkedin: ["article"]
 };
 
 function normalizeKeywordContentType(platform: string, value: string) {
-  const legacyMap: Record<string, string> = { video: "short-video", carousel: "image", "text-post": "text" };
+  const legacyMap: Record<string, string> = {
+    video: platform === "instagram" ? "instagram-reels" : "",
+    "short-video": platform === "instagram" ? "instagram-reels" : "",
+    image: platform === "instagram" ? "instagram-posts" : "",
+    carousel: platform === "instagram" ? "instagram-posts" : "",
+    "text-post": "",
+    text: "",
+    link: "",
+    "long-video": ""
+  };
   const normalized = legacyMap[value] || value;
   if (!normalized) return "";
   return (keywordContentTypesByPlatform[platform] || []).includes(normalized) ? normalized : "";

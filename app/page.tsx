@@ -100,19 +100,16 @@ const researchActors = [
 ] as const;
 const researchContentTypes = [
   { id: "", label: "All types", description: "All supported formats for this platform" },
-  { id: "short-video", label: "Short video", description: "Reels, Shorts, TikTok, and vertical video" },
-  { id: "long-video", label: "Long video", description: "YouTube/Facebook landscape or longer uploads" },
-  { id: "image", label: "Image", description: "Photos, graphics, and carousel-style posts" },
-  { id: "text", label: "Text post", description: "Feed text/status posts without video focus" },
-  { id: "link", label: "Link post", description: "Shared links and external page posts" },
-  { id: "article", label: "Long-form article", description: "LinkedIn Pulse, blogs, and long-form posts" }
+  { id: "instagram-reels", label: "Reels", description: "Instagram Reels returned by the Instagram actor" },
+  { id: "instagram-posts", label: "Posts", description: "Instagram feed posts returned by the Instagram actor" },
+  { id: "article", label: "Articles", description: "LinkedIn Pulse or article-style results" }
 ] as const;
 const researchContentTypeByPlatform: Record<string, string[]> = {
-  instagram: ["short-video", "image"],
-  tiktok: ["short-video"],
-  youtube: ["long-video", "short-video"],
-  facebook: ["short-video", "long-video", "image", "text", "link", "article"],
-  linkedin: ["short-video", "long-video", "image", "text", "link", "article"]
+  instagram: ["instagram-reels", "instagram-posts"],
+  tiktok: [],
+  youtube: [],
+  facebook: [],
+  linkedin: ["article"]
 };
 type IntegrationData = Record<string, { configured?: boolean; ok?: boolean; status?: number; error?: string; baseUrl?: string; actor?: string }>;
 type PendingPlan = { title: string; description: string; startedAt: number };

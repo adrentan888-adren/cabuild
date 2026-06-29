@@ -379,8 +379,8 @@ function keywordSearchQueries(keywords: string, actorSources: string[], uploadDa
   const selected = actorSources.length ? actorSources : ["instagram", "tiktok", "youtube"];
   const queryMap: Record<string, Record<string, string>> = {
     instagram: {
-      "short-video": "site:instagram.com/reel Instagram Reels",
-      image: "site:instagram.com/p Instagram photo carousel image post",
+      "instagram-reels": "site:instagram.com/reel Instagram Reels",
+      "instagram-posts": "site:instagram.com/p Instagram feed posts",
       default: "site:instagram.com/reel OR site:instagram.com/p Instagram Reels posts"
     },
     tiktok: {
@@ -465,6 +465,8 @@ function contentTypeQuery(value?: string) {
     video: "video reel short watch",
     "short-video": "short video reel shorts vertical",
     "long-video": "long video watch full video",
+    "instagram-reels": "reel",
+    "instagram-posts": "post",
     image: "image photo carousel graphic",
     text: "text post status update",
     link: "link post article shared link",
@@ -500,7 +502,7 @@ function platformSearchInput(source: ActorSource, keywords: string, uploadDate: 
       search,
       searchType: "hashtag",
       searchLimit: 10,
-      resultsType: contentType === "short-video" || contentType === "video" ? "reels" : "posts",
+      resultsType: contentType === "instagram-reels" || contentType === "short-video" || contentType === "video" ? "reels" : "posts",
       resultsLimit: maxItems,
       maxItems,
       addParentData: false,
@@ -641,6 +643,8 @@ function matchesContentType(item: NormalizedSocialItem, contentType = "") {
   const haystack = `${item.title} ${item.description} ${item.sourceUrl} ${item.mediaType}`.toLowerCase();
   if (!contentType) return true;
   if (contentType === "video") return item.mediaType === "video" || /(video|reel|short|watch|tiktok|youtube)/.test(haystack);
+  if (contentType === "instagram-reels") return item.platform === "Instagram" && /(instagram\.com\/reel|reel)/.test(haystack);
+  if (contentType === "instagram-posts") return item.platform === "Instagram" && /(instagram\.com\/p\/|post|photo|image|carousel)/.test(haystack) && !/instagram\.com\/reel/.test(haystack);
   if (contentType === "short-video") {
     if (typeof item.duration === "number") return item.duration <= 90;
     if (/(shorts|reel|tiktok|vertical|9:16)/.test(haystack)) return true;

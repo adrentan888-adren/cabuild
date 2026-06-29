@@ -63,7 +63,7 @@ export function defaultPersonaProfile(workspaceId: string): PersonaProfile {
 }
 
 export const defaultPromptTemplates: PromptTemplates = {
-  researchVideoRecreate: "Please analyse the attached video and write the prompt to recreate this video in JSON format in very detailed terms, no more than 3000 characters. Source video: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{assetInstruction}}",
+  researchVideoRecreate: "Please analyse the attached video and write the prompt to recreate this video in JSON format in very detailed terms, no more than 3000 characters. Source video: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{durationLine}} {{assetInstruction}}",
   researchImageRecreate: "Please analyse the attached image/graphic and write the prompt to recreate this image in JSON format in very detailed terms, no more than 3000 characters. Source image: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{assetInstruction}}"
 };
 
@@ -182,6 +182,9 @@ function normalizeDb(db: Database): Database {
   db.activity ||= [];
   db.debugLogs ||= [];
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
+  if (!db.promptTemplates.researchVideoRecreate.includes("{{durationLine}}") && !db.promptTemplates.researchVideoRecreate.toLowerCase().includes("the video duration is supposed to be")) {
+    db.promptTemplates.researchVideoRecreate = `${db.promptTemplates.researchVideoRecreate.trim()} {{durationLine}}`;
+  }
   db.personaProfiles ||= [];
   for (const workspace of db.workspaces || []) {
     const existing = db.personaProfiles.find((item) => item.workspaceId === workspace.id);

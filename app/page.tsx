@@ -262,7 +262,6 @@ export default function Home() {
   const [authError, setAuthError] = useState("");
   const [toast, setToast] = useState("");
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
-  const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
   const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);
   const [directCreateInitial, setDirectCreateInitial] = useState<CreateContentInitial | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -370,7 +369,6 @@ export default function Home() {
     ["audit", "Social Audit", BarChart3],
     ["persona", "Persona", UserRound],
     ["research", "Research", Radar],
-    ["plan", "Content Plan", FileText],
     ["create", "Create Content", Wand2],
     ["publish", "My Contents", CalendarDays],
     ["automation", "Automation", RefreshCcw],
@@ -438,8 +436,7 @@ export default function Home() {
           {screen === "home" && <HomePanel data={data} setScreen={setScreen} run={run} />}
           {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
-          {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setScreen={setScreen} setPendingPlan={setPendingPlan} setDirectCreateInitial={setDirectCreateInitial} />}
-          {screen === "plan" && <BriefPanel data={data} run={run} setScreen={setScreen} pendingPlan={pendingPlan} setPendingGeneration={setPendingGeneration} />}
+          {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={setDirectCreateInitial} />}
           {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
           {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
@@ -895,7 +892,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   );
 }
 
-function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setDirectCreateInitial }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; refresh: () => Promise<void>; setScreen: (screen: string) => void; setPendingPlan: (plan: PendingPlan | null) => void; setDirectCreateInitial: (initial: CreateContentInitial) => void }) {
+function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; refresh: () => Promise<void>; setDirectCreateInitial: (initial: CreateContentInitial) => void }) {
   const [searchMode, setSearchMode] = useState<"url" | "keywords">("url");
   const [sortBy, setSortBy] = useState<"views" | "likes" | "date">("views");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -1002,15 +999,6 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
       setScanStartedAt(null);
     }
   };
-  const createPlan = async (item: CompetitorResult) => {
-    setPendingPlan({ title: item.title, description: item.description || `Analyzing ${item.platform} result with ${compact(item.views)} views.`, startedAt: Date.now() });
-    setScreen("plan");
-    try {
-      await run("createPlanFromResearch", { id: item.id, sourceTitle: item.title, sourceUrl: item.url, sourcePlatform: item.platform }, "Content plan generated from research");
-    } finally {
-      setPendingPlan(null);
-    }
-  };
   const generateContentFromResearch = (item: CompetitorResult) => {
     setDirectCreateInitial(createInitialFromResearchResult(item, data.promptTemplates));
   };
@@ -1034,7 +1022,7 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
       <section className="research-hero">
         <div>
           <div className="clbl">Research</div>
-          <h2>Find competitor posts worth turning into content plans</h2>
+          <h2>Find competitor posts worth turning into content</h2>
           <p>URL scans stay scoped to the submitted profile/page. Keyword scans search one selected platform and optional content type, then sort qualified posts by views, likes, or date.</p>
         </div>
         <div className="history-wrap">
@@ -1175,7 +1163,6 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
               <div className="result-actions">
                 <button type="button" onClick={() => openSourcePreview(item)}><Eye size={14} />Preview</button>
                 <a href={item.url} target="_blank" rel="noreferrer"><ExternalLink size={14} />Open</a>
-                <button className="plan-action" onClick={() => createPlan(item)}><FileText size={14} />Create plan</button>
                 <button className="plan-action generate-action" onClick={() => generateContentFromResearch(item)}><Wand2 size={14} />Generate Content</button>
               </div>
             </article>
@@ -1983,7 +1970,7 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
   const defaultInitial: CreateContentInitial = {
     sourceLabel: "Direct generation",
     sourceTitle: "Generate from scratch",
-    sourceDescription: "Use this when there is no approved content plan. All outputs are sent to Publish after generation starts.",
+    sourceDescription: "Use this to create a new asset directly. All outputs are sent to Publish after generation starts.",
     kind: "video",
     duration: 8,
     aspectRatio: "9:16",
@@ -2005,7 +1992,6 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
       <CreateContentModule
         initial={initial}
         allowAiAssist
-        onUsePlan={() => setScreen("plan")}
         onStart={(generation) => {
           flushSync(() => {
             setPendingGeneration(generation);
@@ -2185,7 +2171,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
             </article>
           );
         })}
-        {queue.length === 0 && !pendingGeneration && <div className="empty-state">No generated drafts yet. Generate from a content plan to create the first publish item.</div>}
+        {queue.length === 0 && !pendingGeneration && <div className="empty-state">No generated drafts yet. Use Research or Create Content to create the first item.</div>}
       </div>
     </div>
   );
@@ -2325,7 +2311,7 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
     <div className="mock-wrap">
       <PanelCard title="Automation workflows">
         <div className="auto-row">
-          <div><b>Weekly research refresh</b><span>Apify trend scan, competitor gap scoring, content plan queue</span></div>
+          <div><b>Weekly research refresh</b><span>Apify trend scan, competitor scoring, content generation queue</span></div>
           <button onClick={() => run("refreshTrends", {}, "Workflow run started")}>Run now</button>
         </div>
         <div className="auto-row">

@@ -209,9 +209,16 @@ function createInitialFromResearchResult(item: CompetitorResult, templates: Prom
   const sourceMediaUrl = item.mediaUrl || item.thumbnailUrl || item.url;
   const model = kind === "image" ? "gpt-image-2" : kind === "text" ? "gemini-3.5-flash" : "veo-fast";
   const duration = kind === "video" ? closestDuration(item.duration || 8, durationOptionsForModel(model)) : undefined;
-  const template = kind === "image" ? templates.researchImageRecreate : templates.researchVideoRecreate;
+  const template = kind === "image" ? templates.researchImageRecreate : kind === "text" ? templates.researchTextRecreate : templates.researchVideoRecreate;
   const basePrompt = kind === "text"
-    ? `Analyze this source post and write a new high-conversion text post in the same strategic style without copying it. Source: ${item.url}. Title: ${item.title}. Keep the final post original, platform-native, and ready for social publishing.`
+    ? renderTemplate(template, {
+      sourceMediaUrl,
+      sourceUrl: item.url,
+      sourceTitle: item.title,
+      sourceDescription: item.description || "",
+      durationLine: "",
+      assetInstruction: ""
+    })
     : renderTemplate(template, {
       sourceMediaUrl,
       sourceUrl: item.url,
@@ -2382,7 +2389,26 @@ function PromptAdminCard({ data, run }: { data: AppData; run: (a: string, p?: Re
           <label><span className="prompt-step">Step 2 - Edited prompt to final G01 JSON</span><textarea name="researchVideoPromptRefine" defaultValue={data.promptTemplates.researchVideoPromptRefine} /></label>
           <p className="muted compact">Variable: <code>{"{{prompt}}"}</code>. This step controls the final GPT-5.5 instruction, including uploaded logo/person/audio replacement rules.</p>
         </section>
-        <label>Research image recreate prompt<textarea name="researchImageRecreate" defaultValue={data.promptTemplates.researchImageRecreate} /></label>
+        <section className="prompt-module">
+          <div className="prompt-module-head">
+            <div>
+              <b>Research Image Prompt</b>
+              <span>Source image or carousel result to editable image-generation prompt.</span>
+            </div>
+          </div>
+          <label><span className="prompt-step">Step 1 - Source to editable image prompt</span><textarea name="researchImageRecreate" defaultValue={data.promptTemplates.researchImageRecreate} /></label>
+          <p className="muted compact">Variables: <code>{"{{sourceMediaUrl}}"}</code>, <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>, <code>{"{{assetInstruction}}"}</code>. Uploaded logo/person/product reference instructions are added later by the shared Create Content module.</p>
+        </section>
+        <section className="prompt-module">
+          <div className="prompt-module-head">
+            <div>
+              <b>Research Text Prompt</b>
+              <span>Source text/link result to editable text-post prompt.</span>
+            </div>
+          </div>
+          <label><span className="prompt-step">Step 1 - Source to editable text prompt</span><textarea name="researchTextRecreate" defaultValue={data.promptTemplates.researchTextRecreate} /></label>
+          <p className="muted compact">Variables: <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>. Text generation does not use logo/person/audio attachments.</p>
+        </section>
         <button className="primary"><Settings size={14} />Save prompt templates</button>
       </form>
     </PanelCard>

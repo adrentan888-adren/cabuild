@@ -275,6 +275,7 @@ export type PromptTemplates = {
   researchVideoRecreate: string;
   researchImageRecreate: string;
   researchVideoPromptRefine: string;
+  researchTextRecreate: string;
 };
 
 export type Database = {

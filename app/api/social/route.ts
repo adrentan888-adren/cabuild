@@ -1451,13 +1451,15 @@ export async function POST(req: Request) {
     const video = String(body.researchVideoRecreate || "").trim();
     const image = String(body.researchImageRecreate || "").trim();
     const refine = String(body.researchVideoPromptRefine || "").trim();
-    if (!video || !image || !refine) return NextResponse.json({ error: "Research video, image, and final video prompt templates are required." }, { status: 400 });
+    const text = String(body.researchTextRecreate || "").trim();
+    if (!video || !image || !refine || !text) return NextResponse.json({ error: "Research video, image, text, and final video prompt templates are required." }, { status: 400 });
     const templates = await mutateDb((db) => {
       db.promptTemplates = {
         ...(db.promptTemplates || {}),
         researchVideoRecreate: video,
         researchImageRecreate: image,
-        researchVideoPromptRefine: refine
+        researchVideoPromptRefine: refine,
+        researchTextRecreate: text
       };
       db.activity.push({ id: id("act"), workspaceId, message: "Prompt templates updated by admin.", createdAt: new Date().toISOString() });
       return db.promptTemplates;

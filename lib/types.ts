@@ -94,6 +94,7 @@ export type CompetitorResult = {
   thumbnailUrl?: string;
   mediaUrl?: string;
   mediaType?: "video" | "image" | "unknown";
+  duration?: number;
   description?: string;
   views: number;
   likes: number;

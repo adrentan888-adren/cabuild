@@ -197,11 +197,20 @@ function researchAssetInstruction(kind: GenerationKind) {
   return `If the user attaches logo/person/audio references in Step 2, use only those attached assets to replace the original logo/person/audio in the ${media}. If no matching user attachment is provided, remove the original logo, change the person, and replace or change the audio instead of copying the original identity/audio.`;
 }
 
+function withSelectedVideoDuration(prompt: string, kind: GenerationKind, duration: number | string | undefined) {
+  if (kind !== "video" || !duration) return prompt;
+  const line = `the video duration is supposed to be ${duration}s`;
+  const withoutExisting = prompt.replace(/(?:^|\n)\s*the video duration is supposed to be \d+\s*s\.?\s*/i, "\n").trim();
+  return `${withoutExisting}\n\n${line}`;
+}
+
 function createInitialFromResearchResult(item: CompetitorResult, templates: PromptTemplates): CreateContentInitial {
   const kind = researchResultKind(item);
   const sourceMediaUrl = item.mediaUrl || item.thumbnailUrl || item.url;
+  const model = kind === "image" ? "gpt-image-2" : kind === "text" ? "gemini-3.5-flash" : "veo-fast";
+  const duration = kind === "video" ? closestDuration(item.duration || 8, durationOptionsForModel(model)) : undefined;
   const template = kind === "image" ? templates.researchImageRecreate : templates.researchVideoRecreate;
-  const prompt = kind === "text"
+  const basePrompt = kind === "text"
     ? `Analyze this source post and write a new high-conversion text post in the same strategic style without copying it. Source: ${item.url}. Title: ${item.title}. Keep the final post original, platform-native, and ready for social publishing.`
     : renderTemplate(template, {
       sourceMediaUrl,
@@ -210,13 +219,14 @@ function createInitialFromResearchResult(item: CompetitorResult, templates: Prom
       sourceDescription: item.description || "",
       assetInstruction: researchAssetInstruction(kind)
     });
+  const prompt = withSelectedVideoDuration(basePrompt, kind, duration);
   return {
     sourceLabel: "Research result",
     sourceTitle: item.title,
     sourceDescription: item.description || `${item.platform} result with ${compact(item.views)} views.`,
     kind,
-    model: kind === "image" ? "gpt-image-2" : kind === "text" ? "gemini-3.5-flash" : "veo-fast",
-    duration: kind === "video" ? 8 : undefined,
+    model,
+    duration,
     aspectRatio: kind === "image" ? "1:1" : "9:16",
     prompt,
     caption: item.description || item.title,
@@ -1652,7 +1662,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
   };
   const changeModel = (next: string) => {
     setModel(next);
-    setDuration(closestDuration(duration || activeInitial.duration || 8, durationOptionsForModel(next)));
+    setDuration(closestDuration(activeInitial.duration || duration || 8, durationOptionsForModel(next)));
   };
   const updateAssetRef = (role: AssetReference["role"], file?: File | null) => {
     setAssetRefs((current) => {
@@ -1698,7 +1708,8 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
         startedAt: Date.now()
       });
       const cleanRefs = visualAssetsEnabled ? await uploadAssetReferences(assetRefs) : [];
-      const prompt = enrichPromptForSocialConversion(String(form.get("prompt") || ""), kind, cleanRefs);
+      const promptWithDuration = withSelectedVideoDuration(String(form.get("prompt") || ""), kind, duration);
+      const prompt = enrichPromptForSocialConversion(promptWithDuration, kind, cleanRefs);
       await onSubmit({
         platform: selectedPlatform,
         prompt,

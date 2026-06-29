@@ -457,6 +457,7 @@ function apifyItemsToResearchResults(items: Awaited<ReturnType<typeof scanSocial
     thumbnailUrl: item.thumbnailUrl,
     mediaUrl: item.mediaUrl,
     mediaType: item.mediaType,
+    duration: item.duration,
     description: item.description,
     views: item.views,
     likes: item.likes,

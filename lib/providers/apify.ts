@@ -21,6 +21,7 @@ type NormalizedSocialItem = {
   thumbnailUrl: string;
   mediaUrl: string;
   mediaType: "video" | "image" | "unknown";
+  duration?: number;
   views: number;
   likes: number;
   comments: number;
@@ -166,6 +167,25 @@ function mediaTypeFrom(item: Record<string, unknown>, mediaUrl: string): "video"
   return mediaUrl ? "unknown" : "unknown";
 }
 
+function durationFrom(item: Record<string, unknown>) {
+  const value =
+    n(item.durationSeconds) ||
+    n(item.durationSec) ||
+    n(item.videoDuration) ||
+    n(item.videoDurationSeconds) ||
+    n(item.lengthSeconds) ||
+    n(item.lengthSec) ||
+    n(item.duration) ||
+    n(nested(item, "video.durationSeconds")) ||
+    n(nested(item, "video.duration")) ||
+    n(nested(item, "videoMeta.durationSeconds")) ||
+    n(nested(item, "videoMeta.duration")) ||
+    n(nested(item, "musicMeta.duration"));
+  if (!value) return undefined;
+  const seconds = value > 1000 ? value / 1000 : value;
+  return Math.max(1, Math.round(seconds));
+}
+
 function normalizeSocialItem(item: Record<string, unknown>, index: number, fallbackUrl = ""): NormalizedSocialItem {
   const stats = typeof item.stats === "object" && item.stats ? item.stats as Record<string, unknown> : {};
   const title = firstString(item.title, item.text, item.caption, item.description, item.desc, item.name) || `Social post ${index + 1}`;
@@ -179,6 +199,7 @@ function normalizeSocialItem(item: Record<string, unknown>, index: number, fallb
     thumbnailUrl: thumbnailFrom(item),
     mediaUrl,
     mediaType: mediaTypeFrom(item, mediaUrl),
+    duration: durationFrom(item),
     views: n(item.views) || n(item.playCount) || n(item.videoViewCount) || n(item.viewCount) || n(item.view_count) || n(item.playCountText) || n(stats.views) || n(stats.playCount),
     likes: n(item.likes) || n(item.likeCount) || n(item.diggCount) || n(item.likesCount) || n(item.likes_count) || n(item.likesCountText) || n(stats.likes),
     comments: n(item.comments) || n(item.commentCount) || n(item.commentsCount) || n(item.comment_count) || n(item.commentsCountText) || n(stats.comments),

@@ -147,6 +147,7 @@ Demo web app login:
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+- 2026-06-29: Removed Research keyword recommendations and selected-keyword chips. The keyword search input now starts empty and users type their own keywords directly.
 - 2026-06-29: Renamed the visible `Publish` sidebar/page title to `My Contents` while keeping the internal `publish` screen and backend publish actions unchanged.
 - 2026-06-29: Restored the earlier accurate Instagram keyword behavior while keeping platform/content-type filters. Reverted spaced Instagram keyword searches away from fuzzy `searchType: "user"` profile scraping, added keyword relevance filtering before accepting platform actor rows, passed the original query into background scan completion, applied the same relevance check to Google-style fallback rows, and bumped keyword cache to `kw-v7-fallback-keyword-relevance`. Local tests: `sheila majid` + Instagram + All types now falls back to broader Apify keyword results with 19 relevant Instagram rows; `sheila majid` + Instagram + Short video no longer returns broad random reels and produced only the stricter matching row. Local `npm run build` passed.
 - 2026-06-29: Removed the old platform helper dimension text under Research keyword platform names. Platform buttons now show only Instagram, TikTok, YouTube, Facebook, and LinkedIn because content type/dimension is selected in the dedicated Content type section below.

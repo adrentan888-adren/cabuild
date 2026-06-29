@@ -92,13 +92,6 @@ type AppData = {
 };
 
 const platforms: Platform[] = ["TikTok", "Instagram", "LinkedIn", "Facebook", "X"];
-const suggestedResearchKeywords = [
-  ["AI automation", 92],
-  ["leadership mindset", 87],
-  ["n8n workflows", 76],
-  ["SME growth", 72],
-  ["personal branding", 68]
-] as const;
 const researchActors = [
   { id: "instagram", label: "Instagram" },
   { id: "tiktok", label: "TikTok" },
@@ -913,7 +906,7 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
   const [sortOpen, setSortOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [activeScanId, setActiveScanId] = useState<string | null>(data.researchScans[0]?.id || null);
-  const [keywordText, setKeywordText] = useState("AI automation, n8n workflows");
+  const [keywordText, setKeywordText] = useState("");
   const [actorSource, setActorSource] = useState("instagram");
   const [contentType, setContentType] = useState("");
   const [uploadDate, setUploadDate] = useState("");
@@ -1036,12 +1029,6 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
       description: item.description
     });
   };
-  const addKeyword = (keyword: string) => {
-    const parts = keywordText.split(",").map((item) => item.trim()).filter(Boolean);
-    if (!parts.some((item) => item.toLowerCase() === keyword.toLowerCase())) setKeywordText([...parts, keyword].join(", "));
-  };
-  const keywordParts = keywordText.split(",").map((item) => item.trim()).filter(Boolean);
-  const removeKeyword = (keyword: string) => setKeywordText(keywordParts.filter((item) => item !== keyword).join(", "));
   const selectedActor = researchActors.find((item) => item.id === actorSource);
   const selectedContentType = availableContentTypes.find((item) => item.id === contentType);
   const scanLabel = (scanItem: AppData["researchScans"][number]) => scanItem.query || (scanItem.url.startsWith("keyword:") ? scanItem.url.split("|")[0].replace("keyword:", "") : scanItem.url);
@@ -1105,7 +1092,7 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
         ) : (
           <form onSubmit={(event) => { event.preventDefault(); if (!activeScanStatus) void scanKeywords(new FormData(event.currentTarget)); }} className="keyword-form">
             <div className="keyword-input-row">
-              <label>Keywords<input name="keywords" value={keywordText} onChange={(event) => setKeywordText(event.target.value)} placeholder="AI automation, founder productivity, n8n workflows" required /></label>
+              <label>Keywords<input name="keywords" value={keywordText} onChange={(event) => setKeywordText(event.target.value)} placeholder="Enter keywords, e.g. sheila majid" required /></label>
               <label>Minimum views<input name="minViews" type="number" min="0" step="1" defaultValue="0" /></label>
               <button
                 type="button"
@@ -1122,22 +1109,6 @@ function IntelligencePanel({ data, run, refresh, setScreen, setPendingPlan, setD
                 <Search size={14} />{activeScanStatus === "keywords" ? "Scanning..." : "Search"}
               </button>
             </div>
-            <div className="suggested-keywords">
-              {suggestedResearchKeywords.map(([keyword, score]) => (
-                <button type="button" key={keyword} onClick={() => addKeyword(keyword)}>
-                  {keyword}<span>{score}</span>
-                </button>
-              ))}
-            </div>
-            {keywordParts.length > 0 && (
-              <div className="keyword-chip-row" aria-label="Selected keywords">
-                {keywordParts.map((keyword) => (
-                  <button type="button" key={keyword} onClick={() => removeKeyword(keyword)} title={`Remove ${keyword}`}>
-                    {keyword}<span>x</span>
-                  </button>
-                ))}
-              </div>
-            )}
             <div className="dimension-shell">
               <label className="upload-date-filter">Upload Date<select value={uploadDate} onChange={(event) => setUploadDate(event.target.value)}>
                 <option value="">Any time</option>

@@ -383,7 +383,7 @@ export default function Home() {
     ["research", "Research", Radar],
     ["plan", "Content Plan", FileText],
     ["create", "Create Content", Wand2],
-    ["publish", "Publish", CalendarDays],
+    ["publish", "My Contents", CalendarDays],
     ["automation", "Automation", RefreshCcw],
     ["analyse", "Analyse", BarChart3],
     ["logs", "Logs", Bug],
@@ -474,7 +474,7 @@ export default function Home() {
 }
 
 function title(screen: string) {
-  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", plan: "Content Plan", create: "Create Content", publish: "Publish", automation: "Automation", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
+  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", plan: "Content Plan", create: "Create Content", publish: "My Contents", automation: "Automation", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
 }
 
 function AnimatedDots({ label }: { label: string }) {
@@ -2127,8 +2127,8 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
       {previewAsset?.assetUrl && <AssetPreviewModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
       <section className="plan-hero">
         <div>
-          <div className="clbl">Publish</div>
-          <h2>Generated drafts and publish queue</h2>
+          <div className="clbl">My Contents</div>
+          <h2>Generated drafts and content queue</h2>
           <p>Generated content appears here first, then moves to Upload-Post once it is done.</p>
         </div>
         <Metric label="Done drafts" value={queue.filter((item) => item.status === "done").length} />

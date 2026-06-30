@@ -450,6 +450,11 @@ function sourceActorId(source: ActorSource) {
   return envMap[source] || defaultMap[source];
 }
 
+function sourceKeywordActorId(source: ActorSource) {
+  if (source === "instagram") return process.env.APIFY_INSTAGRAM_KEYWORD_ACTOR_ID || "apify/instagram-hashtag-scraper";
+  return sourceActorId(source);
+}
+
 function sourcePlatform(source: ActorSource): Platform {
   return ({
     instagram: "Instagram",
@@ -499,8 +504,7 @@ function platformSearchInput(source: ActorSource, keywords: string, uploadDate: 
   if (source === "instagram") {
     const search = instagramKeywordToken(keywords) || query;
     return {
-      directUrls: [`https://www.instagram.com/explore/tags/${encodeURIComponent(search)}/`],
-      resultsType: contentType === "instagram-reels" || contentType === "short-video" || contentType === "video" ? "reels" : "posts",
+      hashtags: [search],
       resultsLimit: maxItems,
       maxItems,
       addParentData: false,
@@ -641,8 +645,8 @@ function matchesContentType(item: NormalizedSocialItem, contentType = "") {
   const haystack = `${item.title} ${item.description} ${item.sourceUrl} ${item.mediaType}`.toLowerCase();
   if (!contentType) return true;
   if (contentType === "video") return item.mediaType === "video" || /(video|reel|short|watch|tiktok|youtube)/.test(haystack);
-  if (contentType === "instagram-reels") return item.platform === "Instagram" && /(instagram\.com\/reel|reel)/.test(haystack);
-  if (contentType === "instagram-posts") return item.platform === "Instagram" && /(instagram\.com\/p\/|post|photo|image|carousel)/.test(haystack) && !/instagram\.com\/reel/.test(haystack);
+  if (contentType === "instagram-reels") return item.platform === "Instagram" && (item.mediaType === "video" || /(instagram\.com\/reel|reel|video|clips)/.test(haystack));
+  if (contentType === "instagram-posts") return item.platform === "Instagram" && (item.mediaType === "image" || /(instagram\.com\/p\/|post|photo|image|carousel|sidecar)/.test(haystack)) && item.mediaType !== "video" && !/instagram\.com\/reel/.test(haystack);
   if (contentType === "short-video") {
     if (typeof item.duration === "number") return item.duration <= 90;
     if (/(shorts|reel|tiktok|vertical|9:16)/.test(haystack)) return true;
@@ -694,7 +698,7 @@ function matchesVisibleKeywordIntent(item: NormalizedSocialItem, keywords: strin
 export async function scanKeywordsWithApify(keywords: string, dimensions: KeywordDimensions, minViews: number, options: { skipPlatformActor?: boolean } = {}) {
   if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = selectedSource(dimensions);
-  const actorId = sourceActorId(source);
+  const actorId = sourceKeywordActorId(source);
   const uploadDate = dimensions.uploadDate || "";
   const contentType = dimensions.contentType || dimensions.contentTypes?.[0] || "";
   if (actorId && !options.skipPlatformActor) {

@@ -680,9 +680,6 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
     persona.primaryAudience,
     persona.audienceInsight,
     persona.voiceStyle,
-    persona.naturalPhrases.length,
-    persona.approvedTopics.length,
-    persona.strongOpinions,
     persona.writingSamples.length
   ];
   const completion = Math.round((completionChecks.filter(Boolean).length / completionChecks.length) * 100);
@@ -706,28 +703,15 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
         <div>
           <div className="msub">Module 1 - Persona</div>
           <h2>Reference persona</h2>
-          <p>Define the voice and identity used by research video, image, and text prompts. Updates replace this profile instead of creating another one.</p>
+          <p>Keep one reusable voice profile for research, image, video, and text prompts. Start simple; advanced guardrails are optional.</p>
         </div>
         <span className="last-upd">{persona.updatedAt ? `Updated ${new Date(persona.updatedAt).toLocaleString()}` : "Not saved yet"}</span>
       </section>
 
-      <div className="path-grid persona-paths">
-        <button className="path-card featured" onClick={() => setShowAutofill(true)}>
-          <Search size={20} />
-          <b>Learn from a channel</b>
-          <span>Paste public social or website URLs to store as future autofill sources.</span>
-        </button>
-        <button className="path-card" onClick={() => setShowAutofill(false)}>
-          <FileText size={20} />
-          <b>Edit directly</b>
-          <span>Maintain the fields that feed generation prompts.</span>
-        </button>
-      </div>
-
       <section className="persona-summary">
         <Metric label="Profile completion" value={`${completion}%`} />
         <Metric label="Voice" value={persona.voiceStyle ? "set" : "missing"} />
-        <Metric label="Approved topics" value={persona.approvedTopics.length} />
+        <Metric label="Sources" value={Object.values(persona.sourceUrls).filter(Boolean).length} />
       </section>
 
       <form action={save} className="persona-setup">
@@ -745,7 +729,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
               </div>
               <button type="button" onClick={() => setShowAutofill(false)}>Close</button>
             </div>
-            <p className="muted">Apify crawls public snippets from these URLs, then GPT-5.5 in Kie maps the findings into your persona fields.</p>
+            <p className="muted">Apify crawls public snippets from these URLs, then GPT-5.5 in Kie maps the findings into the core persona fields.</p>
             <div className="grid two">
               <label>LinkedIn<input name="linkedinUrl" defaultValue={persona.sourceUrls.linkedin} placeholder="linkedin.com/in/yourname" /></label>
               <label>Facebook<input name="facebookUrl" defaultValue={persona.sourceUrls.facebook || ""} placeholder="facebook.com/yourprofile" /></label>
@@ -762,10 +746,10 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
 
         <section className="persona-card">
           <div className="persona-fields">
-            <div className="autofill-banner"><span className="dot" /><span>Crawl public URLs and auto-fill with GPT-5.5, then review the prompt voice fields below.</span><button type="button" onClick={() => setShowAutofill(true)}>Auto-fill</button></div>
+            <div className="autofill-banner"><span className="dot" /><span>Use the few fields below as the default prompt persona. Public URLs can auto-fill them when needed.</span><button type="button" onClick={() => setShowAutofill(true)}>Auto-fill</button></div>
 
             <div className="persona-advanced">
-              <div className="clbl">Identity</div>
+              <div className="clbl">Core profile</div>
               <div className="grid two">
                 <label>Display name<input name="displayName" defaultValue={persona.displayName} placeholder="Sean C" /></label>
                 <label>Role<input name="role" defaultValue={persona.role} placeholder="Founder / CEO" /></label>
@@ -775,41 +759,28 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
             </div>
 
             <div className="persona-advanced">
-              <div className="clbl">Audience</div>
+              <div className="clbl">Audience and voice</div>
               <label>Primary audience<input name="primaryAudience" defaultValue={persona.primaryAudience} placeholder="SME owners and operators in SEA" /></label>
               <label>Audience insight<textarea name="audienceInsight" defaultValue={persona.audienceInsight} placeholder="They want automation wins, but worry about cost, complexity, and disruption." /></label>
-              <label>Content language<select name="contentLanguage" defaultValue={persona.contentLanguage}><option>English only</option><option>English + BM</option><option>English + Mandarin</option><option>Manglish</option><option>Multi-language</option></select></label>
+              <div className="grid two">
+                <label>Voice style<input name="voiceStyle" defaultValue={persona.voiceStyle} placeholder="friendly, practical, slightly humorous" /></label>
+                <label>Content language<select name="contentLanguage" defaultValue={persona.contentLanguage}><option>English only</option><option>English + BM</option><option>English + Mandarin</option><option>Manglish</option><option>Multi-language</option></select></label>
+              </div>
+              <label>Writing samples<textarea name="writingSamples" defaultValue={listValue(persona.writingSamples)} placeholder="Paste up to 3 samples, separated by a blank line or comma." /></label>
             </div>
 
-            <div className="persona-advanced">
-              <div className="clbl">Voice</div>
-              <label>Voice style<input name="voiceStyle" defaultValue={persona.voiceStyle} placeholder="friendly, practical, slightly humorous" /></label>
+            <details className="persona-advanced">
+              <summary>Advanced prompt guardrails</summary>
               <label>Natural phrases<input name="naturalPhrases" defaultValue={listValue(persona.naturalPhrases)} placeholder="Here's the thing, Real talk" /></label>
               <PersonaChips items={persona.naturalPhrases} />
               <label>Banned vocabulary<input name="bannedVocabulary" defaultValue={listValue(persona.bannedVocabulary)} placeholder="synergy, disruptive" /></label>
               <PersonaChips items={persona.bannedVocabulary} />
-              <label>Writing samples<textarea name="writingSamples" defaultValue={listValue(persona.writingSamples)} placeholder="Paste up to 3 samples, separated by a blank line or comma." /></label>
-            </div>
-
-            <div className="persona-advanced">
-              <div className="clbl">Guardrails</div>
               <label>Approved topics<input name="approvedTopics" defaultValue={listValue(persona.approvedTopics)} placeholder="AI automation, founder productivity" /></label>
               <PersonaChips items={persona.approvedTopics} />
               <label>Off-limits topics<input name="offLimitsTopics" defaultValue={listValue(persona.offLimitsTopics)} placeholder="Politics, medical advice" /></label>
               <PersonaChips items={persona.offLimitsTopics} />
               <label>Strong opinions<textarea name="strongOpinions" defaultValue={persona.strongOpinions} placeholder="AI will not replace jobs - it replaces tasks." /></label>
-            </div>
-
-            <div className="persona-advanced">
-              <div className="clbl">Public URLs</div>
-              <div className="grid two">
-                <label>LinkedIn<input name="linkedinUrl" defaultValue={persona.sourceUrls.linkedin} placeholder="linkedin.com/in/yourname" /></label>
-                <label>Facebook<input name="facebookUrl" defaultValue={persona.sourceUrls.facebook || ""} placeholder="facebook.com/yourprofile" /></label>
-                <label>Website<input name="websiteUrl" defaultValue={persona.sourceUrls.website} placeholder="yourcompany.com" /></label>
-                <label>Instagram<input name="instagramUrl" defaultValue={persona.sourceUrls.instagram} placeholder="instagram.com/yourhandle" /></label>
-                <label>X / Twitter<input name="xUrl" defaultValue={persona.sourceUrls.x} placeholder="x.com/yourhandle" /></label>
-              </div>
-            </div>
+            </details>
           </div>
         </section>
 

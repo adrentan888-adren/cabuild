@@ -353,6 +353,17 @@ function cleanPersonaName(value: string) {
   return trimmed;
 }
 
+function fallbackPersonaCrawlFromUrls(sourceUrls: Record<string, string>) {
+  return Object.entries(sourceUrls)
+    .filter(([, url]) => url.trim())
+    .map(([source, url]) => {
+      const name = nameFromProfileUrl(url);
+      const sourceLabel = source.charAt(0).toUpperCase() + source.slice(1);
+      const text = [name, `${name || sourceLabel} public ${sourceLabel} profile`, url].filter(Boolean).join("\n");
+      return { source, url, text, itemCount: 0 };
+    });
+}
+
 function fallbackPersonaFromCrawl(current: PersonaProfile, crawled: Awaited<ReturnType<typeof crawlPersonaSourcesWithApify>>) {
   const linkedin = crawled.find((item) => item.source === "linkedin");
   const facebook = crawled.find((item) => item.source === "facebook");
@@ -1601,15 +1612,30 @@ export async function POST(req: Request) {
       details: { sourceUrls }
     });
     try {
-      const crawled = await crawlPersonaSourcesWithApify(sourceUrls);
+      let crawled: Awaited<ReturnType<typeof crawlPersonaSourcesWithApify>>;
+      let crawlFallbackReason = "";
+      try {
+        crawled = await crawlPersonaSourcesWithApify(sourceUrls);
+      } catch (error) {
+        crawlFallbackReason = error instanceof Error ? error.message : "Apify persona crawl failed";
+        crawled = fallbackPersonaCrawlFromUrls(sourceUrls);
+        await debugLog(workspaceId, {
+          action,
+          label: "Persona auto-fill Apify crawl fallback used",
+          status: "failed",
+          provider: "apify",
+          error: crawlFallbackReason,
+          details: { sourceUrls, fallbackSources: crawled.map((item) => ({ source: item.source, itemCount: item.itemCount })) }
+        });
+      }
       const prompt = buildPersonaAutofillPrompt({ current: existing, crawled });
       await debugLog(workspaceId, {
         action,
-        label: "Prompt sent to Kie GPT-5.5 for persona auto-fill",
+        label: crawlFallbackReason ? "Prompt sent to Kie GPT-5.5 for persona auto-fill with URL fallback" : "Prompt sent to Kie GPT-5.5 for persona auto-fill",
         status: "started",
         provider: "kie",
         prompt,
-        details: { model: "gpt-5-5", crawledSources: crawled.map((item) => ({ source: item.source, itemCount: item.itemCount })) }
+        details: { model: "gpt-5-5", crawlFallbackReason, crawledSources: crawled.map((item) => ({ source: item.source, itemCount: item.itemCount })) }
       });
       let compactGenerated: Record<string, unknown>;
       let usedFallback = false;
@@ -1644,7 +1670,7 @@ export async function POST(req: Request) {
         const merged = personaFromBody(workspaceId, { ...compactGenerated, ...Object.fromEntries(Object.entries(sourceUrls).map(([key, value]) => [`${key}Url`, value])) }, previous);
         if (existingIndex >= 0) db.personaProfiles[existingIndex] = merged;
         else db.personaProfiles.push(merged);
-        db.activity.push({ id: id("act"), workspaceId, message: `Persona auto-filled from ${crawled.length} public source(s).`, createdAt: new Date().toISOString() });
+        db.activity.push({ id: id("act"), workspaceId, message: crawlFallbackReason ? `Persona auto-filled from public URLs because Apify crawl was unavailable.` : `Persona auto-filled from ${crawled.length} public source(s).`, createdAt: new Date().toISOString() });
         return merged;
       });
       await debugLog(workspaceId, {
@@ -1652,7 +1678,7 @@ export async function POST(req: Request) {
         label: "Persona auto-fill completed",
         status: "success",
         provider: usedFallback ? "system" : "kie",
-        details: { model: "gpt-5-5", usedFallback, displayName: profile.displayName, company: profile.company }
+        details: { model: "gpt-5-5", usedFallback, crawlFallbackReason, displayName: profile.displayName, company: profile.company }
       });
       return NextResponse.json(profile);
     } catch (error) {

@@ -38,20 +38,42 @@ type ResearchRunMeta = {
   minViews: number;
 };
 
-function token() {
-  return process.env.APIFY_API_TOKEN;
+function apifyTokens() {
+  return [process.env.APIFY_API_TOKEN, process.env.APIFY_BACKUP_API_TOKEN]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .filter((value, index, all) => all.indexOf(value) === index);
 }
 
 export function hasApify() {
-  return Boolean(token());
+  return apifyTokens().length > 0;
+}
+
+function shouldRetryWithBackup(status: number, text: string) {
+  return [401, 402, 403, 429].includes(status) || /not-enough-usage|quota|billing|payment|required|usage|rate limit/i.test(text);
+}
+
+async function fetchWithApifyToken(urlForToken: (tokenValue: string) => string, init: RequestInit, label: string) {
+  const availableTokens = apifyTokens();
+  if (!availableTokens.length) throw new Error("APIFY_API_TOKEN is not configured.");
+  let lastStatus = 0;
+  let lastText = "";
+  for (let index = 0; index < availableTokens.length; index += 1) {
+    const res = await fetch(urlForToken(availableTokens[index]), init);
+    const text = await res.text();
+    if (res.ok) return { text, usedBackupToken: index > 0 };
+    lastStatus = res.status;
+    lastText = text;
+    if (!shouldRetryWithBackup(res.status, text) || index === availableTokens.length - 1) break;
+  }
+  throw new Error(`${label} failed with HTTP ${lastStatus}: ${lastText.slice(0, 180)}`);
 }
 
 export async function fetchTrendSignals(niche: string) {
-  if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
   const actorId = process.env.APIFY_ACTOR_ID || "apify/google-search-scraper";
   const apiActorId = actorId.replace("/", "~");
-  const url = `https://api.apify.com/v2/actors/${apiActorId}/run-sync-get-dataset-items?token=${token()}`;
-  const res = await fetch(url, {
+  const { text } = await fetchWithApifyToken((tokenValue) => `https://api.apify.com/v2/actors/${apiActorId}/run-sync-get-dataset-items?token=${tokenValue}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -61,9 +83,8 @@ export async function fetchTrendSignals(niche: string) {
       countryCode: "us",
       languageCode: "en"
     })
-  });
-  if (!res.ok) throw new Error(`Apify actor failed with HTTP ${res.status}.`);
-  const items = (await res.json()) as ApifySearchItem[];
+  }, "Apify actor");
+  const items = JSON.parse(text) as ApifySearchItem[];
   return items
     .flatMap((item) => item.organicResults || item.nonPromotedSearchResults || [])
     .filter((item) => item.title)
@@ -208,7 +229,7 @@ function normalizeSocialItem(item: Record<string, unknown>, index: number, fallb
 }
 
 export async function scanSocialUrl(url: string, minViews: number) {
-  if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = actorSourceFromUrl(url);
   const actorId = process.env.APIFY_SOCIAL_ACTOR_ID || sourceActorId(source);
   if (actorId) {
@@ -322,8 +343,7 @@ function scopedToUrl(item: Record<string, unknown>, targetUrl: string) {
 
 async function scanUrlWithSearchActor(targetUrl: string, minViews: number): Promise<NormalizedSocialItem[]> {
   const actorId = (process.env.APIFY_ACTOR_ID || "apify/google-search-scraper").replace("/", "~");
-  const endpoint = `https://api.apify.com/v2/actors/${actorId}/run-sync-get-dataset-items?token=${token()}&timeout=120`;
-  const res = await fetch(endpoint, {
+  const { text } = await fetchWithApifyToken((tokenValue) => `https://api.apify.com/v2/actors/${actorId}/run-sync-get-dataset-items?token=${tokenValue}&timeout=120`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -333,9 +353,8 @@ async function scanUrlWithSearchActor(targetUrl: string, minViews: number): Prom
       countryCode: "us",
       languageCode: "en"
     })
-  });
-  if (!res.ok) throw new Error(`Apify URL search failed with HTTP ${res.status}.`);
-  const items = (await res.json()) as ApifySearchItem[];
+  }, "Apify URL search");
+  const items = JSON.parse(text) as ApifySearchItem[];
   const baseViews = Math.max(minViews, 10000);
   return items
     .flatMap((item) => item.organicResults || item.nonPromotedSearchResults || [])
@@ -563,26 +582,20 @@ function platformUrlInput(source: ActorSource, url: string) {
 }
 
 async function runApifyActor(actorId: string, input: Record<string, unknown>) {
-  const endpoint = `https://api.apify.com/v2/actors/${actorId.replace("/", "~")}/run-sync-get-dataset-items?token=${token()}&timeout=180`;
-  const res = await fetch(endpoint, {
+  const { text } = await fetchWithApifyToken((tokenValue) => `https://api.apify.com/v2/actors/${actorId.replace("/", "~")}/run-sync-get-dataset-items?token=${tokenValue}&timeout=180`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input)
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Apify actor ${actorId} failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
+  }, `Apify actor ${actorId}`);
   return JSON.parse(text) as Array<Record<string, unknown>>;
 }
 
 async function startApifyActor(actorId: string, input: Record<string, unknown>) {
-  const endpoint = `https://api.apify.com/v2/acts/${actorId.replace("/", "~")}/runs?token=${token()}`;
-  const res = await fetch(endpoint, {
+  const { text } = await fetchWithApifyToken((tokenValue) => `https://api.apify.com/v2/acts/${actorId.replace("/", "~")}/runs?token=${tokenValue}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input)
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Apify actor ${actorId} start failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
+  }, `Apify actor ${actorId} start`);
   const json = JSON.parse(text) as { data?: { id?: string; defaultDatasetId?: string } };
   const runId = json.data?.id || "";
   const datasetId = json.data?.defaultDatasetId || "";
@@ -591,7 +604,7 @@ async function startApifyActor(actorId: string, input: Record<string, unknown>) 
 }
 
 export async function startSocialUrlScanRun(url: string, minViews: number): Promise<ResearchRunMeta> {
-  if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = actorSourceFromUrl(url);
   const actorId = process.env.APIFY_SOCIAL_ACTOR_ID || sourceActorId(source);
   if (!actorId) throw new Error(`No Apify actor configured for ${source}.`);
@@ -600,7 +613,7 @@ export async function startSocialUrlScanRun(url: string, minViews: number): Prom
 }
 
 export async function startKeywordScanRun(keywords: string, dimensions: KeywordDimensions, minViews: number): Promise<ResearchRunMeta & { contentType: string }> {
-  if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = selectedSource(dimensions);
   const actorId = sourceKeywordActorId(source);
   if (!actorId) throw new Error(`No Apify actor configured for ${source}.`);
@@ -610,18 +623,14 @@ export async function startKeywordScanRun(keywords: string, dimensions: KeywordD
 }
 
 export async function completeSocialUrlScanRun(meta: ResearchRunMeta) {
-  if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
-  const runRes = await fetch(`https://api.apify.com/v2/actor-runs/${meta.runId}?token=${token()}`, { cache: "no-store" });
-  const runText = await runRes.text();
-  if (!runRes.ok) throw new Error(`Apify run status failed with HTTP ${runRes.status}: ${runText.slice(0, 180)}`);
+  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
+  const { text: runText } = await fetchWithApifyToken((tokenValue) => `https://api.apify.com/v2/actor-runs/${meta.runId}?token=${tokenValue}`, { cache: "no-store" }, "Apify run status");
   const runJson = JSON.parse(runText) as { data?: { status?: string } };
   const status = runJson.data?.status || "";
   if (["READY", "RUNNING"].includes(status)) return { status: "running" as const, items: [] as NormalizedSocialItem[] };
   if (status !== "SUCCEEDED") throw new Error(`Apify run ended with status ${status || "unknown"}.`);
 
-  const itemsRes = await fetch(`https://api.apify.com/v2/datasets/${meta.datasetId}/items?token=${token()}&clean=true`, { cache: "no-store" });
-  const itemsText = await itemsRes.text();
-  if (!itemsRes.ok) throw new Error(`Apify dataset fetch failed with HTTP ${itemsRes.status}: ${itemsText.slice(0, 180)}`);
+  const { text: itemsText } = await fetchWithApifyToken((tokenValue) => `https://api.apify.com/v2/datasets/${meta.datasetId}/items?token=${tokenValue}&clean=true`, { cache: "no-store" }, "Apify dataset fetch");
   const actorItems = JSON.parse(itemsText) as Array<Record<string, unknown>>;
   return {
     status: "done" as const,
@@ -696,7 +705,7 @@ function matchesVisibleKeywordIntent(item: NormalizedSocialItem, keywords: strin
 }
 
 export async function scanKeywordsWithApify(keywords: string, dimensions: KeywordDimensions, minViews: number, options: { skipPlatformActor?: boolean } = {}) {
-  if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = selectedSource(dimensions);
   const actorId = sourceKeywordActorId(source);
   const uploadDate = dimensions.uploadDate || "";
@@ -730,8 +739,7 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
   const query = `${keywords} ${sourceTerms} ${contentTypeQuery(contentType)} ${uploadDateQuery(uploadDate)}`.replace(/\s+/g, " ").trim();
   const queries = keywordSearchQueries(keywords, actorSources, uploadDate, contentType);
   const fallbackActorId = (process.env.APIFY_KEYWORD_ACTOR_ID || process.env.APIFY_ACTOR_ID || "apify/google-search-scraper").replace("/", "~");
-  const endpoint = `https://api.apify.com/v2/actors/${fallbackActorId}/run-sync-get-dataset-items?token=${token()}&timeout=120`;
-  const res = await fetch(endpoint, {
+  const { text } = await fetchWithApifyToken((tokenValue) => `https://api.apify.com/v2/actors/${fallbackActorId}/run-sync-get-dataset-items?token=${tokenValue}&timeout=120`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -749,9 +757,8 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
       countryCode: "us",
       languageCode: "en"
     })
-  });
-  if (!res.ok) throw new Error(`Apify keyword scan failed with HTTP ${res.status}.`);
-  const items = (await res.json()) as ApifySearchItem[];
+  }, "Apify keyword scan");
+  const items = JSON.parse(text) as ApifySearchItem[];
   const baseViews = Math.max(minViews, 10000);
   const directItems = (items as unknown as Array<Record<string, unknown>>)
     .filter((item) => !Array.isArray(item.organicResults) && !Array.isArray(item.nonPromotedSearchResults))
@@ -787,13 +794,12 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
 }
 
 export async function crawlPersonaSourcesWithApify(urls: Record<string, string>) {
-  if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
   const entries = Object.entries(urls).filter(([, url]) => url.trim());
   if (!entries.length) return [];
   const actorId = (process.env.APIFY_KEYWORD_ACTOR_ID || process.env.APIFY_ACTOR_ID || "apify/google-search-scraper").replace("/", "~");
   const queryList = entries.map(([source, url]) => `${url} ${source} profile about posts`).slice(0, 8);
-  const endpoint = `https://api.apify.com/v2/actors/${actorId}/run-sync-get-dataset-items?token=${token()}&timeout=120`;
-  const res = await fetch(endpoint, {
+  const { text } = await fetchWithApifyToken((tokenValue) => `https://api.apify.com/v2/actors/${actorId}/run-sync-get-dataset-items?token=${tokenValue}&timeout=120`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -803,9 +809,7 @@ export async function crawlPersonaSourcesWithApify(urls: Record<string, string>)
       countryCode: "us",
       languageCode: "en"
     })
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Apify persona crawl failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
+  }, "Apify persona crawl");
   const items = JSON.parse(text) as Array<Record<string, unknown>>;
   const flattened: Array<Record<string, unknown>> = items.flatMap((item) => {
     const searchQuery = s(item.searchQuery);

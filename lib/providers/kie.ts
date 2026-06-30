@@ -302,7 +302,13 @@ export async function generateContentPlanWithGpt55(input: { idea: string; niche:
     .map((item) => item.text || "")
     .join("")
     .trim();
-  return extractJson(content || text);
+  const json = extractJson(content || text) as Record<string, unknown>;
+  const code = json.code || json.statusCode || json.status;
+  const message = String(json.msg || json.message || json.error || "");
+  if ((typeof code === "number" && code >= 400) || /server exception|failed|error/i.test(message)) {
+    throw new Error(message || `Kie GPT-5.5 returned ${code}`);
+  }
+  return json;
 }
 
 const fallbackVideoPromptRefineTemplate = `You are ContentAgent's senior video prompt engineer.
@@ -399,7 +405,13 @@ export async function generatePersonaAutofillWithGpt55(prompt: string) {
     .map((item) => item.text || "")
     .join("")
     .trim();
-  return extractJson(content || text);
+  const json = extractJson(content || text) as Record<string, unknown>;
+  const code = json.code || json.statusCode || json.status;
+  const message = String(json.msg || json.message || json.error || "");
+  if ((typeof code === "number" && code >= 400) || /server exception|failed|error/i.test(message)) {
+    throw new Error(message || `Kie GPT-5.5 persona autofill returned ${code}`);
+  }
+  return json;
 }
 
 export function buildContentPlanPrompt(input: PlanInput) {

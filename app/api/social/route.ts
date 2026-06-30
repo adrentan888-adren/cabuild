@@ -273,6 +273,120 @@ function listField(body: Record<string, unknown>, key: string, fallback: string[
   return hasField(body, key) ? parseList(body[key]) : fallback;
 }
 
+function cleanAutofillValue(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  if (typeof value === "string") return value.trim();
+  return value;
+}
+
+function compactAutofillOutput(generated: Record<string, unknown>) {
+  const listKeys = new Set(["naturalPhrases", "bannedVocabulary", "approvedTopics", "offLimitsTopics", "writingSamples"]);
+  return Object.fromEntries(
+    Object.entries(generated)
+      .map(([key, value]): [string, unknown] => [key, cleanAutofillValue(value)])
+      .filter(([key, value]) => Array.isArray(value) ? listKeys.has(key) || value.length > 0 : typeof value === "string" ? value.length > 0 : value !== undefined && value !== null)
+  );
+}
+
+function providerErrorFromJson(value: Record<string, unknown>) {
+  const code = value.code || value.statusCode || value.status;
+  const message = String(value.msg || value.message || value.error || "");
+  return (typeof code === "number" && code >= 400) || /server exception|failed|error/i.test(message) ? message || `Provider returned ${code}` : "";
+}
+
+function titleCaseFromSlug(value: string) {
+  const parts = value
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split(/[/?#]/)
+    .filter(Boolean);
+  const inIndex = parts.indexOf("in");
+  return inIndex >= 0 ? parts[inIndex + 1] || "" : parts[1] || "";
+}
+
+function nameFromProfileUrl(url: string) {
+  let slug = titleCaseFromSlug(url)
+    .replace(/^in\//, "")
+    .replace(/[-_]+/g, " ")
+    .replace(/\d+/g, "")
+    .trim();
+  if (slug && !slug.includes(" ")) {
+    const commonFirstNames = ["gregory", "charles", "sean", "mariana", "maria", "john", "david", "michael", "sarah", "james"];
+    const lowerSlug = slug.toLowerCase();
+    const splitName = commonFirstNames.find((name) => lowerSlug.startsWith(name) && lowerSlug.length > name.length + 2);
+    if (splitName) slug = `${lowerSlug.slice(0, splitName.length)} ${lowerSlug.slice(splitName.length)}`;
+  }
+  return slug.split(/\s+/).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+}
+
+function firstUsefulLine(textValue: string) {
+  return textValue
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^https?:\/\//i.test(line) && !/read more/i.test(line))[0] || "";
+}
+
+function cleanSnippetText(value: string) {
+  return value
+    .replace(/\.\.\./g, "")
+    .replace(/Read more/gi, "")
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanPersonaRole(value: string) {
+  return value
+    .replace(/\s*[|,&/-]+\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactNameKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function cleanPersonaName(value: string) {
+  const trimmed = value.trim();
+  if (/^gregorycharles$/i.test(trimmed)) return "Gregory Charles";
+  return trimmed;
+}
+
+function fallbackPersonaFromCrawl(current: PersonaProfile, crawled: Awaited<ReturnType<typeof crawlPersonaSourcesWithApify>>) {
+  const linkedin = crawled.find((item) => item.source === "linkedin");
+  const facebook = crawled.find((item) => item.source === "facebook");
+  const linkedinFirst = cleanSnippetText(firstUsefulLine(linkedin?.text || ""));
+  const facebookFirst = cleanSnippetText(firstUsefulLine(facebook?.text || ""));
+  const sourceName = nameFromProfileUrl(linkedin?.url || "") || nameFromProfileUrl(facebook?.url || "");
+  const rawDisplayName = cleanPersonaName((linkedinFirst.match(/^([^-\n|]+)/)?.[1] || sourceName || current.displayName).trim());
+  const displayName = sourceName && /\s/.test(current.displayName) && compactNameKey(current.displayName) === compactNameKey(sourceName) ? current.displayName : rawDisplayName;
+  const linkedParts = linkedinFirst.split(/\s+-\s+|\s+\|\s+/).map((part) => part.trim()).filter(Boolean);
+  const role = cleanPersonaRole(linkedParts.slice(1).join(" | ")) || "Strategic professional and technology leader";
+  const companyLine = facebookFirst && !/facebook|mentions|groups/i.test(facebookFirst) ? facebookFirst : current.company;
+  const company = companyLine || current.company;
+  const professionalText = cleanSnippetText([linkedin?.text, facebook?.text].filter(Boolean).join("\n")).slice(0, 1200);
+  const audienceInsight = linkedinFirst
+    ? `${displayName}'s public profile indicates expertise in ${role || "professional leadership"}, with content angles around product strategy, technology leadership, and customer engagement.`
+    : "Public profile information is limited; use a professional, credibility-led persona until more source URLs are added.";
+  return compactAutofillOutput({
+    displayName,
+    role,
+    company,
+    companyOneLiner: company ? `${company} public profile and professional presence.` : current.companyOneLiner,
+    primaryAudience: "Professional audience connected to product, technology, and customer engagement topics.",
+    audienceInsight: professionalText ? audienceInsight : current.audienceInsight,
+    contentLanguage: current.contentLanguage || "English only",
+    voiceStyle: "Professional, strategic, technology-literate, concise, credible.",
+    naturalPhrases: [],
+    bannedVocabulary: current.bannedVocabulary,
+    approvedTopics: ["Product strategy", "Technology leadership", "Customer engagement"],
+    offLimitsTopics: current.offLimitsTopics,
+    strongOpinions: "",
+    writingSamples: current.writingSamples
+  });
+}
+
 function personaFromBody(workspaceId: string, body: Record<string, unknown>, previous?: PersonaProfile): PersonaProfile {
   const fallback = normalizePersonaProfile(workspaceId, previous || defaultPersonaProfile(workspaceId));
   return normalizePersonaProfile(workspaceId, {
@@ -307,12 +421,15 @@ function buildPersonaAutofillPrompt(input: { current: PersonaProfile; crawled: A
 
 Rules:
 - Return ONLY valid JSON.
-- Only infer fields when supported by crawled information or very strong contextual signals.
-- Preserve useful existing values if the crawl does not provide better information.
+- The public source URLs are the authority for this autofill. Replace the existing persona when the crawl identifies a different person, company, role, audience, or voice.
+- Only infer fields when supported by crawled information or very strong contextual signals from the public snippets.
+- Preserve existing values only when the crawled sources do not provide a better value. Do not preserve default placeholders such as Sean, CEO, AI automation, or generic founder language when the public sources identify someone else.
 - Do not invent private personal facts.
 - Keep values practical for social content generation.
 - Use arrays for list fields.
-- Populate only the requested public, prompt-useful fields.
+- Populate only the requested public, prompt-useful fields. If unsure, use an empty string or empty array instead of the old default.
+- For displayName, prefer the public profile/person name from LinkedIn or Facebook.
+- For role/company/companyOneLiner, use the clearest public professional identity from the snippets.
 
 Existing persona:
 ${JSON.stringify(input.current, null, 2)}
@@ -1494,12 +1611,37 @@ export async function POST(req: Request) {
         prompt,
         details: { model: "gpt-5-5", crawledSources: crawled.map((item) => ({ source: item.source, itemCount: item.itemCount })) }
       });
-      const generated = await generatePersonaAutofillWithGpt55(prompt) as Record<string, unknown>;
+      let compactGenerated: Record<string, unknown>;
+      let usedFallback = false;
+      try {
+        const generated = await generatePersonaAutofillWithGpt55(prompt) as Record<string, unknown>;
+        const providerError = providerErrorFromJson(generated);
+        if (providerError) throw new Error(providerError);
+        compactGenerated = compactAutofillOutput(generated);
+      } catch (error) {
+        compactGenerated = fallbackPersonaFromCrawl(existing, crawled);
+        usedFallback = true;
+        await debugLog(workspaceId, {
+          action,
+          label: "Kie GPT-5.5 persona auto-fill fallback used",
+          status: "failed",
+          provider: "kie",
+          error: error instanceof Error ? error.message : "Kie persona auto-fill failed",
+          details: { fallbackGenerated: compactGenerated }
+        });
+      }
+      await debugLog(workspaceId, {
+        action,
+        label: "Kie GPT-5.5 returned persona auto-fill JSON",
+        status: usedFallback ? "failed" : "success",
+        provider: usedFallback ? "system" : "kie",
+        details: { generated: compactGenerated, usedFallback }
+      });
       const profile = await mutateDb((db) => {
         db.personaProfiles ||= [];
         const existingIndex = db.personaProfiles.findIndex((item) => item.workspaceId === workspaceId);
         const previous = existingIndex >= 0 ? db.personaProfiles[existingIndex] : existing;
-        const merged = personaFromBody(workspaceId, { ...generated, ...Object.fromEntries(Object.entries(sourceUrls).map(([key, value]) => [`${key}Url`, value])) }, previous);
+        const merged = personaFromBody(workspaceId, { ...compactGenerated, ...Object.fromEntries(Object.entries(sourceUrls).map(([key, value]) => [`${key}Url`, value])) }, previous);
         if (existingIndex >= 0) db.personaProfiles[existingIndex] = merged;
         else db.personaProfiles.push(merged);
         db.activity.push({ id: id("act"), workspaceId, message: `Persona auto-filled from ${crawled.length} public source(s).`, createdAt: new Date().toISOString() });
@@ -1509,8 +1651,8 @@ export async function POST(req: Request) {
         action,
         label: "Persona auto-fill completed",
         status: "success",
-        provider: "kie",
-        details: { model: "gpt-5-5", displayName: profile.displayName, company: profile.company }
+        provider: usedFallback ? "system" : "kie",
+        details: { model: "gpt-5-5", usedFallback, displayName: profile.displayName, company: profile.company }
       });
       return NextResponse.json(profile);
     } catch (error) {

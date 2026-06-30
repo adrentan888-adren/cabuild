@@ -602,7 +602,7 @@ export async function startSocialUrlScanRun(url: string, minViews: number): Prom
 export async function startKeywordScanRun(keywords: string, dimensions: KeywordDimensions, minViews: number): Promise<ResearchRunMeta & { contentType: string }> {
   if (!token()) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = selectedSource(dimensions);
-  const actorId = sourceActorId(source);
+  const actorId = sourceKeywordActorId(source);
   if (!actorId) throw new Error(`No Apify actor configured for ${source}.`);
   const contentType = dimensions.contentType || dimensions.contentTypes?.[0] || "";
   const run = await startApifyActor(actorId, platformSearchInput(source, keywords, dimensions.uploadDate || "", contentType));

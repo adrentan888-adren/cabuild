@@ -448,7 +448,7 @@ const contentPlanFormats = [
 ];
 
 const researchUrlSourceOwnershipFilter = "owner-v2";
-const keywordResearchCacheVersion = "kw-v12-instagram-hashtag-actor";
+const keywordResearchCacheVersion = "kw-v13-keyword-fallback-retry";
 
 const keywordContentTypesByPlatform: Record<string, string[]> = {
   instagram: ["instagram-reels", "instagram-posts"],
@@ -981,6 +981,40 @@ export async function POST(req: Request) {
       });
       return NextResponse.json(updated);
     } catch (err) {
+      if (scan.query) {
+        try {
+          const fallbackItems = await scanKeywordsWithApify(scan.query, scan.dimensions || {}, scan.minViews, { skipPlatformActor: true });
+          const normalized = apifyItemsToResearchResults(fallbackItems);
+          const recovered = await mutateDb((db) => {
+            db.competitors ||= [];
+            db.competitorResults ||= [];
+            db.researchScans ||= [];
+            const item = db.researchScans.find((entry) => entry.id === scanId && entry.workspaceId === workspaceId)!;
+            const competitor = { id: id("cmp"), workspaceId, platform: scan.platform, handle: scan.query || handleFromUrl(scan.url), url: scan.url, minViews: scan.minViews, cadence: "weekly" as const, lastScraped: new Date().toISOString() };
+            db.competitors.push(competitor);
+            const results: CompetitorResult[] = normalized.map((result) => ({
+              ...result,
+              id: id("res"),
+              workspaceId,
+              competitorId: competitor.id,
+              platform: result.platform || scan.platform,
+              capturedAt: new Date().toISOString()
+            }));
+            db.competitorResults.push(...results);
+            item.resultIds = results.map((result) => result.id);
+            item.status = "done";
+            item.source = "fallback";
+            item.completedAt = new Date().toISOString();
+            const originalError = err instanceof Error ? err.message : "Apify keyword scan failed";
+            item.error = `${originalError}; broader Apify keyword fallback used.`;
+            db.activity.push({ id: id("act"), workspaceId, message: `Keyword research recovered for "${scan.query}" using Apify fallback.`, createdAt: new Date().toISOString() });
+            return item;
+          });
+          return NextResponse.json(recovered);
+        } catch {
+          // Keep the original platform actor error below if fallback also fails.
+        }
+      }
       const failed = await mutateDb((db) => {
         const item = db.researchScans.find((entry) => entry.id === scanId && entry.workspaceId === workspaceId)!;
         item.status = "failed";
@@ -1012,6 +1046,7 @@ export async function POST(req: Request) {
         const linked = db.competitorResults.filter((result) => existing.resultIds.includes(result.id));
         if (!linked.some(usableResearchResult)) return null;
       }
+      if (existing?.status === "failed") return null;
       return existing || null;
     });
     if (cached) return NextResponse.json(cached);

@@ -68,8 +68,8 @@ function personaText(snapshot: Awaited<ReturnType<typeof projectSnapshot>>) {
   if (!persona) return "No persona profile found.";
   return [
     "*Persona*",
-    `Name: ${persona.fullName || persona.preferredName || "not set"}`,
-    `Role: ${persona.jobTitle || "not set"}`,
+    `Name: ${persona.displayName || "not set"}`,
+    `Role: ${persona.role || "not set"}`,
     `Company: ${persona.company || "not set"}`,
     `Audience: ${persona.primaryAudience || "not set"}`,
     `Topics: ${(persona.approvedTopics || []).join(", ") || "not set"}`

@@ -31,38 +31,20 @@ export type BrandKit = {
 
 export type PersonaProfile = {
   workspaceId: string;
-  fullName: string;
-  jobTitle: string;
+  displayName: string;
+  role: string;
   company: string;
-  industry: string;
-  preferredName: string;
   companyOneLiner: string;
-  yearsExperience: string;
-  pronouns: string;
-  credentialTags: string[];
   primaryAudience: string;
-  painPoint: string;
+  audienceInsight: string;
   contentLanguage: string;
-  audienceFear: string;
-  audienceAspiration: string;
-  secondaryAudience: string;
-  includePersonalLife: boolean;
-  toneFormalCasual: number;
-  toneSeriousHumorous: number;
-  toneReservedBold: number;
+  voiceStyle: string;
   naturalPhrases: string[];
   bannedVocabulary: string[];
-  primaryContentGoal: string;
-  ctaStyle: string;
   approvedTopics: string[];
   offLimitsTopics: string[];
   strongOpinions: string;
   writingSamples: string[];
-  faceReferenceFileName: string;
-  voiceSampleFileName: string;
-  allowAiFace: boolean;
-  allowAiVoice: boolean;
-  autoAiDisclosure: boolean;
   sourceUrls: {
     linkedin: string;
     website: string;

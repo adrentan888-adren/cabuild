@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
+import { normalizePersonaProfile } from "./persona";
 import type { Database, PersonaProfile, Platform, PromptTemplates } from "./types";
 
 const dataDir = path.join(process.cwd(), "data");
@@ -23,49 +24,13 @@ export function verifyPassword(password: string, stored: string) {
 }
 
 export function defaultPersonaProfile(workspaceId: string): PersonaProfile {
-  return {
-    workspaceId,
-    fullName: "Sean Tan",
-    jobTitle: "CEO",
-    company: "",
-    industry: "Technology",
-    preferredName: "Sean",
-    companyOneLiner: "",
-    yearsExperience: "",
-    pronouns: "I (first person)",
-    credentialTags: [],
-    primaryAudience: "",
-    painPoint: "",
-    contentLanguage: "English only",
-    audienceFear: "",
-    audienceAspiration: "",
-    secondaryAudience: "",
-    includePersonalLife: false,
-    toneFormalCasual: 3,
-    toneSeriousHumorous: 2,
-    toneReservedBold: 4,
-    naturalPhrases: ["Here's the thing"],
-    bannedVocabulary: ["synergy", "disruptive"],
-    primaryContentGoal: "Thought leadership",
-    ctaStyle: "Soft",
-    approvedTopics: ["AI automation"],
-    offLimitsTopics: [],
-    strongOpinions: "",
-    writingSamples: [],
-    faceReferenceFileName: "",
-    voiceSampleFileName: "",
-    allowAiFace: false,
-    allowAiVoice: false,
-    autoAiDisclosure: true,
-    sourceUrls: { linkedin: "", website: "", instagram: "", facebook: "", x: "" },
-    updatedAt: new Date().toISOString()
-  };
+  return normalizePersonaProfile(workspaceId);
 }
 
 export const defaultPromptTemplates: PromptTemplates = {
-  researchVideoRecreate: "Please analyse the attached video and write the prompt to recreate this video in JSON format in very detailed terms, no more than 3000 characters. Source video: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{durationLine}} {{assetInstruction}}",
-  researchImageRecreate: "Please analyse the attached image/graphic and write the prompt to recreate this image in JSON format in very detailed terms, no more than 3000 characters. Source image: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{assetInstruction}}",
-  researchTextRecreate: "Analyze this source post and write a new high-conversion text post in the same strategic style without copying it. Source: {{sourceUrl}}. Source title: {{sourceTitle}}. Source description: {{sourceDescription}}. Keep the final post original, platform-native, and ready for social publishing.",
+  researchVideoRecreate: "Please analyse the attached video and write the prompt to recreate this video in JSON format in very detailed terms, no more than 3000 characters. Source video: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{durationLine}} {{assetInstruction}}\n\n{{personaContext}}",
+  researchImageRecreate: "Please analyse the attached image/graphic and write the prompt to recreate this image in JSON format in very detailed terms, no more than 3000 characters. Source image: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{assetInstruction}}\n\n{{personaContext}}",
+  researchTextRecreate: "Analyze this source post and write a new high-conversion text post in the same strategic style without copying it. Source: {{sourceUrl}}. Source title: {{sourceTitle}}. Source description: {{sourceDescription}}. Keep the final post original, platform-native, and ready for social publishing.\n\n{{personaContext}}",
   researchVideoPromptRefine: `You are ContentAgent's senior video prompt engineer.
 
 Convert the user's research recreation instruction into ONE final provider-ready video generation prompt.
@@ -209,8 +174,9 @@ function normalizeDb(db: Database): Database {
   for (const workspace of db.workspaces || []) {
     const existing = db.personaProfiles.find((item) => item.workspaceId === workspace.id);
     if (existing) {
-      const fallback = defaultPersonaProfile(workspace.id);
-      Object.assign(existing, { ...fallback, ...existing, sourceUrls: { ...fallback.sourceUrls, ...(existing.sourceUrls || {}) } });
+      const normalized = normalizePersonaProfile(workspace.id, existing as PersonaProfile & Record<string, unknown>);
+      Object.keys(existing).forEach((key) => delete (existing as Record<string, unknown>)[key]);
+      Object.assign(existing, normalized);
     } else {
       db.personaProfiles.push(defaultPersonaProfile(workspace.id));
     }

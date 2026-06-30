@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { defaultPersonaProfile, id, mutateDb } from "@/lib/store";
 import type { Asset, Brief, CompetitorResult, GenerationAssetReference, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
+import { appendPersonaContext, buildPersonaContext, normalizePersonaProfile } from "@/lib/persona";
 import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl, startKeywordScanRun, startSocialUrlScanRun } from "@/lib/providers/apify";
 import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
@@ -260,15 +261,6 @@ function parseList(value: unknown) {
   return String(value || "").split(/\n|,/).map((item) => item.trim()).filter(Boolean);
 }
 
-function parseBool(value: unknown) {
-  return value === true || value === "true" || value === "on" || value === "1";
-}
-
-function clampTone(value: unknown, fallback: number) {
-  const numeric = Number(value || fallback);
-  return Math.min(5, Math.max(1, Number.isFinite(numeric) ? numeric : fallback));
-}
-
 function hasField(body: Record<string, unknown>, key: string) {
   return Object.prototype.hasOwnProperty.call(body, key);
 }
@@ -281,46 +273,24 @@ function listField(body: Record<string, unknown>, key: string, fallback: string[
   return hasField(body, key) ? parseList(body[key]) : fallback;
 }
 
-function boolField(body: Record<string, unknown>, key: string, fallback: boolean) {
-  return hasField(body, key) ? parseBool(body[key]) : fallback;
-}
-
 function personaFromBody(workspaceId: string, body: Record<string, unknown>, previous?: PersonaProfile): PersonaProfile {
-  const fallback = previous || defaultPersonaProfile(workspaceId);
-  return {
+  const fallback = normalizePersonaProfile(workspaceId, previous || defaultPersonaProfile(workspaceId));
+  return normalizePersonaProfile(workspaceId, {
     ...fallback,
-    fullName: stringField(body, "fullName", fallback.fullName),
-    jobTitle: stringField(body, "jobTitle", fallback.jobTitle),
+    displayName: stringField(body, "displayName", fallback.displayName),
+    role: stringField(body, "role", fallback.role),
     company: stringField(body, "company", fallback.company),
-    industry: stringField(body, "industry", fallback.industry),
-    preferredName: stringField(body, "preferredName", fallback.preferredName),
     companyOneLiner: stringField(body, "companyOneLiner", fallback.companyOneLiner),
-    yearsExperience: stringField(body, "yearsExperience", fallback.yearsExperience),
-    pronouns: stringField(body, "pronouns", fallback.pronouns),
-    credentialTags: listField(body, "credentialTags", fallback.credentialTags),
     primaryAudience: stringField(body, "primaryAudience", fallback.primaryAudience),
-    painPoint: stringField(body, "painPoint", fallback.painPoint),
+    audienceInsight: stringField(body, "audienceInsight", fallback.audienceInsight),
     contentLanguage: stringField(body, "contentLanguage", fallback.contentLanguage),
-    audienceFear: stringField(body, "audienceFear", fallback.audienceFear),
-    audienceAspiration: stringField(body, "audienceAspiration", fallback.audienceAspiration),
-    secondaryAudience: stringField(body, "secondaryAudience", fallback.secondaryAudience),
-    includePersonalLife: boolField(body, "includePersonalLife", fallback.includePersonalLife),
-    toneFormalCasual: hasField(body, "toneFormalCasual") ? clampTone(body.toneFormalCasual, fallback.toneFormalCasual) : fallback.toneFormalCasual,
-    toneSeriousHumorous: hasField(body, "toneSeriousHumorous") ? clampTone(body.toneSeriousHumorous, fallback.toneSeriousHumorous) : fallback.toneSeriousHumorous,
-    toneReservedBold: hasField(body, "toneReservedBold") ? clampTone(body.toneReservedBold, fallback.toneReservedBold) : fallback.toneReservedBold,
+    voiceStyle: stringField(body, "voiceStyle", fallback.voiceStyle),
     naturalPhrases: listField(body, "naturalPhrases", fallback.naturalPhrases),
     bannedVocabulary: listField(body, "bannedVocabulary", fallback.bannedVocabulary),
-    primaryContentGoal: stringField(body, "primaryContentGoal", fallback.primaryContentGoal),
-    ctaStyle: stringField(body, "ctaStyle", fallback.ctaStyle),
     approvedTopics: listField(body, "approvedTopics", fallback.approvedTopics),
     offLimitsTopics: listField(body, "offLimitsTopics", fallback.offLimitsTopics),
     strongOpinions: stringField(body, "strongOpinions", fallback.strongOpinions),
     writingSamples: listField(body, "writingSamples", fallback.writingSamples).slice(0, 3),
-    faceReferenceFileName: stringField(body, "faceReferenceFileName", fallback.faceReferenceFileName),
-    voiceSampleFileName: stringField(body, "voiceSampleFileName", fallback.voiceSampleFileName),
-    allowAiFace: boolField(body, "allowAiFace", fallback.allowAiFace),
-    allowAiVoice: boolField(body, "allowAiVoice", fallback.allowAiVoice),
-    autoAiDisclosure: boolField(body, "autoAiDisclosure", fallback.autoAiDisclosure),
     sourceUrls: {
       linkedin: stringField(body, "linkedinUrl", fallback.sourceUrls.linkedin),
       website: stringField(body, "websiteUrl", fallback.sourceUrls.website),
@@ -329,7 +299,7 @@ function personaFromBody(workspaceId: string, body: Record<string, unknown>, pre
       x: stringField(body, "xUrl", fallback.sourceUrls.x)
     },
     updatedAt: new Date().toISOString()
-  };
+  });
 }
 
 function buildPersonaAutofillPrompt(input: { current: PersonaProfile; crawled: Awaited<ReturnType<typeof crawlPersonaSourcesWithApify>> }) {
@@ -342,7 +312,7 @@ Rules:
 - Do not invent private personal facts.
 - Keep values practical for social content generation.
 - Use arrays for list fields.
-- Tone fields must be integers from 1 to 5.
+- Populate only the requested public, prompt-useful fields.
 
 Existing persona:
 ${JSON.stringify(input.current, null, 2)}
@@ -352,29 +322,16 @@ ${JSON.stringify(input.crawled, null, 2)}
 
 Return this exact JSON shape:
 {
-  "fullName": "",
-  "jobTitle": "",
+  "displayName": "",
+  "role": "",
   "company": "",
-  "industry": "",
-  "preferredName": "",
   "companyOneLiner": "",
-  "yearsExperience": "",
-  "pronouns": "",
-  "credentialTags": [],
   "primaryAudience": "",
-  "painPoint": "",
+  "audienceInsight": "",
   "contentLanguage": "",
-  "audienceFear": "",
-  "audienceAspiration": "",
-  "secondaryAudience": "",
-  "includePersonalLife": false,
-  "toneFormalCasual": 3,
-  "toneSeriousHumorous": 2,
-  "toneReservedBold": 4,
+  "voiceStyle": "",
   "naturalPhrases": [],
   "bannedVocabulary": [],
-  "primaryContentGoal": "",
-  "ctaStyle": "",
   "approvedTopics": [],
   "offLimitsTopics": [],
   "strongOpinions": "",
@@ -1145,7 +1102,9 @@ export async function POST(req: Request) {
     }
     const sourceFormat = sourceFormatFromResearchResult(result);
     const sourceKind = contentKindFromFormat(sourceFormat);
-    const geminiPrompt = buildContentPlanPrompt({ ...result, niche });
+    const personaContext = await mutateDb((db) => buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId)));
+    const planInput = { ...result, niche, personaContext };
+    const geminiPrompt = buildContentPlanPrompt(planInput);
     await debugLog(workspaceId, {
       action,
       label: `Prompt sent to Gemini for research result: ${result.title}`,
@@ -1156,7 +1115,7 @@ export async function POST(req: Request) {
     });
     let plan;
     try {
-      plan = await generateContentPlanWithGemini({ ...result, niche }, geminiPrompt);
+      plan = await generateContentPlanWithGemini(planInput, geminiPrompt);
       await debugLog(workspaceId, {
         action,
         label: `Gemini content plan returned for: ${result.title}`,
@@ -1311,7 +1270,8 @@ export async function POST(req: Request) {
     const requestedDuration = requestedFormat.toLowerCase().includes("video") ? closestVideoDuration(body.requestedDuration, requestedModel || "veo-fast") : undefined;
     const workspace = await mutateDb((db) => db.workspaces.find((item) => item.id === workspaceId) || null);
     const niche = workspace?.niche?.trim() || "";
-    const prompt = buildAiBriefPrompt({ idea, niche, requestedFormat, requestedDuration, requestedModel });
+    const personaContext = await mutateDb((db) => buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId)));
+    const prompt = buildAiBriefPrompt({ idea, niche, requestedFormat, requestedDuration, requestedModel, personaContext });
     await debugLog(workspaceId, {
       action,
       label: "Prompt sent to Kie GPT-5.5 for new content plan",
@@ -1321,7 +1281,7 @@ export async function POST(req: Request) {
       details: { model: "gpt-5-5", idea, requestedFormat: requestedFormat || undefined, requestedDuration, requestedModel: requestedModel || undefined }
     });
     try {
-      const plan = await generateContentPlanWithGpt55({ idea, niche, requestedFormat }, prompt);
+      const plan = await generateContentPlanWithGpt55({ idea, niche, requestedFormat, requestedDuration, requestedModel, personaContext }, prompt);
       const format = requestedFormat || String(plan.format || "Short video 9:16");
       const resolvedFormat = contentPlanFormats.includes(format) ? format : "Short video 9:16";
       const resolvedKind = contentKindFromFormat(resolvedFormat);
@@ -1368,8 +1328,12 @@ export async function POST(req: Request) {
   if (action === "refineResearchVideoPrompt") {
     const prompt = String(body.prompt || "").trim();
     if (!prompt) return NextResponse.json({ error: "Video prompt is required." }, { status: 400 });
-    const refineTemplate = await mutateDb((db) => db.promptTemplates?.researchVideoPromptRefine || "");
-    const fullInstruction = buildFinalVideoPromptInstruction(prompt, refineTemplate);
+    const { refineTemplate, personaContext } = await mutateDb((db) => ({
+      refineTemplate: db.promptTemplates?.researchVideoPromptRefine || "",
+      personaContext: buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId))
+    }));
+    const promptWithPersona = appendPersonaContext(prompt, personaContext);
+    const fullInstruction = buildFinalVideoPromptInstruction(promptWithPersona, refineTemplate);
     await debugLog(workspaceId, {
       action,
       label: "Prompt sent to Kie GPT-5.5 for final research video prompt",
@@ -1379,14 +1343,14 @@ export async function POST(req: Request) {
       details: {
         model: "gpt-5-5",
         generationModel: String(body.generationModel || ""),
-        sourcePrompt: prompt,
+        sourcePrompt: promptWithPersona,
         duration: body.duration,
         sourceUrl: String(body.sourceUrl || ""),
         assetReferences: parseAssetReferences(body.assetReferences).map((ref) => ({ role: ref.role, fileName: ref.fileName, url: ref.url || "" }))
       }
     });
     try {
-      const refined = await generateFinalVideoPromptWithGpt55(prompt, refineTemplate);
+      const refined = await generateFinalVideoPromptWithGpt55(promptWithPersona, refineTemplate);
       await debugLog(workspaceId, {
         action,
         label: "Kie GPT-5.5 returned final research video prompt for G01",
@@ -1402,7 +1366,7 @@ export async function POST(req: Request) {
         label: "Kie GPT-5.5 final research video prompt failed",
         status: "failed",
         provider: "kie",
-        prompt,
+        prompt: promptWithPersona,
         error: error instanceof Error ? error.message : "Kie GPT-5.5 video prompt failed"
       });
       return NextResponse.json({ error: error instanceof Error ? error.message : "Kie GPT-5.5 video prompt failed" }, { status: 502 });
@@ -1546,7 +1510,7 @@ export async function POST(req: Request) {
         label: "Persona auto-fill completed",
         status: "success",
         provider: "kie",
-        details: { model: "gpt-5-5", fullName: profile.fullName, company: profile.company }
+        details: { model: "gpt-5-5", displayName: profile.displayName, company: profile.company }
       });
       return NextResponse.json(profile);
     } catch (error) {
@@ -1631,7 +1595,7 @@ export async function POST(req: Request) {
       const profile = personaFromBody(workspaceId, body, previous);
       if (existingIndex >= 0) db.personaProfiles[existingIndex] = profile;
       else db.personaProfiles.push(profile);
-      activity(`Persona profile saved: ${profile.fullName || profile.preferredName || "Unnamed persona"}`);
+      activity(`Persona profile saved: ${profile.displayName || "Unnamed persona"}`);
       return profile;
     }
 
@@ -1759,7 +1723,8 @@ export async function POST(req: Request) {
       const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "gpt-image-2" : "gemini-3.5-flash"));
       const duration = generationType === "video" ? closestVideoDuration(body.duration || brief.duration || defaultDuration(brief.format) || 8, model) : undefined;
       const assetReferences = parseAssetReferences(body.assetReferences);
-      const basePrompt = enrichPromptWithAssetReferences(String(body.prompt || defaultPromptForBrief(brief, generationType)), generationType, assetReferences);
+      const personaContext = buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId));
+      const basePrompt = enrichPromptWithAssetReferences(appendPersonaContext(String(body.prompt || defaultPromptForBrief(brief, generationType)), personaContext), generationType, assetReferences);
       const caption = String(body.caption || defaultCaptionForBrief(brief));
       const hashtags = parseList(body.hashtags || defaultHashtagsForBrief(brief, generationType).join(", "));
       const platform = (String(body.platform || brief.platforms[0] || "TikTok") as Platform);
@@ -1842,7 +1807,8 @@ export async function POST(req: Request) {
       const assetReferences = parseAssetReferences(body.assetReferences);
       const workspace = db.workspaces.find((entry) => entry.id === workspaceId);
       const context = workspace?.niche?.trim() || "the configured brand";
-      const basePrompt = enrichPromptWithAssetReferences(String(body.prompt || `Create a practical founder-led social post for ${context}.`), generationType, assetReferences);
+      const personaContext = buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId));
+      const basePrompt = enrichPromptWithAssetReferences(appendPersonaContext(String(body.prompt || `Create a practical founder-led social post for ${context}.`), personaContext), generationType, assetReferences);
       const caption = String(body.caption || "A practical reminder for SME teams: automate repeatable work first.");
       const hashtags = parseList(body.hashtags || "#SME, #Automation, #AI");
       const platform = (String(body.platform || "TikTok") as Platform);

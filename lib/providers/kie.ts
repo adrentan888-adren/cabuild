@@ -228,6 +228,7 @@ type PlanInput = {
   mediaUrl?: string;
   mediaType?: string;
   niche?: string;
+  personaContext?: string;
 };
 
 function extractJson(text: string) {
@@ -236,7 +237,7 @@ function extractJson(text: string) {
   return JSON.parse(raw);
 }
 
-export function buildAiBriefPrompt(input: { idea: string; niche: string; requestedFormat?: string; requestedDuration?: number; requestedModel?: string }) {
+export function buildAiBriefPrompt(input: { idea: string; niche: string; requestedFormat?: string; requestedDuration?: number; requestedModel?: string; personaContext?: string }) {
   const durationLine = input.requestedDuration && input.requestedFormat?.toLowerCase().includes("video")
     ? `\nSelected video model/duration:\n${input.requestedModel || "selected video model"} supports the selected ${input.requestedDuration}-second output. The JSON "duration" must be ${input.requestedDuration}. The videoPrompt, outline, hooks, and shotList must be feasible inside exactly ${input.requestedDuration} seconds. Do not request 25-30 seconds, long scenes, or more than ${input.requestedDuration <= 8 ? "3" : "5"} scenes.`
     : "";
@@ -250,6 +251,7 @@ ${input.idea}
 
 Brand/niche:
 ${input.niche || "No brand/niche set. Follow the user request exactly and do not assume a niche."}
+${input.personaContext ? `\nPersona context:\n${input.personaContext}\n` : ""}
 ${requestedFormatLine}
 
 Create a complete editable content plan. Return ONLY valid JSON with this exact shape:
@@ -271,7 +273,7 @@ Create a complete editable content plan. Return ONLY valid JSON with this exact 
 }`;
 }
 
-export async function generateContentPlanWithGpt55(input: { idea: string; niche: string; requestedFormat?: string; requestedDuration?: number; requestedModel?: string }, prompt = buildAiBriefPrompt(input)) {
+export async function generateContentPlanWithGpt55(input: { idea: string; niche: string; requestedFormat?: string; requestedDuration?: number; requestedModel?: string; personaContext?: string }, prompt = buildAiBriefPrompt(input)) {
   if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
   const res = await fetch(`${baseUrl}/codex/v1/responses`, {
     method: "POST",
@@ -417,6 +419,7 @@ Comments: ${input.comments}
 Published at: ${input.publishedAt}
 
 Create a content plan for this brand/niche: ${input.niche || "No brand/niche set. Follow the source post and user context without assuming a niche."}
+${input.personaContext ? `\nPersona context:\n${input.personaContext}` : ""}
 Use the competitor post as the source creative reference. If a direct media URL or thumbnail URL is available, infer the content format and visual direction from that exact source media rather than from the profile/page alone.
 Return this JSON shape:
 {

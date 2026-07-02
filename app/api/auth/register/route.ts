@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { defaultPersonaProfile, hashPassword, id, mutateDb } from "@/lib/store";
+import { hashPassword, id, mutateDb } from "@/lib/store";
 import { createVerificationCode, hashVerificationCode, verificationExpiry } from "@/lib/emailVerification";
 import { sendVerificationEmail } from "@/lib/providers/brevo";
 
@@ -23,21 +23,9 @@ export async function POST(req: Request) {
     if (existingUser) {
       return { error: "Email already exists" };
     }
-    const workspaceId = id("ws");
+    const workspaceId = db.workspaces.find((workspace) => workspace.id === "ws_demo")?.id || db.workspaces[0]?.id;
+    if (!workspaceId) return { error: "Default workspace is missing" };
     const userId = id("usr");
-    db.workspaces.push({ id: workspaceId, name: "My Workspace", niche: "General", plan: "Starter", credits: 100, setup: 20 });
-    db.brandKits.push({
-      workspaceId,
-      primary: "#1a1a1a",
-      secondary: "#f5f4ee",
-      accent: "#378add",
-      headingFont: "Inter",
-      bodyFont: "System",
-      voice: "Clear, practical, and useful.",
-      watermark: true
-    });
-    db.personaProfiles ||= [];
-    db.personaProfiles.push(defaultPersonaProfile(workspaceId));
     db.users.push({
       id: userId,
       email: normalizedEmail,
@@ -51,7 +39,7 @@ export async function POST(req: Request) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
-    db.activity.push({ id: id("act"), workspaceId, message: "Workspace created.", createdAt: new Date().toISOString() });
+    db.activity.push({ id: id("act"), workspaceId, message: `User registered: ${normalizedEmail}.`, createdAt: new Date().toISOString() });
     return { userId, workspaceId };
   });
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
@@ -61,10 +49,7 @@ export async function POST(req: Request) {
     if (!("existingUnverified" in result)) {
       await mutateDb((db) => {
         db.users = db.users.filter((user) => user.id !== result.userId);
-        db.workspaces = db.workspaces.filter((workspace) => workspace.id !== result.workspaceId);
-        db.brandKits = db.brandKits.filter((kit) => kit.workspaceId !== result.workspaceId);
-        db.personaProfiles = db.personaProfiles.filter((profile) => profile.workspaceId !== result.workspaceId);
-        db.activity = db.activity.filter((item) => item.workspaceId !== result.workspaceId);
+        db.activity = db.activity.filter((item) => item.message !== `User registered: ${normalizedEmail}.`);
       });
     }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not send verification email." }, { status: 502 });

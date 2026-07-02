@@ -57,7 +57,6 @@ export type AdminUserData = {
     updatedAt: string;
     lastLoginAt: string;
   }[];
-  workspaces: { id: string; name: string; niche: string; plan: string; credits: number }[];
 };
 
 type RunAction = (a: string, p?: Record<string, unknown>, m?: string) => Promise<unknown>;
@@ -133,17 +132,13 @@ function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData 
       }}>
         <div className="admin-section-title">
           <b>Create user</b>
-          <span>Admin-created users can be verified immediately or sent a verification email.</span>
+          <span>New users are added to the hidden default workspace. Workspace support remains internal for future expansion.</span>
         </div>
         <div className="modal-grid">
           <label>Email<input name="email" type="email" required autoComplete="off" /></label>
           <label>Temporary password<input name="password" type="password" required minLength={8} autoComplete="new-password" /></label>
           <label>Name<input name="name" placeholder="Optional display name" /></label>
           <label>Role<select name="role" defaultValue="user">{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
-          <label>Workspace mode<select name="workspaceMode" defaultValue="new"><option value="new">Create new workspace</option><option value="existing">Assign existing workspace</option></select></label>
-          <label>Existing workspace<select name="workspaceId">{(adminData?.workspaces || []).map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></label>
-          <label>New workspace name<input name="workspaceName" placeholder="My Workspace" /></label>
-          <label>New workspace niche<input name="workspaceNiche" placeholder="General" /></label>
         </div>
         <label className="inline-check"><input name="emailVerified" type="checkbox" value="true" defaultChecked /> Mark email verified immediately</label>
         <button className="primary"><UserPlus size={14} />Create user</button>
@@ -154,7 +149,7 @@ function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData 
           <article className={`admin-user-row ${user.disabled ? "disabled" : ""}`} key={user.id}>
             <div className="admin-user-main">
               <b>{user.email}</b>
-              <span>{user.name} / {user.workspaceName}</span>
+              <span>{user.name} / {user.role}</span>
               <small>Created {user.createdAt ? new Date(user.createdAt).toLocaleString() : "unknown"}{user.lastLoginAt ? ` / Last login ${new Date(user.lastLoginAt).toLocaleString()}` : ""}</small>
             </div>
             <form className="admin-user-edit" action={async (form) => {
@@ -162,7 +157,6 @@ function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData 
             }}>
               <label>Name<input name="name" defaultValue={user.name} /></label>
               <label>Role<select name="role" defaultValue={user.role}>{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
-              <label>Workspace<select name="workspaceId" defaultValue={user.workspaceId}>{(adminData?.workspaces || []).map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></label>
               <label>Status<select name="disabled" defaultValue={String(user.disabled)}><option value="false">Active</option><option value="true">Disabled</option></select></label>
               <label>Email<select name="emailVerified" defaultValue={String(user.emailVerified)}><option value="true">Verified</option><option value="false">Unverified</option></select></label>
               <button><Save size={14} />Save</button>

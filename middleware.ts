@@ -25,6 +25,14 @@ export function middleware(req: NextRequest) {
     return NextResponse.json({ error: "API service only" }, { status: 404 });
   }
 
+  if ((mode === "frontend" || mode === "admin") && pathname.startsWith("/api")) {
+    const apiUrl = process.env.API_SERVICE_URL;
+    if (apiUrl) {
+      const target = new URL(`${pathname}${req.nextUrl.search}`, apiUrl);
+      return NextResponse.rewrite(target);
+    }
+  }
+
   if (mode === "frontend") {
     if (pathname.startsWith("/admin")) {
       const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL;

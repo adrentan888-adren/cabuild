@@ -6,15 +6,21 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:import-json": "node tools/postgres/import-json-to-postgres.mjs",
+    "db:export-json": "node tools/postgres/export-postgres-json.mjs",
+    "db:backup": "node tools/postgres/backup-postgres.mjs",
+    "db:restore": "node tools/postgres/restore-postgres-backup.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
     "next": "^14.2.5",
+    "pg": "^8.22.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/pg": "^8.20.0",
     "@types/node": "^20.14.10",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",

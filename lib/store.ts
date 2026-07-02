@@ -2,6 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
 import { normalizePersonaProfile } from "./persona";
+import { mutatePostgresDb, postgresEnabled, readPostgresDb, writePostgresDb } from "./postgresStore";
 import type { Database, PermissionKey, PersonaProfile, Platform, PromptTemplates, RolePermissions, UserRole } from "./types";
 
 const dataDir = path.join(process.cwd(), "data");
@@ -110,7 +111,7 @@ export const defaultRolePermissions: RolePermissions = {
   user: []
 };
 
-function seeded(): Database {
+export function seeded(): Database {
   const workspaceId = "ws_demo";
   const userId = "usr_demo";
   const platforms: Platform[] = ["TikTok", "Instagram", "LinkedIn", "Facebook"];
@@ -222,7 +223,7 @@ function seeded(): Database {
   };
 }
 
-function normalizeDb(db: Database): Database {
+export function normalizeDb(db: Database): Database {
   db.users ||= [];
   for (const user of db.users) {
     if (typeof user.emailVerified !== "boolean") user.emailVerified = true;
@@ -260,6 +261,7 @@ function normalizeDb(db: Database): Database {
 }
 
 export async function readDb(): Promise<Database> {
+  if (postgresEnabled()) return readPostgresDb(seeded, normalizeDb);
   if (gcsBucket) {
     try {
       return await readGcsDb();
@@ -278,6 +280,10 @@ export async function readDb(): Promise<Database> {
 }
 
 export async function writeDb(db: Database) {
+  if (postgresEnabled()) {
+    await writePostgresDb(normalizeDb(db));
+    return;
+  }
   if (gcsBucket) {
     try {
       await writeGcsDb(db);
@@ -291,6 +297,7 @@ export async function writeDb(db: Database) {
 }
 
 export async function mutateDb<T>(fn: (db: Database) => T | Promise<T>) {
+  if (postgresEnabled()) return mutatePostgresDb(seeded, normalizeDb, fn);
   const db = await readDb();
   const result = await fn(db);
   await writeDb(db);

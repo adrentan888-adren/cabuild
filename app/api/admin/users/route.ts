@@ -50,12 +50,15 @@ export async function GET() {
   if ("error" in auth) return auth.error;
   const db = auth.db;
   if (!hasPermission(db, auth.user, "users.view")) return NextResponse.json({ error: "Permission denied." }, { status: 403 });
+  const actorPermissions = auth.user.role === "owner" || auth.user.role === "super_admin"
+    ? permissionCatalog.map((item) => item.key)
+    : db.rolePermissions[auth.user.role as UserRole] || [];
   return NextResponse.json({
     users: db.users.map((user) => safeUser(user, db)).sort((a, b) => a.email.localeCompare(b.email)),
     roles,
     permissions: db.rolePermissions,
     permissionCatalog,
-    actorPermissions: db.rolePermissions[auth.user.role as UserRole] || []
+    actorPermissions
   });
 }
 

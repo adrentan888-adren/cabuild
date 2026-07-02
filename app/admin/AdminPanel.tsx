@@ -328,11 +328,11 @@ function PermissionCard({ adminData, runAdmin }: { adminData: AdminUserData | nu
   );
 }
 
-function ApiKeyManagementCard({ integrations, adminData }: { integrations: IntegrationData | null; adminData: AdminUserData | null }) {
+function ApiKeyManagementCard({ integrations, adminData, currentRole }: { integrations: IntegrationData | null; adminData: AdminUserData | null; currentRole: string }) {
   const [status, setStatus] = useState(integrations?.apiKeyOverrides || {});
   const [saving, setSaving] = useState("");
   const [message, setMessage] = useState("");
-  const canEdit = Boolean(adminData?.actorPermissions.includes("apiKeys.edit"));
+  const canEdit = currentRole === "owner" || currentRole === "super_admin" || Boolean(adminData?.actorPermissions.includes("apiKeys.edit"));
   const providers = [
     { id: "kie", label: "Kie.ai", hint: "Used for Gemini/GPT prompt generation, Seedance, VEO, and image generation." },
     { id: "apify", label: "Apify primary", hint: "Used for Research, Source Watcher crawling, and persona crawling." },
@@ -449,7 +449,7 @@ export default function AdminPanel({ data, run, runAdmin, integrations, adminDat
         {activeTab === "users" && <UserManagementCard adminData={adminData} runAdmin={runAdmin} />}
         {activeTab === "permissions" && <PermissionCard adminData={adminData} runAdmin={runAdmin} />}
         {activeTab === "prompts" && <PromptAdminCard data={data} run={run} />}
-        {activeTab === "keys" && <ApiKeyManagementCard integrations={integrations} adminData={adminData} />}
+        {activeTab === "keys" && <ApiKeyManagementCard integrations={integrations} adminData={adminData} currentRole={data.user.role} />}
         {activeTab === "system" && <SystemCard />}
       </section>
     </div>

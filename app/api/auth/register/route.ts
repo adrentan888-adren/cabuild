@@ -14,7 +14,13 @@ export async function POST(req: Request) {
   const code = createVerificationCode();
   const normalizedEmail = String(email).trim().toLowerCase();
   const result = await mutateDb((db) => {
-    if (db.users.some((user) => user.email.toLowerCase() === normalizedEmail)) {
+    const existingUser = db.users.find((user) => user.email.toLowerCase() === normalizedEmail);
+    if (existingUser?.emailVerified === false) {
+      existingUser.emailVerificationCodeHash = hashVerificationCode(code);
+      existingUser.emailVerificationExpiresAt = verificationExpiry();
+      return { userId: existingUser.id, workspaceId: existingUser.workspaceId, existingUnverified: true };
+    }
+    if (existingUser) {
       return { error: "Email already exists" };
     }
     const workspaceId = id("ws");
@@ -50,13 +56,15 @@ export async function POST(req: Request) {
   try {
     await sendVerificationEmail({ email: normalizedEmail, code });
   } catch (error) {
-    await mutateDb((db) => {
-      db.users = db.users.filter((user) => user.id !== result.userId);
-      db.workspaces = db.workspaces.filter((workspace) => workspace.id !== result.workspaceId);
-      db.brandKits = db.brandKits.filter((kit) => kit.workspaceId !== result.workspaceId);
-      db.personaProfiles = db.personaProfiles.filter((profile) => profile.workspaceId !== result.workspaceId);
-      db.activity = db.activity.filter((item) => item.workspaceId !== result.workspaceId);
-    });
+    if (!("existingUnverified" in result)) {
+      await mutateDb((db) => {
+        db.users = db.users.filter((user) => user.id !== result.userId);
+        db.workspaces = db.workspaces.filter((workspace) => workspace.id !== result.workspaceId);
+        db.brandKits = db.brandKits.filter((kit) => kit.workspaceId !== result.workspaceId);
+        db.personaProfiles = db.personaProfiles.filter((profile) => profile.workspaceId !== result.workspaceId);
+        db.activity = db.activity.filter((item) => item.workspaceId !== result.workspaceId);
+      });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not send verification email." }, { status: 502 });
   }
   return NextResponse.json({ ok: true, verificationRequired: true, email: normalizedEmail });

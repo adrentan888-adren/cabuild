@@ -67,7 +67,7 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
           <label>Password<input name="password" type="password" defaultValue={isLogin ? "demo1234" : ""} required autoComplete={isLogin ? "current-password" : "new-password"} /></label>
           {!isLogin && <label>Confirm password<input name="confirmPassword" type="password" required autoComplete="new-password" /></label>}
           {error && <div className="error">{error}</div>}
-          <button className="primary" type="submit" disabled={submitting}>{submitting ? "Working..." : isLogin ? "Enter workspace" : "Create workspace"}</button>
+          <button className="primary" type="submit" disabled={submitting}>{submitting ? "Working..." : isLogin ? "Enter workspace" : "Create account"}</button>
         </form>
       </section>
     </main>

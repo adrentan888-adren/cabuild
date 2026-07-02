@@ -62,7 +62,13 @@ jobs:
         run: docker push $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA
 
       - name: Write Cloud Run env file
+        env:
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
         run: |
+          if [ -z "$BREVO_API_KEY" ]; then
+            echo "BREVO_API_KEY GitHub secret is missing." >&2
+            exit 1
+          fi
           cat > cloudrun-env.yaml <<'EOF'
           APIFY_ACTOR_ID: "apify/google-search-scraper"
           APIFY_KEYWORD_ACTOR_ID: "apify/google-search-scraper"
@@ -76,20 +82,7 @@ jobs:
           DATA_STORE_GCS_BUCKET: "${{ env.DATA_BUCKET }}"
           DATA_STORE_GCS_OBJECT: "${{ env.DATA_OBJECT }}"
           EOF
-
-      - name: Upsert Brevo secret
-        env:
-          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
-        run: |
-          if [ -z "$BREVO_API_KEY" ]; then
-            echo "BREVO_API_KEY GitHub secret is missing." >&2
-            exit 1
-          fi
-          if gcloud secrets describe BREVO_API_KEY --project=$PROJECT_ID >/dev/null 2>&1; then
-            printf "%s" "$BREVO_API_KEY" | gcloud secrets versions add BREVO_API_KEY --project=$PROJECT_ID --data-file=-
-          else
-            printf "%s" "$BREVO_API_KEY" | gcloud secrets create BREVO_API_KEY --project=$PROJECT_ID --replication-policy=automatic --data-file=-
-          fi
+          printf 'BREVO_API_KEY: "%s"\n' "$BREVO_API_KEY" >> cloudrun-env.yaml
 
       - name: Deploy Cloud Run staging
         run: >
@@ -99,7 +92,7 @@ jobs:
           --platform=managed
           --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA
           --env-vars-file=cloudrun-env.yaml
-          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest,BREVO_API_KEY=BREVO_API_KEY:latest
+          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest
           --quiet
 
       - name: Keep staging service public

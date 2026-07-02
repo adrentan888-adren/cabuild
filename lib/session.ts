@@ -38,7 +38,9 @@ export async function currentUser() {
   const userId = verifySession(cookies().get(cookieName)?.value);
   if (!userId) return null;
   const db = await readDb();
-  return db.users.find((user) => user.id === userId) || null;
+  const user = db.users.find((item) => item.id === userId) || null;
+  if (user?.disabledAt) return null;
+  return user;
 }
 
 export function isAdminRole(role?: string) {

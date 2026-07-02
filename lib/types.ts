@@ -10,6 +10,10 @@ export type User = {
   emailVerified?: boolean;
   emailVerificationCodeHash?: string;
   emailVerificationExpiresAt?: string;
+  disabledAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastLoginAt?: string;
 };
 
 export type Workspace = {

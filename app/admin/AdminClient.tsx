@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut, RefreshCcw } from "lucide-react";
 import AdminPanel from "./AdminPanel";
-import type { AdminAppData, IntegrationData } from "./AdminPanel";
+import type { AdminAppData, AdminUserData, IntegrationData } from "./AdminPanel";
 
 async function post(action: string, payload: Record<string, unknown> = {}) {
   const res = await fetch("/api/social", {
@@ -19,6 +19,7 @@ async function post(action: string, payload: Record<string, unknown> = {}) {
 export default function AdminClient() {
   const router = useRouter();
   const [data, setData] = useState<AdminAppData | null>(null);
+  const [adminData, setAdminData] = useState<AdminUserData | null>(null);
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
@@ -35,6 +36,10 @@ export default function AdminClient() {
       .then((health) => (health.ok ? health.json() : null))
       .then(setIntegrations)
       .catch(() => setIntegrations(null));
+    fetch("/api/admin/users", { cache: "no-store" })
+      .then((users) => (users.ok ? users.json() : null))
+      .then(setAdminData)
+      .catch(() => setAdminData(null));
   }
 
   useEffect(() => {
@@ -56,6 +61,26 @@ export default function AdminClient() {
     }
   }
 
+  async function runAdmin(method: "POST" | "PATCH", payload: Record<string, unknown>, message = "Updated") {
+    try {
+      const res = await fetch("/api/admin/users", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Admin request failed");
+      await refresh();
+      setToast(message);
+      return await res.json();
+    } catch (error) {
+      await refresh();
+      setToast(error instanceof Error ? error.message : "Admin request failed");
+      return null;
+    } finally {
+      setTimeout(() => setToast(""), 2200);
+    }
+  }
+
   if (loading) return <div className="loading">Loading backend controls...</div>;
   if (!data) return <div className="loading">Redirecting to sign in...</div>;
 
@@ -71,7 +96,7 @@ export default function AdminClient() {
         </div>
       </header>
       <main className="admin-main">
-        <AdminPanel data={data} run={run} integrations={integrations} />
+        <AdminPanel data={data} run={run} runAdmin={runAdmin} integrations={integrations} adminData={adminData} />
       </main>
     </div>
   );

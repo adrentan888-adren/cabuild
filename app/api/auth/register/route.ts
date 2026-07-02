@@ -47,7 +47,9 @@ export async function POST(req: Request) {
       workspaceId,
       emailVerified: false,
       emailVerificationCodeHash: hashVerificationCode(code),
-      emailVerificationExpiresAt: verificationExpiry()
+      emailVerificationExpiresAt: verificationExpiry(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     });
     db.activity.push({ id: id("act"), workspaceId, message: "Workspace created.", createdAt: new Date().toISOString() });
     return { userId, workspaceId };

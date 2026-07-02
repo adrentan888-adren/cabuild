@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { currentUser } from "@/lib/session";
+import { currentUser, isAdminRole } from "@/lib/session";
 import { defaultPersonaProfile, id, mutateDb } from "@/lib/store";
 import type { Asset, Brief, CompetitorResult, GenerationAssetReference, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext, normalizePersonaProfile } from "@/lib/persona";
@@ -1694,6 +1694,9 @@ export async function POST(req: Request) {
   }
 
   if (action === "updatePromptTemplates") {
+    if (!isAdminRole(user.role)) {
+      return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+    }
     const username = String(body.adminUsername || "");
     const password = String(body.adminPassword || "");
     if (username !== "admin" || password !== "admin") {

@@ -64,7 +64,10 @@ function seeded(): Database {
         name: "Sean Tan",
         passwordHash: hashPassword("demo1234"),
         role: "owner",
-        workspaceId
+        workspaceId,
+        emailVerified: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       }
     ],
     workspaces: [{ id: workspaceId, name: "ContentAgent Social", niche: "SME AI automation", plan: "Pro", credits: 240, setup: 62 }],
@@ -164,6 +167,8 @@ function normalizeDb(db: Database): Database {
   db.users ||= [];
   for (const user of db.users) {
     if (typeof user.emailVerified !== "boolean") user.emailVerified = true;
+    if (!user.createdAt) user.createdAt = new Date().toISOString();
+    if (!user.updatedAt) user.updatedAt = user.createdAt;
   }
   db.competitorResults ||= [];
   db.researchScans ||= [];

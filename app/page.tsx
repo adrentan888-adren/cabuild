@@ -437,36 +437,119 @@ function AnimatedDots({ label }: { label: string }) {
 
 function HomePanel({ data, setScreen, run }: { data: AppData; setScreen: (s: string) => void; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
   const lead = data.opportunities.filter((item) => item.status !== "dismissed").sort((a, b) => b.gapScore - a.gapScore)[0];
+  const latestAudit = [...data.socialAudits].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+  const recentCompetitorIds = new Set(data.competitorResults.filter((item) => isWithinDays(item.capturedAt, 7)).map((item) => item.competitorId));
+  const activeResearch = data.researchScans.filter((item) => item.status === "running" || item.status === "done").length;
+  const activeBriefs = data.briefs.filter((item) => item.status === "new" || item.status === "approved").length;
+  const createCount = data.assets.filter((item) => item.status === "queued" || item.status === "rendering").length + data.publishQueue.filter((item) => item.status === "generating").length;
+  const reviewCount = data.assets.filter((item) => item.status === "ready").length + data.publishQueue.filter((item) => item.status === "done" || item.status === "draft").length;
+  const scheduledCount = data.publishQueue.filter((item) => item.status === "scheduled").length;
+  const failedCount = data.assets.filter((item) => item.status === "failed").length + data.publishQueue.filter((item) => item.status === "failed").length;
+  const pipeline = [
+    { key: "research", label: "Research", count: activeResearch, detail: "Topics in research", Icon: Search, status: activeResearch ? "On track" : "Start research", tone: "info" },
+    { key: "brief", label: "Brief", count: activeBriefs, detail: "Active briefs", Icon: FileText, status: activeBriefs ? "On track" : "Needs input", tone: "success" },
+    { key: "create", label: "Create", count: createCount, detail: "In progress", Icon: Wand2, status: createCount ? "In progress" : "Ready", tone: "warn" },
+    { key: "review", label: "Review", count: reviewCount, detail: "Ready for review", Icon: UserRound, status: failedCount ? "Needs attention" : reviewCount ? "Ready" : "No queue", tone: failedCount ? "danger" : "purple" },
+    { key: "schedule", label: "Schedule", count: scheduledCount, detail: "Scheduled posts", Icon: CalendarDays, status: scheduledCount ? "On track" : "Not scheduled", tone: "success" }
+  ];
+  const auditScore = latestAudit?.authorityScore ?? 0;
+  const auditStatus = auditScore >= 80 ? "Good" : auditScore >= 60 ? "Fair" : latestAudit ? "Needs work" : "No audit yet";
   return (
     <div className="home-panel">
-      <h2>Good morning, {data.user.name.split(" ")[0]}</h2>
-      <p className="muted">One strong opportunity is ready to turn into content today.</p>
-      {lead && <article className="brief-card hero-card">
-        <div className="tb-header">
-          <div>
-            <div className="tb-title">High-priority opportunity</div>
-            <div className="tb-hook">{lead.topic}</div>
-            <div className="tb-meta">{lead.platform} ﾂｷ {lead.format} ﾂｷ Gap score {lead.gapScore}</div>
+      <section className="home-greeting">
+        <h2>Good morning, {data.user.name.split(" ")[0]}</h2>
+        <p className="muted">One strong opportunity is ready to turn into content today.</p>
+      </section>
+
+      <div className="home-top-grid">
+        <article className="home-card next-action-card">
+          <div className="home-card-label"><span className="label-dot blue"><Lightbulb size={14} /></span>Next best action</div>
+          {lead ? (
+            <>
+              <div className="home-chip">High-priority opportunity</div>
+              <div className="next-action-layout">
+                <div>
+                  <h3>{lead.topic}</h3>
+                  <p>{lead.platform} · {lead.format} · Gap score {lead.gapScore}</p>
+                </div>
+                <div className="next-illustration"><Lightbulb size={44} /></div>
+              </div>
+              <div className="row-actions">
+                <button className="primary" onClick={() => run("generateOpportunity", { id: lead.id }, "Brief generated")}><Sparkles size={14} />Generate brief</button>
+                <button onClick={() => setScreen("research")}>View research</button>
+              </div>
+            </>
+          ) : (
+            <div className="home-empty-action">
+              <h3>No priority opportunity yet</h3>
+              <p>Run Research to surface the next high-scoring content opportunity.</p>
+              <button className="primary" onClick={() => setScreen("research")}><Search size={14} />Open research</button>
+            </div>
+          )}
+        </article>
+
+        <article className="home-card workspace-health-card">
+          <div className="home-card-label"><span className="label-dot green"><Check size={14} /></span>Workspace health</div>
+          <div className="health-grid">
+            <HealthMetric tone="blue" value={`${data.workspace.setup}%`} label="Setup complete" sub={<span className="health-bar"><span style={{ width: `${Math.max(0, Math.min(100, data.workspace.setup))}%` }} /></span>} />
+            <HealthMetric tone="green" value={data.competitors.length} label="Competitors tracked" sub={recentCompetitorIds.size ? `${recentCompetitorIds.size} new` : "No new scans"} />
+            <HealthMetric tone="amber" value={data.workspace.credits} label="Credits" sub={`${data.workspace.credits} credits remaining`} />
+            <HealthMetric tone="purple" value={latestAudit ? `${auditScore}/100` : "—"} label="Social audit score" sub={auditStatus} />
           </div>
-          <Lightbulb />
-        </div>
-        <div className="tb-body">
-          <p>Trend velocity and competitor gap are both above threshold. Generate a brief while the topic is still early.</p>
-          <div className="tb-tags"><span>{lead.platform}</span><span>{lead.format}</span><span>{lead.gapScore >= 80 ? "High priority" : "Recommended"}</span></div>
-          <div className="row-actions">
-            <button className="primary" onClick={() => run("generateOpportunity", { id: lead.id }, "Brief generated")}>Generate brief</button>
-            <button onClick={() => setScreen("research")}>View research</button>
-          </div>
-        </div>
-      </article>}
-      <div className="grid three">
-        <Metric label="Setup complete" value={`${data.workspace.setup}%`} />
-        <Metric label="Competitors tracked" value={data.competitors.length} />
-        <Metric label="Credits" value={data.workspace.credits} />
+          <button className="text-link" onClick={() => setScreen("audit")}>View report</button>
+        </article>
       </div>
-      <PanelCard title="Recent activity">
-        {data.activity.map((item) => <div className="activity-row" key={item.id}><Check size={14} />{item.message}</div>)}
-      </PanelCard>
+
+      <section className="home-card content-pipeline-card">
+        <div className="home-section-head">
+          <div>
+            <h3>Content pipeline</h3>
+            <p>Track progress from research to scheduled post.</p>
+          </div>
+          <button className="text-link" onClick={() => setScreen("publish")}>View full pipeline</button>
+        </div>
+        <div className="pipeline-row">
+          {pipeline.map(({ key, label, count, detail, Icon, status, tone }, index) => (
+            <div className="pipeline-step" key={key}>
+              <div className={`pipeline-icon ${tone}`}><Icon size={22} /></div>
+              <b>{label}</b>
+              <strong>{count}</strong>
+              <span>{detail}</span>
+              <small className={status === "Needs attention" || status === "Needs input" ? "attention" : ""}>{status}</small>
+              <button onClick={() => setScreen(key === "brief" || key === "review" || key === "schedule" ? "publish" : key)}> {key === "create" ? "Generate" : key === "schedule" ? "Schedule" : key === "review" ? "Review" : "Open"} </button>
+              {index < pipeline.length - 1 && <i className="pipeline-connector" />}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="home-card recent-activity-card">
+        <div className="home-section-head">
+          <h3>Recent activity</h3>
+          <button className="text-link" onClick={() => setScreen("logs")}>View all activity</button>
+        </div>
+        <div className="home-activity-list">
+          {data.activity.slice(0, 5).map((item) => (
+            <div className="home-activity-row" key={item.id}>
+              <Check size={14} />
+              <span>{item.message}</span>
+              <time>{relativeTime(item.createdAt)}</time>
+            </div>
+          ))}
+          {data.activity.length === 0 && <div className="empty-state">No activity yet. Run Research or create content to start building history.</div>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function HealthMetric({ tone, value, label, sub }: { tone: "blue" | "green" | "amber" | "purple"; value: string | number; label: string; sub: ReactNode }) {
+  return (
+    <div className="health-metric">
+      <div className={`health-icon ${tone}`} />
+      <strong>{value}</strong>
+      <span>{label}</span>
+      <small>{sub}</small>
     </div>
   );
 }
@@ -2326,6 +2409,28 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 
 function compact(value: number) {
   return Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+
+function isWithinDays(date: string | undefined, days: number) {
+  if (!date) return false;
+  const time = new Date(date).getTime();
+  if (!Number.isFinite(time)) return false;
+  return Date.now() - time <= days * 24 * 60 * 60 * 1000;
+}
+
+function relativeTime(date: string | undefined) {
+  if (!date) return "";
+  const time = new Date(date).getTime();
+  if (!Number.isFinite(time)) return "";
+  const diff = Math.max(0, Date.now() - time);
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return new Date(date).toLocaleDateString();
 }
 
 function Score({ value }: { value: number }) {

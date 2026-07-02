@@ -319,7 +319,7 @@ export default function Home() {
     if (!data) return null;
     return {
       high: data.opportunities.filter((item) => item.gapScore >= 80 && item.status !== "dismissed").length,
-      briefs: data.briefs.filter((item) => item.status === "new" || item.status === "approved").length,
+      research: data.researchScans.filter((item) => item.status === "running" || item.status === "done").length,
       assets: data.assets.filter((item) => item.status === "ready").length,
       scheduled: data.publishQueue.filter((item) => item.status === "scheduled").length
     };
@@ -390,7 +390,7 @@ export default function Home() {
           </div>
           <div className="momentum-strip">
             <div className="mom-item"><Sparkles size={14} /><b>{metrics?.high}</b><span>high-priority gaps</span></div>
-            <div className="mom-item"><FileText size={14} /><b>{metrics?.briefs}</b><span>active briefs</span></div>
+            <div className="mom-item"><Search size={14} /><b>{metrics?.research}</b><span>research scans</span></div>
             <div className="mom-item"><Wand2 size={14} /><b>{metrics?.assets}</b><span>ready assets</span></div>
             <div className="mom-item"><CalendarDays size={14} /><b>{metrics?.scheduled}</b><span>scheduled posts</span></div>
           </div>
@@ -423,7 +423,7 @@ export default function Home() {
 }
 
 function title(screen: string) {
-  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", plan: "Content Plan", create: "Create Content", publish: "My Contents", automation: "Automation", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
+  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", create: "Create Content", publish: "My Contents", automation: "Automation", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
 }
 
 function AnimatedDots({ label }: { label: string }) {
@@ -440,17 +440,17 @@ function HomePanel({ data, setScreen, run }: { data: AppData; setScreen: (s: str
   const latestAudit = [...data.socialAudits].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
   const recentCompetitorIds = new Set(data.competitorResults.filter((item) => isWithinDays(item.capturedAt, 7)).map((item) => item.competitorId));
   const activeResearch = data.researchScans.filter((item) => item.status === "running" || item.status === "done").length;
-  const activeBriefs = data.briefs.filter((item) => item.status === "new" || item.status === "approved").length;
   const createCount = data.assets.filter((item) => item.status === "queued" || item.status === "rendering").length + data.publishQueue.filter((item) => item.status === "generating").length;
   const reviewCount = data.assets.filter((item) => item.status === "ready").length + data.publishQueue.filter((item) => item.status === "done" || item.status === "draft").length;
   const scheduledCount = data.publishQueue.filter((item) => item.status === "scheduled").length;
+  const publishedCount = data.publishQueue.filter((item) => item.status === "published").length;
   const failedCount = data.assets.filter((item) => item.status === "failed").length + data.publishQueue.filter((item) => item.status === "failed").length;
   const pipeline = [
     { key: "research", label: "Research", count: activeResearch, detail: "Topics in research", Icon: Search, status: activeResearch ? "On track" : "Start research", tone: "info" },
-    { key: "brief", label: "Brief", count: activeBriefs, detail: "Active briefs", Icon: FileText, status: activeBriefs ? "On track" : "Needs input", tone: "success" },
     { key: "create", label: "Create", count: createCount, detail: "In progress", Icon: Wand2, status: createCount ? "In progress" : "Ready", tone: "warn" },
     { key: "review", label: "Review", count: reviewCount, detail: "Ready for review", Icon: UserRound, status: failedCount ? "Needs attention" : reviewCount ? "Ready" : "No queue", tone: failedCount ? "danger" : "purple" },
-    { key: "schedule", label: "Schedule", count: scheduledCount, detail: "Scheduled posts", Icon: CalendarDays, status: scheduledCount ? "On track" : "Not scheduled", tone: "success" }
+    { key: "schedule", label: "Schedule", count: scheduledCount, detail: "Scheduled posts", Icon: CalendarDays, status: scheduledCount ? "On track" : "Not scheduled", tone: "success" },
+    { key: "publish", label: "Publish", count: publishedCount, detail: "Published posts", Icon: Megaphone, status: publishedCount ? "Live" : "No posts yet", tone: "success" }
   ];
   const auditScore = latestAudit?.authorityScore ?? 0;
   const auditStatus = auditScore >= 80 ? "Good" : auditScore >= 60 ? "Fair" : latestAudit ? "Needs work" : "No audit yet";
@@ -475,7 +475,7 @@ function HomePanel({ data, setScreen, run }: { data: AppData; setScreen: (s: str
                 <div className="next-illustration"><Lightbulb size={44} /></div>
               </div>
               <div className="row-actions">
-                <button className="primary" onClick={() => run("generateOpportunity", { id: lead.id }, "Brief generated")}><Sparkles size={14} />Generate brief</button>
+                <button className="primary" onClick={() => setScreen("create")}><Sparkles size={14} />Create content</button>
                 <button onClick={() => setScreen("research")}>View research</button>
               </div>
             </>
@@ -516,7 +516,7 @@ function HomePanel({ data, setScreen, run }: { data: AppData; setScreen: (s: str
               <strong>{count}</strong>
               <span>{detail}</span>
               <small className={status === "Needs attention" || status === "Needs input" ? "attention" : ""}>{status}</small>
-              <button onClick={() => setScreen(key === "brief" || key === "review" || key === "schedule" ? "publish" : key)}> {key === "create" ? "Generate" : key === "schedule" ? "Schedule" : key === "review" ? "Review" : "Open"} </button>
+              <button onClick={() => setScreen(key === "review" || key === "schedule" || key === "publish" ? "publish" : key)}> {key === "create" ? "Generate" : key === "schedule" ? "Schedule" : key === "review" ? "Review" : key === "publish" ? "Open" : "Open"} </button>
               {index < pipeline.length - 1 && <i className="pipeline-connector" />}
             </div>
           ))}

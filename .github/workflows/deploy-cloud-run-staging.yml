@@ -18,6 +18,7 @@ env:
   AR_REPO: cloud-run-source-deploy
   DATA_BUCKET: contentagent-social-staging-history-content-agent-2-499616
   DATA_OBJECT: app.json
+  SQL_CONNECTION: content-agent-2-499616:asia-southeast1:contentagent-postgres-staging
   WORKLOAD_IDENTITY_PROVIDER: projects/340047797097/locations/global/workloadIdentityPools/github-contentagent/providers/github-cabuild
   SERVICE_ACCOUNT: github-cloud-run-deployer@content-agent-2-499616.iam.gserviceaccount.com
 
@@ -81,6 +82,9 @@ jobs:
           TELEGRAM_ALLOWED_USER_IDS: "1151114885"
           DATA_STORE_GCS_BUCKET: "${{ env.DATA_BUCKET }}"
           DATA_STORE_GCS_OBJECT: "${{ env.DATA_OBJECT }}"
+          DATA_STORE_PROVIDER: "postgres"
+          POSTGRES_STATE_ID: "staging"
+          POSTGRES_SSL: "false"
           BREVO_FROM_EMAIL: "sean@gigwave.tech"
           BREVO_FROM_NAME: "Gig Wave"
           EOF
@@ -94,7 +98,8 @@ jobs:
           --platform=managed
           --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA
           --env-vars-file=cloudrun-env.yaml
-          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest
+          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest,DATABASE_URL=DATABASE_URL_STAGING:latest
+          --add-cloudsql-instances=$SQL_CONNECTION
           --quiet
 
       - name: Keep staging service public

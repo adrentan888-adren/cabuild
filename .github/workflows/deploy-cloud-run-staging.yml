@@ -1,0 +1,97 @@
+name: Deploy Cloud Run Staging
+
+on:
+  push:
+    branches:
+      - staging/admin-split
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: content-agent-2-499616
+  PROJECT_NUMBER: "340047797097"
+  REGION: asia-southeast1
+  SERVICE: contentagent-social-staging
+  AR_REPO: cloud-run-source-deploy
+  DATA_BUCKET: contentagent-social-staging-history-content-agent-2-499616
+  DATA_OBJECT: app.json
+  WORKLOAD_IDENTITY_PROVIDER: projects/340047797097/locations/global/workloadIdentityPools/github-contentagent/providers/github-cabuild
+  SERVICE_ACCOUNT: github-cloud-run-deployer@content-agent-2-499616.iam.gserviceaccount.com
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
+
+      - name: Prepare persistent staging data store
+        continue-on-error: true
+        run: |
+          gcloud storage buckets describe gs://$DATA_BUCKET >/dev/null 2>&1 || \
+            gcloud storage buckets create gs://$DATA_BUCKET --project=$PROJECT_ID --location=$REGION --uniform-bucket-level-access
+          RUNTIME_SA=$(gcloud run services describe $SERVICE --project=$PROJECT_ID --region=$REGION --format='value(spec.template.spec.serviceAccountName)' 2>/dev/null || true)
+          if [ -z "$RUNTIME_SA" ]; then
+            RUNTIME_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
+          fi
+          gcloud storage buckets add-iam-policy-binding gs://$DATA_BUCKET \
+            --member="serviceAccount:$RUNTIME_SA" \
+            --role="roles/storage.objectAdmin" >/dev/null 2>&1 || true
+          gcloud storage objects describe gs://$DATA_BUCKET/$DATA_OBJECT >/dev/null 2>&1 || \
+            gcloud storage cp data-seed/app.json gs://$DATA_BUCKET/$DATA_OBJECT
+
+      - name: Build image
+        run: docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA .
+
+      - name: Push image
+        run: docker push $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA
+
+      - name: Write Cloud Run env file
+        run: |
+          cat > cloudrun-env.yaml <<'EOF'
+          APIFY_ACTOR_ID: "apify/google-search-scraper"
+          APIFY_KEYWORD_ACTOR_ID: "apify/google-search-scraper"
+          APIFY_TIKTOK_ACTOR_ID: "clockworks/tiktok-scraper"
+          APIFY_INSTAGRAM_ACTOR_ID: "apify/instagram-scraper"
+          APIFY_YOUTUBE_ACTOR_ID: "streamers/youtube-scraper"
+          APIFY_FACEBOOK_ACTOR_ID: "scrapeforge/facebook-search-posts"
+          UPLOAD_POST_PROFILE: "Mariana"
+          UPLOAD_POST_DEFAULT_PLATFORMS: "tiktok,facebook,x"
+          TELEGRAM_ALLOWED_USER_IDS: "1151114885"
+          DATA_STORE_GCS_BUCKET: "${{ env.DATA_BUCKET }}"
+          DATA_STORE_GCS_OBJECT: "${{ env.DATA_OBJECT }}"
+          EOF
+
+      - name: Deploy Cloud Run staging
+        run: >
+          gcloud run deploy $SERVICE
+          --project=$PROJECT_ID
+          --region=$REGION
+          --platform=managed
+          --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA
+          --env-vars-file=cloudrun-env.yaml
+          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest
+          --quiet
+
+      - name: Keep staging service public
+        run: >
+          gcloud run services update $SERVICE
+          --project=$PROJECT_ID
+          --region=$REGION
+          --no-invoker-iam-check
+          --quiet

@@ -14,7 +14,9 @@ env:
   PROJECT_ID: content-agent-2-499616
   PROJECT_NUMBER: "340047797097"
   REGION: asia-southeast1
-  SERVICE: contentagent-social
+  FRONTEND_SERVICE: contentagent-social
+  ADMIN_SERVICE: contentagent-admin
+  API_SERVICE: contentagent-api
   AR_REPO: cloud-run-source-deploy
   DATA_BUCKET: contentagent-social-history-content-agent-2-499616
   DATA_OBJECT: app.json
@@ -45,7 +47,7 @@ jobs:
         run: |
           gcloud storage buckets describe gs://$DATA_BUCKET >/dev/null 2>&1 || \
             gcloud storage buckets create gs://$DATA_BUCKET --project=$PROJECT_ID --location=$REGION --uniform-bucket-level-access
-          RUNTIME_SA=$(gcloud run services describe $SERVICE --project=$PROJECT_ID --region=$REGION --format='value(spec.template.spec.serviceAccountName)' 2>/dev/null || true)
+          RUNTIME_SA=$(gcloud run services describe $API_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(spec.template.spec.serviceAccountName)' 2>/dev/null || true)
           if [ -z "$RUNTIME_SA" ]; then
             RUNTIME_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
           fi
@@ -56,13 +58,19 @@ jobs:
             gcloud storage cp data-seed/app.json gs://$DATA_BUCKET/$DATA_OBJECT
 
       - name: Build image
-        run: docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA .
+        run: docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-production:$GITHUB_SHA .
 
       - name: Push image
-        run: docker push $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA
+        run: docker push $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-production:$GITHUB_SHA
 
       - name: Write Cloud Run env file
+        env:
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
         run: |
+          if [ -z "$BREVO_API_KEY" ]; then
+            echo "BREVO_API_KEY GitHub secret is missing." >&2
+            exit 1
+          fi
           cat > cloudrun-env.yaml <<'EOF'
           APIFY_ACTOR_ID: "apify/google-search-scraper"
           APIFY_KEYWORD_ACTOR_ID: "apify/google-search-scraper"
@@ -75,23 +83,86 @@ jobs:
           TELEGRAM_ALLOWED_USER_IDS: "1151114885"
           DATA_STORE_GCS_BUCKET: "${{ env.DATA_BUCKET }}"
           DATA_STORE_GCS_OBJECT: "${{ env.DATA_OBJECT }}"
+          BREVO_FROM_EMAIL: "sean@gigwave.tech"
+          BREVO_FROM_NAME: "Gig Wave"
           EOF
+          printf 'BREVO_API_KEY: "%s"\n' "$BREVO_API_KEY" >> cloudrun-env.yaml
+          cp cloudrun-env.yaml api-env.yaml
+          printf 'APP_SURFACE: "api"\n' >> api-env.yaml
 
-      - name: Deploy Cloud Run
+      - name: Deploy API service
         run: >
-          gcloud run deploy $SERVICE
+          gcloud run deploy $API_SERVICE
           --project=$PROJECT_ID
           --region=$REGION
           --platform=managed
-          --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA
-          --env-vars-file=cloudrun-env.yaml
+          --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-production:$GITHUB_SHA
+          --env-vars-file=api-env.yaml
           --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest
           --quiet
 
-      - name: Keep service public
+      - name: Keep API service public
         run: >
-          gcloud run services update $SERVICE
+          gcloud run services update $API_SERVICE
           --project=$PROJECT_ID
           --region=$REGION
           --no-invoker-iam-check
           --quiet
+
+      - name: Deploy Admin service
+        run: |
+          API_URL=$(gcloud run services describe $API_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          cp cloudrun-env.yaml admin-env.yaml
+          printf 'APP_SURFACE: "admin"\n' >> admin-env.yaml
+          printf 'API_SERVICE_URL: "%s"\n' "$API_URL" >> admin-env.yaml
+          gcloud run deploy $ADMIN_SERVICE \
+            --project=$PROJECT_ID \
+            --region=$REGION \
+            --platform=managed \
+            --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-production:$GITHUB_SHA \
+            --env-vars-file=admin-env.yaml \
+            --set-secrets=APP_SECRET=APP_SECRET:latest \
+            --quiet
+
+      - name: Keep Admin service public
+        run: >
+          gcloud run services update $ADMIN_SERVICE
+          --project=$PROJECT_ID
+          --region=$REGION
+          --no-invoker-iam-check
+          --quiet
+
+      - name: Deploy Frontend service
+        run: |
+          API_URL=$(gcloud run services describe $API_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          ADMIN_URL=$(gcloud run services describe $ADMIN_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          cp cloudrun-env.yaml frontend-env.yaml
+          printf 'APP_SURFACE: "frontend"\n' >> frontend-env.yaml
+          printf 'API_SERVICE_URL: "%s"\n' "$API_URL" >> frontend-env.yaml
+          printf 'NEXT_PUBLIC_ADMIN_URL: "%s"\n' "$ADMIN_URL" >> frontend-env.yaml
+          gcloud run deploy $FRONTEND_SERVICE \
+            --project=$PROJECT_ID \
+            --region=$REGION \
+            --platform=managed \
+            --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-production:$GITHUB_SHA \
+            --env-vars-file=frontend-env.yaml \
+            --set-secrets=APP_SECRET=APP_SECRET:latest \
+            --quiet
+
+      - name: Keep Frontend service public
+        run: >
+          gcloud run services update $FRONTEND_SERVICE
+          --project=$PROJECT_ID
+          --region=$REGION
+          --no-invoker-iam-check
+          --quiet
+
+      - name: Restrict API CORS to production surfaces
+        run: |
+          FRONTEND_URL=$(gcloud run services describe $FRONTEND_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          ADMIN_URL=$(gcloud run services describe $ADMIN_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          gcloud run services update $API_SERVICE \
+            --project=$PROJECT_ID \
+            --region=$REGION \
+            --update-env-vars="^|^CORS_ALLOWED_ORIGINS=$FRONTEND_URL,$ADMIN_URL" \
+            --quiet

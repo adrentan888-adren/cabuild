@@ -77,6 +77,20 @@ jobs:
           DATA_STORE_GCS_OBJECT: "${{ env.DATA_OBJECT }}"
           EOF
 
+      - name: Upsert Brevo secret
+        env:
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+        run: |
+          if [ -z "$BREVO_API_KEY" ]; then
+            echo "BREVO_API_KEY GitHub secret is missing." >&2
+            exit 1
+          fi
+          if gcloud secrets describe BREVO_API_KEY --project=$PROJECT_ID >/dev/null 2>&1; then
+            printf "%s" "$BREVO_API_KEY" | gcloud secrets versions add BREVO_API_KEY --project=$PROJECT_ID --data-file=-
+          else
+            printf "%s" "$BREVO_API_KEY" | gcloud secrets create BREVO_API_KEY --project=$PROJECT_ID --replication-policy=automatic --data-file=-
+          fi
+
       - name: Deploy Cloud Run staging
         run: >
           gcloud run deploy $SERVICE
@@ -85,7 +99,7 @@ jobs:
           --platform=managed
           --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA
           --env-vars-file=cloudrun-env.yaml
-          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest
+          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest,BREVO_API_KEY=BREVO_API_KEY:latest
           --quiet
 
       - name: Keep staging service public

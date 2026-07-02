@@ -251,7 +251,17 @@ Scope:
   - Admin app.
   - API service.
 
-This is not urgent. Do it only after admin and multi-user persistence are stable.
+Implementation strategy for staging:
+
+- Keep one Next.js codebase and one Docker image first.
+- Deploy the same image as three Cloud Run services with `APP_SURFACE`:
+  - `contentagent-social-staging` uses `APP_SURFACE=frontend`.
+  - `contentagent-admin-staging` uses `APP_SURFACE=admin`.
+  - `contentagent-api-staging` uses `APP_SURFACE=api`.
+- Frontend/admin keep calling same-origin `/api/*`; Next.js rewrites proxy those requests to `API_SERVICE_URL`.
+- API service exposes `/api/*` and `/healthz` only.
+- API CORS is restricted to the staging frontend/admin URLs for direct browser calls, but the primary app flow uses same-origin proxying.
+- This avoids a risky monorepo/package split while still producing separate frontend, admin, and API URLs.
 
 Test gate:
 

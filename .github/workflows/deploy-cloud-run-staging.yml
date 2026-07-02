@@ -14,7 +14,9 @@ env:
   PROJECT_ID: content-agent-2-499616
   PROJECT_NUMBER: "340047797097"
   REGION: asia-southeast1
-  SERVICE: contentagent-social-staging
+  FRONTEND_SERVICE: contentagent-social-staging
+  ADMIN_SERVICE: contentagent-admin-staging
+  API_SERVICE: contentagent-api-staging
   AR_REPO: cloud-run-source-deploy
   DATA_BUCKET: contentagent-social-staging-history-content-agent-2-499616
   DATA_OBJECT: app.json
@@ -46,7 +48,7 @@ jobs:
         run: |
           gcloud storage buckets describe gs://$DATA_BUCKET >/dev/null 2>&1 || \
             gcloud storage buckets create gs://$DATA_BUCKET --project=$PROJECT_ID --location=$REGION --uniform-bucket-level-access
-          RUNTIME_SA=$(gcloud run services describe $SERVICE --project=$PROJECT_ID --region=$REGION --format='value(spec.template.spec.serviceAccountName)' 2>/dev/null || true)
+          RUNTIME_SA=$(gcloud run services describe $API_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(spec.template.spec.serviceAccountName)' 2>/dev/null || true)
           if [ -z "$RUNTIME_SA" ]; then
             RUNTIME_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
           fi
@@ -57,12 +59,12 @@ jobs:
             gcloud storage cp data-seed/app.json gs://$DATA_BUCKET/$DATA_OBJECT
 
       - name: Build image
-        run: docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA .
+        run: docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-staging:$GITHUB_SHA .
 
       - name: Push image
-        run: docker push $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA
+        run: docker push $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-staging:$GITHUB_SHA
 
-      - name: Write Cloud Run env file
+      - name: Write shared Cloud Run env file
         env:
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
         run: |
@@ -90,22 +92,77 @@ jobs:
           EOF
           printf 'BREVO_API_KEY: "%s"\n' "$BREVO_API_KEY" >> cloudrun-env.yaml
 
-      - name: Deploy Cloud Run staging
+      - name: Deploy API service
         run: >
-          gcloud run deploy $SERVICE
+          gcloud run deploy $API_SERVICE
           --project=$PROJECT_ID
           --region=$REGION
           --platform=managed
-          --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$SERVICE:$GITHUB_SHA
+          --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-staging:$GITHUB_SHA
           --env-vars-file=cloudrun-env.yaml
+          --set-env-vars=APP_SURFACE=api
           --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest,DATABASE_URL=DATABASE_URL_STAGING:latest
           --add-cloudsql-instances=$SQL_CONNECTION
           --quiet
 
-      - name: Keep staging service public
+      - name: Keep API service public
         run: >
-          gcloud run services update $SERVICE
+          gcloud run services update $API_SERVICE
           --project=$PROJECT_ID
           --region=$REGION
           --no-invoker-iam-check
           --quiet
+
+      - name: Deploy Admin service
+        run: |
+          API_URL=$(gcloud run services describe $API_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          gcloud run deploy $ADMIN_SERVICE \
+            --project=$PROJECT_ID \
+            --region=$REGION \
+            --platform=managed \
+            --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-staging:$GITHUB_SHA \
+            --env-vars-file=cloudrun-env.yaml \
+            --set-env-vars=APP_SURFACE=admin,API_SERVICE_URL=$API_URL \
+            --set-secrets=APP_SECRET=APP_SECRET:latest,DATABASE_URL=DATABASE_URL_STAGING:latest \
+            --add-cloudsql-instances=$SQL_CONNECTION \
+            --quiet
+
+      - name: Keep Admin service public
+        run: >
+          gcloud run services update $ADMIN_SERVICE
+          --project=$PROJECT_ID
+          --region=$REGION
+          --no-invoker-iam-check
+          --quiet
+
+      - name: Deploy Frontend service
+        run: |
+          API_URL=$(gcloud run services describe $API_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          ADMIN_URL=$(gcloud run services describe $ADMIN_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          gcloud run deploy $FRONTEND_SERVICE \
+            --project=$PROJECT_ID \
+            --region=$REGION \
+            --platform=managed \
+            --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-staging:$GITHUB_SHA \
+            --env-vars-file=cloudrun-env.yaml \
+            --set-env-vars=APP_SURFACE=frontend,API_SERVICE_URL=$API_URL,NEXT_PUBLIC_ADMIN_URL=$ADMIN_URL \
+            --set-secrets=APP_SECRET=APP_SECRET:latest \
+            --quiet
+
+      - name: Keep Frontend service public
+        run: >
+          gcloud run services update $FRONTEND_SERVICE
+          --project=$PROJECT_ID
+          --region=$REGION
+          --no-invoker-iam-check
+          --quiet
+
+      - name: Restrict API CORS to staging surfaces
+        run: |
+          FRONTEND_URL=$(gcloud run services describe $FRONTEND_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          ADMIN_URL=$(gcloud run services describe $ADMIN_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          gcloud run services update $API_SERVICE \
+            --project=$PROJECT_ID \
+            --region=$REGION \
+            --update-env-vars="^|^CORS_ALLOWED_ORIGINS=$FRONTEND_URL,$ADMIN_URL" \
+            --quiet

@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, Mail, Save, Server, Settings, UserPlus, Users, WandSparkles } from "lucide-react";
+import { ArrowUpDown, KeyRound, Save, Server, Settings, UserPlus, Users, WandSparkles, X } from "lucide-react";
 import { useState } from "react";
 import type { Asset, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 
@@ -62,6 +62,8 @@ export type AdminUserData = {
 type RunAction = (a: string, p?: Record<string, unknown>, m?: string) => Promise<unknown>;
 type RunAdminAction = (method: "POST" | "PATCH", payload: Record<string, unknown>, message?: string) => Promise<unknown>;
 type AdminTab = "users" | "prompts" | "keys" | "system";
+type AdminUser = AdminUserData["users"][number];
+type UserSortKey = "name" | "username" | "email" | "role" | "status" | "createdAt";
 
 function PanelCard({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
@@ -124,10 +126,44 @@ function PromptAdminCard({ data, run }: { data: AdminAppData; run: RunAction }) 
 
 function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData | null; runAdmin: RunAdminAction }) {
   const roles = ["super_admin", "admin", "owner", "manager", "creator", "client", "user"];
+  const [sort, setSort] = useState<{ key: UserSortKey; direction: "asc" | "desc" }>({ key: "createdAt", direction: "desc" });
+  const [editing, setEditing] = useState<AdminUser | null>(null);
+  const username = (user: AdminUser) => user.email.split("@")[0] || user.name;
+  const status = (user: AdminUser) => user.disabled ? "Disabled" : "Active";
+  const sortableUsers = [...(adminData?.users || [])].sort((a, b) => {
+    const values: Record<UserSortKey, [string | number, string | number]> = {
+      name: [a.name.toLowerCase(), b.name.toLowerCase()],
+      username: [username(a).toLowerCase(), username(b).toLowerCase()],
+      email: [a.email.toLowerCase(), b.email.toLowerCase()],
+      role: [a.role.toLowerCase(), b.role.toLowerCase()],
+      status: [status(a).toLowerCase(), status(b).toLowerCase()],
+      createdAt: [new Date(a.createdAt || 0).getTime(), new Date(b.createdAt || 0).getTime()]
+    };
+    const [av, bv] = values[sort.key];
+    const result = av > bv ? 1 : av < bv ? -1 : 0;
+    return sort.direction === "asc" ? result : -result;
+  });
+  function toggleSort(key: UserSortKey) {
+    setSort((current) => current.key === key ? { key, direction: current.direction === "asc" ? "desc" : "asc" } : { key, direction: key === "createdAt" ? "desc" : "asc" });
+  }
+  async function saveUser(form: FormData) {
+    if (!editing) return;
+    const password = String(form.get("password") || "");
+    await runAdmin("PATCH", {
+      operation: "update",
+      userId: editing.id,
+      name: form.get("name"),
+      role: form.get("role"),
+      disabled: form.get("disabled") === "true",
+      emailVerified: true
+    }, "User updated");
+    if (password) await runAdmin("PATCH", { operation: "resetPassword", userId: editing.id, password }, "Password reset");
+    setEditing(null);
+  }
   return (
     <PanelCard title="User management" action={<span className="admin-pill">{adminData?.users.length || 0} users</span>}>
       <form className="admin-create-user" action={async (form) => {
-        await runAdmin("POST", { ...Object.fromEntries(form.entries()), emailVerified: form.get("emailVerified") === "true" }, "User created");
+        await runAdmin("POST", { ...Object.fromEntries(form.entries()), emailVerified: false }, "User created");
         (document.activeElement as HTMLElement | null)?.blur();
       }}>
         <div className="admin-section-title">
@@ -140,40 +176,74 @@ function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData 
           <label>Name<input name="name" placeholder="Optional display name" /></label>
           <label>Role<select name="role" defaultValue="user">{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
         </div>
-        <label className="inline-check"><input name="emailVerified" type="checkbox" value="true" defaultChecked /> Mark email verified immediately</label>
         <button className="primary"><UserPlus size={14} />Create user</button>
       </form>
 
-      <div className="admin-user-list">
-        {(adminData?.users || []).map((user) => (
-          <article className={`admin-user-row ${user.disabled ? "disabled" : ""}`} key={user.id}>
-            <div className="admin-user-main">
-              <b>{user.email}</b>
-              <span>{user.name} / {user.role}</span>
-              <small>Created {user.createdAt ? new Date(user.createdAt).toLocaleString() : "unknown"}{user.lastLoginAt ? ` / Last login ${new Date(user.lastLoginAt).toLocaleString()}` : ""}</small>
-            </div>
-            <form className="admin-user-edit" action={async (form) => {
-              await runAdmin("PATCH", { operation: "update", userId: user.id, ...Object.fromEntries(form.entries()), disabled: form.get("disabled") === "true", emailVerified: form.get("emailVerified") === "true" }, "User updated");
-            }}>
-              <label>Name<input name="name" defaultValue={user.name} /></label>
-              <label>Role<select name="role" defaultValue={user.role}>{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
-              <label>Status<select name="disabled" defaultValue={String(user.disabled)}><option value="false">Active</option><option value="true">Disabled</option></select></label>
-              <label>Email<select name="emailVerified" defaultValue={String(user.emailVerified)}><option value="true">Verified</option><option value="false">Unverified</option></select></label>
-              <button><Save size={14} />Save</button>
-            </form>
-            <form className="admin-user-actions" action={async (form) => {
-              const password = String(form.get("password") || "");
-              if (!password) return;
-              await runAdmin("PATCH", { operation: "resetPassword", userId: user.id, password }, "Password reset");
-            }}>
-              <input name="password" type="password" placeholder="New password" minLength={8} />
-              <button><KeyRound size={14} />Reset password</button>
-              {!user.emailVerified && <button type="button" onClick={() => runAdmin("PATCH", { operation: "resendVerification", userId: user.id }, "Verification resent")}><Mail size={14} />Resend code</button>}
-              <span className={`status ${user.disabled ? "failed" : "done"}`}>{user.disabled ? "disabled" : "active"}</span>
-            </form>
-          </article>
-        ))}
+      <div className="admin-user-table-wrap">
+        <table className="admin-user-table">
+          <thead>
+            <tr>
+              {[
+                ["name", "Name"],
+                ["username", "Username"],
+                ["email", "Email address"],
+                ["role", "Role"],
+                ["status", "Status"],
+                ["createdAt", "Created date"]
+              ].map(([key, label]) => (
+                <th key={key}>
+                  <button type="button" onClick={() => toggleSort(key as UserSortKey)}>
+                    {label}<ArrowUpDown size={12} />
+                  </button>
+                </th>
+              ))}
+              <th><span>Action</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortableUsers.map((user) => (
+              <tr key={user.id} className={user.disabled ? "disabled" : ""}>
+                <td>{user.name}</td>
+                <td>{username(user)}</td>
+                <td>{user.email}</td>
+                <td><span className="admin-role-pill">{user.role}</span></td>
+                <td><span className={`status ${user.disabled ? "failed" : "done"}`}>{status(user)}</span></td>
+                <td>{user.createdAt ? new Date(user.createdAt).toLocaleString() : "Unknown"}</td>
+                <td><button type="button" onClick={() => setEditing(user)}>Edit</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+
+      {editing && (
+        <div className="modal-backdrop">
+          <section className="generation-modal admin-user-modal">
+            <div className="modal-head">
+              <div>
+                <h3>Edit user</h3>
+                <p>{editing.email}</p>
+              </div>
+              <button className="icon-btn" type="button" onClick={() => setEditing(null)}><X size={15} /></button>
+            </div>
+            <form className="generation-form" action={saveUser}>
+              <div className="modal-grid">
+                <label>Name<input name="name" defaultValue={editing.name} /></label>
+                <label>Username<input value={username(editing)} readOnly /></label>
+                <label>Email address<input value={editing.email} readOnly /></label>
+                <label>Role<select name="role" defaultValue={editing.role}>{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
+                <label>Status<select name="disabled" defaultValue={String(editing.disabled)}><option value="false">Active</option><option value="true">Disabled</option></select></label>
+                <label>Created date<input value={editing.createdAt ? new Date(editing.createdAt).toLocaleString() : "Unknown"} readOnly /></label>
+              </div>
+              <label>Reset password<input name="password" type="password" minLength={8} placeholder="Leave blank to keep current password" /></label>
+              <div className="modal-actions">
+                <button type="button" onClick={() => setEditing(null)}>Cancel</button>
+                <button className="primary"><Save size={14} />Save</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </PanelCard>
   );
 }

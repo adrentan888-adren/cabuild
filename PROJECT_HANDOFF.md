@@ -34,6 +34,7 @@ Get-CimInstance Win32_Process -Filter "name = 'node.exe'" | Where-Object { $_.Co
 - Kie provider: `lib/providers/kie.ts`
 - Upload-Post provider: `lib/providers/uploadPost.ts`
 - Local data file: `data/app.json`
+- Admin split/multi-user rollout plan: `ADMIN_SPLIT_PHASE_PLAN.md`
 
 ## Environment And Secrets
 Do not commit raw API keys. Keep secrets in ignored local files, GCP Secret Manager, or the user's password manager. The user pasted live keys in chat earlier; treat those values as compromised before production and rotate them. This handoff deliberately records names, locations, and usage, not raw secret values.

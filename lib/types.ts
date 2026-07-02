@@ -7,6 +7,9 @@ export type User = {
   passwordHash: string;
   role: "super_admin" | "admin" | "owner" | "manager" | "creator" | "client" | "user";
   workspaceId: string;
+  emailVerified?: boolean;
+  emailVerificationCodeHash?: string;
+  emailVerificationExpiresAt?: string;
 };
 
 export type Workspace = {

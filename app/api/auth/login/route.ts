@@ -9,6 +9,9 @@ export async function POST(req: Request) {
   if (!user || !verifyPassword(String(password), user.passwordHash)) {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
+  if (user.emailVerified === false) {
+    return NextResponse.json({ error: "Please verify your email before signing in.", verificationRequired: true, email: user.email }, { status: 403 });
+  }
   const res = NextResponse.json({ ok: true });
   setSession(res, user.id);
   return res;

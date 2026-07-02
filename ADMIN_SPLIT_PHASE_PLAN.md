@@ -68,9 +68,11 @@ Scope:
 - Add proper frontend auth screens:
   - `/login`
   - `/register`
+  - `/verify-email`
   - logout
   - protected frontend app after login
 - Allow new users to register their own normal frontend account.
+- Require email verification before login/app access.
 - Save registered users in the current app store.
 - Create a default workspace for each newly registered user.
 - Move current `Backend` tab content into a dedicated `/admin` route.
@@ -85,6 +87,10 @@ Suggested implementation:
 - Keep `/` protected so unauthenticated users are redirected to `/login`.
 - Reuse existing `/api/auth/login`, `/api/auth/logout`, and `/api/auth/register` where possible.
 - New registered users should default to role `user`.
+- New registered users should default to `emailVerified: false`.
+- Registration form should show only email, password, and confirm password.
+- Send a 6-digit verification code through Brevo transactional email.
+- Add `/api/auth/verify-email` and `/api/auth/resend-verification`.
 - Existing admin user should keep role `admin` or `super_admin`.
 - Add `app/admin/page.tsx` or equivalent admin route.
 - Reuse existing admin/backend UI components where practical.
@@ -104,6 +110,7 @@ Staging deployment target:
 What belongs in Phase 1:
 
 - Basic registration using the current store.
+- Brevo email verification for new registrations.
 - Basic workspace creation for registered users.
 - Role check for admin vs normal user.
 - Separate admin surface.
@@ -114,6 +121,7 @@ What does not belong in Phase 1:
 - Production-grade password reset.
 - Postgres migration.
 - Separate API service.
+- Static Cloud Run egress IP setup, unless Brevo IP restrictions require it for staging/production testing.
 
 Test gate:
 
@@ -121,8 +129,15 @@ Test gate:
 - Production URL still works and is not affected by the staging branch.
 - `/login` loads when unauthenticated.
 - `/register` loads when unauthenticated.
-- New user can register.
-- New user can log in after registration.
+- `/verify-email` loads when unauthenticated.
+- New user can register with email/password/confirm password only.
+- New user receives a Brevo verification code.
+- New user cannot log in before email verification.
+- Wrong verification code is rejected.
+- Expired verification code is rejected.
+- Resend verification code sends a new code.
+- Correct verification code marks user verified and starts a session.
+- New user can log in after verification.
 - New user gets a default workspace.
 - New user can log out.
 - Logged-out user cannot access `/`.

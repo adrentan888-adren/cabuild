@@ -161,6 +161,10 @@ function seeded(): Database {
 }
 
 function normalizeDb(db: Database): Database {
+  db.users ||= [];
+  for (const user of db.users) {
+    if (typeof user.emailVerified !== "boolean") user.emailVerified = true;
+  }
   db.competitorResults ||= [];
   db.researchScans ||= [];
   db.socialAudits ||= [];

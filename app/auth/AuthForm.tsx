@@ -32,7 +32,16 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
     setSubmitting(false);
     if (!res.ok) {
       const json = await res.json().catch(() => ({}));
+      if (json.verificationRequired && json.email) {
+        router.push(`/verify-email?email=${encodeURIComponent(json.email)}`);
+        return;
+      }
       setError(json.error || "Authentication failed");
+      return;
+    }
+    const json = await res.json().catch(() => ({}));
+    if (json.verificationRequired && json.email) {
+      router.push(`/verify-email?email=${encodeURIComponent(json.email)}`);
       return;
     }
     router.replace("/");
@@ -54,15 +63,9 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
             <button type="button" className={isLogin ? "on" : ""} onClick={() => router.push("/login")}>Sign in</button>
             <button type="button" className={!isLogin ? "on" : ""} onClick={() => router.push("/register")}>Create account</button>
           </div>
-          {!isLogin && (
-            <>
-              <label>Name<input name="name" placeholder="Sean Tan" autoComplete="name" /></label>
-              <label>Workspace<input name="workspaceName" placeholder="My Social Workspace" /></label>
-              <label>Niche<input name="niche" placeholder="SME AI automation" /></label>
-            </>
-          )}
           <label>Email<input name="email" type="email" defaultValue={isLogin ? "demo@contentagent.tech" : ""} required autoComplete="email" /></label>
           <label>Password<input name="password" type="password" defaultValue={isLogin ? "demo1234" : ""} required autoComplete={isLogin ? "current-password" : "new-password"} /></label>
+          {!isLogin && <label>Confirm password<input name="confirmPassword" type="password" required autoComplete="new-password" /></label>}
           {error && <div className="error">{error}</div>}
           <button className="primary" type="submit" disabled={submitting}>{submitting ? "Working..." : isLogin ? "Enter workspace" : "Create workspace"}</button>
         </form>

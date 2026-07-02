@@ -69,6 +69,7 @@ const allPermissionKeys: PermissionKey[] = [
   "prompts.view",
   "prompts.edit",
   "apiKeys.view",
+  "apiKeys.edit",
   "system.view",
   "logs.view",
   "settings.view",
@@ -90,6 +91,7 @@ export const defaultRolePermissions: RolePermissions = {
     "prompts.view",
     "prompts.edit",
     "apiKeys.view",
+    "apiKeys.edit",
     "system.view",
     "logs.view",
     "settings.view",
@@ -218,6 +220,7 @@ export function seeded(): Database {
     automationJobs: [],
     automationSourceWatchers: [],
     automationSourceRuns: [],
+    apiKeyOverrides: [],
     activity: [
       { id: id("act"), workspaceId, message: "Detected TikTok automation topic crossing high-priority threshold.", createdAt: new Date().toISOString() }
     ],
@@ -243,6 +246,7 @@ export function normalizeDb(db: Database): Database {
   db.automationJobs ||= [];
   db.automationSourceWatchers ||= [];
   db.automationSourceRuns ||= [];
+  db.apiKeyOverrides ||= [];
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
   const existingPermissions = (db as Database & { rolePermissions?: Partial<RolePermissions> }).rolePermissions || {};
   db.rolePermissions = allRoles.reduce((acc, role) => {

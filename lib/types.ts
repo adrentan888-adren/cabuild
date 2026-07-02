@@ -16,6 +16,7 @@ export type PermissionKey =
   | "prompts.view"
   | "prompts.edit"
   | "apiKeys.view"
+  | "apiKeys.edit"
   | "system.view"
   | "logs.view"
   | "settings.view"
@@ -369,6 +370,15 @@ export type AutomationSourceRun = {
   error?: string;
 };
 
+export type ApiKeyProvider = "kie" | "apify" | "apifyBackup" | "uploadPost";
+
+export type ApiKeyOverride = {
+  provider: ApiKeyProvider;
+  encryptedValue: string;
+  updatedAt: string;
+  updatedBy: string;
+};
+
 export type GenerationAssetReference = {
   role: string;
   fileName: string;
@@ -421,6 +431,7 @@ export type Database = {
   automationJobs: AutomationJob[];
   automationSourceWatchers: AutomationSourceWatcher[];
   automationSourceRuns: AutomationSourceRun[];
+  apiKeyOverrides: ApiKeyOverride[];
   activity: Activity[];
   debugLogs: DebugLog[];
   promptTemplates: PromptTemplates;

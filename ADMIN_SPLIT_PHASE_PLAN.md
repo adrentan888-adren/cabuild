@@ -60,10 +60,19 @@ Use `main` only for stable, tested phase releases.
 
 ## Recommended Rollout
 
-### Phase 1: Separate Admin Surface
+### Phase 1: Staging URL, Login/Register, And Separate Admin Surface
 
 Scope:
 
+- Create a staging deployment target from `staging/admin-split`.
+- Add proper frontend auth screens:
+  - `/login`
+  - `/register`
+  - logout
+  - protected frontend app after login
+- Allow new users to register their own normal frontend account.
+- Save registered users in the current app store.
+- Create a default workspace for each newly registered user.
 - Move current `Backend` tab content into a dedicated `/admin` route.
 - Remove or hide the `Backend` tab from the normal frontend sidebar.
 - Add admin-only access guard.
@@ -72,16 +81,54 @@ Scope:
 
 Suggested implementation:
 
+- Add `app/login/page.tsx` and `app/register/page.tsx`, or equivalent route handling.
+- Keep `/` protected so unauthenticated users are redirected to `/login`.
+- Reuse existing `/api/auth/login`, `/api/auth/logout`, and `/api/auth/register` where possible.
+- New registered users should default to role `user`.
+- Existing admin user should keep role `admin` or `super_admin`.
 - Add `app/admin/page.tsx` or equivalent admin route.
 - Reuse existing admin/backend UI components where practical.
 - Add role/admin check before rendering admin UI.
 - Keep frontend at `/`.
+- Deploy this phase to staging first, not production.
+
+Staging deployment target:
+
+- Branch: `staging/admin-split`
+- Cloud Run service: `contentagent-social-staging`
+- Expected staging URL pattern: `https://contentagent-social-staging-xxxxx-as.a.run.app`
+- Production `main` deployment must remain unchanged until Phase 1 passes.
+
+What belongs in Phase 1:
+
+- Basic registration using the current store.
+- Basic workspace creation for registered users.
+- Role check for admin vs normal user.
+- Separate admin surface.
+
+What does not belong in Phase 1:
+
+- Full admin user lifecycle management.
+- Production-grade password reset.
+- Postgres migration.
+- Separate API service.
 
 Test gate:
 
+- Staging URL loads independently from production.
+- Production URL still works and is not affected by the staging branch.
+- `/login` loads when unauthenticated.
+- `/register` loads when unauthenticated.
+- New user can register.
+- New user can log in after registration.
+- New user gets a default workspace.
+- New user can log out.
+- Logged-out user cannot access `/`.
+- Logged-out user cannot access `/admin`.
 - Frontend no longer shows `Backend` tab.
 - `/admin` loads only for admin users.
 - Normal frontend user cannot access `/admin`.
+- Existing demo user can still log in.
 - Research search still works.
 - Create Content still works.
 - My Contents still works.
@@ -92,6 +139,8 @@ Test gate:
 
 Move to Phase 2 only if:
 
+- Staging URL is working.
+- Register/login/logout flow works.
 - No existing frontend feature broke.
 - Admin-only access works.
 - Prompt changes from admin still affect frontend generation.
@@ -101,7 +150,7 @@ Move to Phase 2 only if:
 Scope:
 
 - Add backend GUI to manage users.
-- Replace reliance on simple `admin/admin` style admin access.
+- Replace reliance on simple `admin/admin` style admin access for operational use.
 - Add roles and basic user lifecycle controls.
 
 Suggested features:
@@ -115,6 +164,7 @@ Suggested features:
 
 Test gate:
 
+- Registered Phase 1 users appear in admin user list.
 - Admin can create a new user.
 - New user can log in.
 - Disabled user cannot log in.
@@ -221,8 +271,9 @@ Preferred URLs later:
 
 Without custom domain:
 
-- Frontend: existing Cloud Run URL.
-- Admin: separate Cloud Run service URL.
+- Production frontend: existing Cloud Run URL.
+- Staging frontend/admin test surface: `contentagent-social-staging` Cloud Run URL.
+- Later admin-only deployment: separate `contentagent-admin-staging` and `contentagent-admin` Cloud Run URLs.
 
 Deploy staging before production when possible:
 
@@ -230,6 +281,19 @@ Deploy staging before production when possible:
 - `contentagent-admin-staging`
 
 Then merge to `main` and deploy production only after the phase gate passes.
+
+Recommended staging deployment flow:
+
+```text
+staging/admin-split branch
+  -> deploy to contentagent-social-staging
+  -> run Phase 1 test gate
+  -> user acceptance test
+  -> merge to main only after approval
+  -> production deploy
+```
+
+The staging service should use separate non-production env values where practical. For early Phase 1, it may temporarily share provider tokens, but do not run expensive generation tests unless explicitly needed.
 
 ## Operating Rule For Future Sessions
 

@@ -91,6 +91,8 @@ jobs:
           BREVO_FROM_NAME: "Gig Wave"
           EOF
           printf 'BREVO_API_KEY: "%s"\n' "$BREVO_API_KEY" >> cloudrun-env.yaml
+          cp cloudrun-env.yaml api-env.yaml
+          printf 'APP_SURFACE: "api"\n' >> api-env.yaml
 
       - name: Deploy API service
         run: >
@@ -99,8 +101,7 @@ jobs:
           --region=$REGION
           --platform=managed
           --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-staging:$GITHUB_SHA
-          --env-vars-file=cloudrun-env.yaml
-          --set-env-vars=APP_SURFACE=api
+          --env-vars-file=api-env.yaml
           --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest,DATABASE_URL=DATABASE_URL_STAGING:latest
           --add-cloudsql-instances=$SQL_CONNECTION
           --quiet
@@ -116,13 +117,15 @@ jobs:
       - name: Deploy Admin service
         run: |
           API_URL=$(gcloud run services describe $API_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          cp cloudrun-env.yaml admin-env.yaml
+          printf 'APP_SURFACE: "admin"\n' >> admin-env.yaml
+          printf 'API_SERVICE_URL: "%s"\n' "$API_URL" >> admin-env.yaml
           gcloud run deploy $ADMIN_SERVICE \
             --project=$PROJECT_ID \
             --region=$REGION \
             --platform=managed \
             --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-staging:$GITHUB_SHA \
-            --env-vars-file=cloudrun-env.yaml \
-            --set-env-vars=APP_SURFACE=admin,API_SERVICE_URL=$API_URL \
+            --env-vars-file=admin-env.yaml \
             --set-secrets=APP_SECRET=APP_SECRET:latest,DATABASE_URL=DATABASE_URL_STAGING:latest \
             --add-cloudsql-instances=$SQL_CONNECTION \
             --quiet
@@ -139,13 +142,16 @@ jobs:
         run: |
           API_URL=$(gcloud run services describe $API_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
           ADMIN_URL=$(gcloud run services describe $ADMIN_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          cp cloudrun-env.yaml frontend-env.yaml
+          printf 'APP_SURFACE: "frontend"\n' >> frontend-env.yaml
+          printf 'API_SERVICE_URL: "%s"\n' "$API_URL" >> frontend-env.yaml
+          printf 'NEXT_PUBLIC_ADMIN_URL: "%s"\n' "$ADMIN_URL" >> frontend-env.yaml
           gcloud run deploy $FRONTEND_SERVICE \
             --project=$PROJECT_ID \
             --region=$REGION \
             --platform=managed \
             --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-staging:$GITHUB_SHA \
-            --env-vars-file=cloudrun-env.yaml \
-            --set-env-vars=APP_SURFACE=frontend,API_SERVICE_URL=$API_URL,NEXT_PUBLIC_ADMIN_URL=$ADMIN_URL \
+            --env-vars-file=frontend-env.yaml \
             --set-secrets=APP_SECRET=APP_SECRET:latest \
             --quiet
 

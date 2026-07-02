@@ -81,6 +81,8 @@ jobs:
           TELEGRAM_ALLOWED_USER_IDS: "1151114885"
           DATA_STORE_GCS_BUCKET: "${{ env.DATA_BUCKET }}"
           DATA_STORE_GCS_OBJECT: "${{ env.DATA_OBJECT }}"
+          BREVO_FROM_EMAIL: "sean@gigwave.tech"
+          BREVO_FROM_NAME: "Gig Wave"
           EOF
           printf 'BREVO_API_KEY: "%s"\n' "$BREVO_API_KEY" >> cloudrun-env.yaml
 

@@ -98,7 +98,7 @@ Staging deployment target:
 - Cloud Run service: `contentagent-social-staging`
 - GitHub Actions workflow: `.github/workflows/deploy-cloud-run-staging.yml`
 - Staging data bucket: `contentagent-social-staging-history-content-agent-2-499616`
-- Expected staging URL pattern: `https://contentagent-social-staging-xxxxx-as.a.run.app`
+- Current staging URL: `https://contentagent-social-staging-340047797097.asia-southeast1.run.app`
 - Production `main` deployment must remain unchanged until Phase 1 passes.
 
 What belongs in Phase 1:

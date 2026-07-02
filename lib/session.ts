@@ -44,5 +44,5 @@ export async function currentUser() {
 }
 
 export function isAdminRole(role?: string) {
-  return role === "super_admin" || role === "admin" || role === "owner";
+  return role === "super_admin" || role === "admin" || role === "support_admin" || role === "owner";
 }

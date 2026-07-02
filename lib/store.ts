@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
 import { normalizePersonaProfile } from "./persona";
-import type { Database, PersonaProfile, Platform, PromptTemplates } from "./types";
+import type { Database, PermissionKey, PersonaProfile, Platform, PromptTemplates, RolePermissions, UserRole } from "./types";
 
 const dataDir = path.join(process.cwd(), "data");
 const dataFile = path.join(dataDir, "app.json");
@@ -50,6 +50,64 @@ Rules:
 
 User instruction to transform:
 {{prompt}}`
+};
+
+export const allRoles: UserRole[] = ["super_admin", "admin", "support_admin", "owner", "manager", "creator", "client", "user"];
+
+const allPermissionKeys: PermissionKey[] = [
+  "admin.access",
+  "users.view",
+  "users.create",
+  "users.edit",
+  "users.delete",
+  "users.disable",
+  "users.resetPassword",
+  "users.assignRole",
+  "permissions.view",
+  "permissions.manage",
+  "prompts.view",
+  "prompts.edit",
+  "apiKeys.view",
+  "system.view",
+  "logs.view",
+  "settings.view",
+  "settings.edit"
+];
+
+export const defaultRolePermissions: RolePermissions = {
+  super_admin: allPermissionKeys,
+  owner: allPermissionKeys,
+  admin: [
+    "admin.access",
+    "users.view",
+    "users.create",
+    "users.edit",
+    "users.disable",
+    "users.resetPassword",
+    "users.assignRole",
+    "permissions.view",
+    "prompts.view",
+    "prompts.edit",
+    "apiKeys.view",
+    "system.view",
+    "logs.view",
+    "settings.view",
+    "settings.edit"
+  ],
+  support_admin: [
+    "admin.access",
+    "users.view",
+    "permissions.view",
+    "prompts.view",
+    "apiKeys.view",
+    "system.view",
+    "logs.view",
+    "settings.view"
+  ],
+  manager: ["settings.view", "logs.view"],
+  creator: [],
+  client: [],
+  user: []
 };
 
 function seeded(): Database {
@@ -159,7 +217,8 @@ function seeded(): Database {
       { id: id("act"), workspaceId, message: "Detected TikTok automation topic crossing high-priority threshold.", createdAt: new Date().toISOString() }
     ],
     debugLogs: [],
-    promptTemplates: defaultPromptTemplates
+    promptTemplates: defaultPromptTemplates,
+    rolePermissions: defaultRolePermissions
   };
 }
 
@@ -176,6 +235,13 @@ function normalizeDb(db: Database): Database {
   db.activity ||= [];
   db.debugLogs ||= [];
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
+  const existingPermissions = (db as Database & { rolePermissions?: Partial<RolePermissions> }).rolePermissions || {};
+  db.rolePermissions = allRoles.reduce((acc, role) => {
+    const source = Array.isArray(existingPermissions[role]) ? existingPermissions[role] as PermissionKey[] : defaultRolePermissions[role] || [];
+    acc[role] = Array.from(new Set(source))
+      .filter((permission): permission is PermissionKey => allPermissionKeys.includes(permission as PermissionKey));
+    return acc;
+  }, {} as RolePermissions);
   if (!db.promptTemplates.researchVideoRecreate.includes("{{durationLine}}") && !db.promptTemplates.researchVideoRecreate.toLowerCase().includes("the video duration is supposed to be")) {
     db.promptTemplates.researchVideoRecreate = `${db.promptTemplates.researchVideoRecreate.trim()} {{durationLine}}`;
   }

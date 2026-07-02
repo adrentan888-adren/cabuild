@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { currentUser, isAdminRole } from "@/lib/session";
+import { currentUser } from "@/lib/session";
+import { hasPermission } from "@/lib/permissions";
 import { defaultPersonaProfile, id, mutateDb } from "@/lib/store";
 import type { Asset, Brief, CompetitorResult, GenerationAssetReference, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext, normalizePersonaProfile } from "@/lib/persona";
@@ -1694,7 +1695,8 @@ export async function POST(req: Request) {
   }
 
   if (action === "updatePromptTemplates") {
-    if (!isAdminRole(user.role)) {
+    const allowed = await mutateDb((db) => hasPermission(db, user, "prompts.edit"));
+    if (!allowed) {
       return NextResponse.json({ error: "Admin access required." }, { status: 403 });
     }
     const username = String(body.adminUsername || "");

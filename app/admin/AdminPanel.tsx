@@ -1,7 +1,7 @@
 "use client";
 
-import { ArrowUpDown, KeyRound, Save, Server, Settings, UserPlus, Users, WandSparkles, X } from "lucide-react";
-import { useState } from "react";
+import { ArrowUpDown, KeyRound, Save, Server, Settings, ShieldCheck, Trash2, UserPlus, Users, WandSparkles, X } from "lucide-react";
+import { Fragment, useState } from "react";
 import type { Asset, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 
 export type AdminAppData = {
@@ -57,11 +57,15 @@ export type AdminUserData = {
     updatedAt: string;
     lastLoginAt: string;
   }[];
+  roles: string[];
+  permissions: Record<string, string[]>;
+  actorPermissions: string[];
+  permissionCatalog: { key: string; label: string; group: string; description: string }[];
 };
 
 type RunAction = (a: string, p?: Record<string, unknown>, m?: string) => Promise<unknown>;
 type RunAdminAction = (method: "POST" | "PATCH", payload: Record<string, unknown>, message?: string) => Promise<unknown>;
-type AdminTab = "users" | "prompts" | "keys" | "system";
+type AdminTab = "users" | "permissions" | "prompts" | "keys" | "system";
 type AdminUser = AdminUserData["users"][number];
 type UserSortKey = "name" | "username" | "email" | "role" | "status" | "createdAt";
 
@@ -125,7 +129,11 @@ function PromptAdminCard({ data, run }: { data: AdminAppData; run: RunAction }) 
 }
 
 function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData | null; runAdmin: RunAdminAction }) {
-  const roles = ["super_admin", "admin", "owner", "manager", "creator", "client", "user"];
+  const roles = adminData?.roles || ["super_admin", "admin", "support_admin", "owner", "manager", "creator", "client", "user"];
+  const canCreate = Boolean(adminData?.actorPermissions.includes("users.create"));
+  const canEdit = Boolean(adminData?.actorPermissions.includes("users.edit"));
+  const canDelete = Boolean(adminData?.actorPermissions.includes("users.delete"));
+  const canReset = Boolean(adminData?.actorPermissions.includes("users.resetPassword"));
   const [sort, setSort] = useState<{ key: UserSortKey; direction: "asc" | "desc" }>({ key: "createdAt", direction: "desc" });
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const username = (user: AdminUser) => user.email.split("@")[0] || user.name;
@@ -149,20 +157,29 @@ function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData 
   async function saveUser(form: FormData) {
     if (!editing) return;
     const password = String(form.get("password") || "");
-    await runAdmin("PATCH", {
-      operation: "update",
-      userId: editing.id,
-      name: form.get("name"),
-      role: form.get("role"),
-      disabled: form.get("disabled") === "true",
-      emailVerified: true
-    }, "User updated");
+    if (canEdit) {
+      await runAdmin("PATCH", {
+        operation: "update",
+        userId: editing.id,
+        name: form.get("name"),
+        role: form.get("role"),
+        disabled: form.get("disabled") === "true",
+        emailVerified: true
+      }, "User updated");
+    }
     if (password) await runAdmin("PATCH", { operation: "resetPassword", userId: editing.id, password }, "Password reset");
+    setEditing(null);
+  }
+  async function deleteUser() {
+    if (!editing) return;
+    const confirmed = window.confirm(`Delete ${editing.email}? This removes the user account but keeps shared workspace history.`);
+    if (!confirmed) return;
+    await runAdmin("PATCH", { operation: "delete", userId: editing.id }, "User deleted");
     setEditing(null);
   }
   return (
     <PanelCard title="User management" action={<span className="admin-pill">{adminData?.users.length || 0} users</span>}>
-      <form className="admin-create-user" action={async (form) => {
+      {canCreate && <form className="admin-create-user" action={async (form) => {
         await runAdmin("POST", { ...Object.fromEntries(form.entries()), emailVerified: false }, "User created");
         (document.activeElement as HTMLElement | null)?.blur();
       }}>
@@ -177,7 +194,7 @@ function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData 
           <label>Role<select name="role" defaultValue="user">{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
         </div>
         <button className="primary"><UserPlus size={14} />Create user</button>
-      </form>
+      </form>}
 
       <div className="admin-user-table-wrap">
         <table className="admin-user-table">
@@ -228,22 +245,83 @@ function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData 
             </div>
             <form className="generation-form" action={saveUser}>
               <div className="modal-grid">
-                <label>Name<input name="name" defaultValue={editing.name} /></label>
+                <label>Name<input name="name" defaultValue={editing.name} readOnly={!canEdit} /></label>
                 <label>Username<input value={username(editing)} readOnly /></label>
                 <label>Email address<input value={editing.email} readOnly /></label>
-                <label>Role<select name="role" defaultValue={editing.role}>{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
-                <label>Status<select name="disabled" defaultValue={String(editing.disabled)}><option value="false">Active</option><option value="true">Disabled</option></select></label>
+                <label>Role<select name="role" defaultValue={editing.role} disabled={!canEdit}>{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
+                <label>Status<select name="disabled" defaultValue={String(editing.disabled)} disabled={!canEdit}><option value="false">Active</option><option value="true">Disabled</option></select></label>
                 <label>Created date<input value={editing.createdAt ? new Date(editing.createdAt).toLocaleString() : "Unknown"} readOnly /></label>
               </div>
-              <label>Reset password<input name="password" type="password" minLength={8} placeholder="Leave blank to keep current password" /></label>
-              <div className="modal-actions">
-                <button type="button" onClick={() => setEditing(null)}>Cancel</button>
-                <button className="primary"><Save size={14} />Save</button>
+              {canReset && <label>Reset password<input name="password" type="password" minLength={8} placeholder="Leave blank to keep current password" /></label>}
+              <div className="modal-actions split-actions">
+                <div>{canDelete && <button className="danger-btn" type="button" onClick={deleteUser}><Trash2 size={14} />Delete</button>}</div>
+                <div className="row-actions">
+                  <button type="button" onClick={() => setEditing(null)}>Cancel</button>
+                  <button className="primary" disabled={!canEdit && !canReset}><Save size={14} />Save</button>
+                </div>
               </div>
             </form>
           </section>
         </div>
       )}
+    </PanelCard>
+  );
+}
+
+function PermissionCard({ adminData, runAdmin }: { adminData: AdminUserData | null; runAdmin: RunAdminAction }) {
+  const roles = (adminData?.roles || []).filter((role) => role !== "super_admin" && role !== "owner");
+  const catalog = adminData?.permissionCatalog || [];
+  const grouped = catalog.reduce((acc, permission) => {
+    (acc[permission.group] ||= []).push(permission);
+    return acc;
+  }, {} as Record<string, typeof catalog>);
+  const canManage = Boolean(adminData?.actorPermissions.includes("permissions.manage"));
+  return (
+    <PanelCard title="Permission management" action={<span className="admin-pill">{roles.length} editable roles</span>}>
+      <p className="muted">Configure what each role can do. Owner and super_admin always keep full access and are locked for safety.</p>
+      <form className="permission-matrix" action={async (form) => {
+        const permissions = roles.reduce((acc, role) => {
+          acc[role] = catalog.filter((permission) => form.get(`${role}:${permission.key}`) === "on").map((permission) => permission.key);
+          return acc;
+        }, {} as Record<string, string[]>);
+        await runAdmin("PATCH", { operation: "updateRolePermissions", permissions }, "Permissions saved");
+      }}>
+        <div className="permission-table-wrap">
+          <table className="permission-table">
+            <thead>
+              <tr>
+                <th>Permission</th>
+                {roles.map((role) => <th key={role}>{role}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(grouped).map(([group, permissions]) => (
+                <Fragment key={group}>
+                  <tr className="permission-group" key={group}><td colSpan={roles.length + 1}>{group}</td></tr>
+                  {permissions.map((permission) => (
+                    <tr key={permission.key}>
+                      <td><b>{permission.label}</b><span>{permission.description}</span></td>
+                      {roles.map((role) => (
+                        <td key={role}>
+                          <input
+                            name={`${role}:${permission.key}`}
+                            type="checkbox"
+                            defaultChecked={Boolean(adminData?.permissions?.[role]?.includes(permission.key))}
+                            disabled={!canManage}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="modal-actions">
+          <button className="primary" disabled={!canManage}><Save size={14} />Save permissions</button>
+        </div>
+      </form>
     </PanelCard>
   );
 }
@@ -286,6 +364,7 @@ export default function AdminPanel({ data, run, runAdmin, integrations, adminDat
   const [activeTab, setActiveTab] = useState<AdminTab>("users");
   const tabs = [
     { id: "users", label: "User Management", icon: Users },
+    { id: "permissions", label: "Permission", icon: ShieldCheck },
     { id: "prompts", label: "Prompt Management", icon: WandSparkles },
     { id: "keys", label: "API Key Management", icon: KeyRound },
     { id: "system", label: "System", icon: Server }
@@ -318,6 +397,7 @@ export default function AdminPanel({ data, run, runAdmin, integrations, adminDat
 
       <section className="admin-tab-panel">
         {activeTab === "users" && <UserManagementCard adminData={adminData} runAdmin={runAdmin} />}
+        {activeTab === "permissions" && <PermissionCard adminData={adminData} runAdmin={runAdmin} />}
         {activeTab === "prompts" && <PromptAdminCard data={data} run={run} />}
         {activeTab === "keys" && <ApiKeyManagementCard integrations={integrations} />}
         {activeTab === "system" && <SystemCard />}

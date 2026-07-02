@@ -1,11 +1,34 @@
 export type Platform = "TikTok" | "Instagram" | "YouTube" | "LinkedIn" | "Facebook" | "X";
 
+export type UserRole = "super_admin" | "admin" | "support_admin" | "owner" | "manager" | "creator" | "client" | "user";
+
+export type PermissionKey =
+  | "admin.access"
+  | "users.view"
+  | "users.create"
+  | "users.edit"
+  | "users.delete"
+  | "users.disable"
+  | "users.resetPassword"
+  | "users.assignRole"
+  | "permissions.view"
+  | "permissions.manage"
+  | "prompts.view"
+  | "prompts.edit"
+  | "apiKeys.view"
+  | "system.view"
+  | "logs.view"
+  | "settings.view"
+  | "settings.edit";
+
+export type RolePermissions = Record<UserRole, PermissionKey[]>;
+
 export type User = {
   id: string;
   email: string;
   name: string;
   passwordHash: string;
-  role: "super_admin" | "admin" | "owner" | "manager" | "creator" | "client" | "user";
+  role: UserRole;
   workspaceId: string;
   emailVerified?: boolean;
   emailVerificationCodeHash?: string;
@@ -283,4 +306,5 @@ export type Database = {
   activity: Activity[];
   debugLogs: DebugLog[];
   promptTemplates: PromptTemplates;
+  rolePermissions: RolePermissions;
 };

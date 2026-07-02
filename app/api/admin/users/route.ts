@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { currentUser, isAdminRole } from "@/lib/session";
+import { currentUser } from "@/lib/session";
 import { createVerificationCode, hashVerificationCode, verificationExpiry } from "@/lib/emailVerification";
 import { sendVerificationEmail } from "@/lib/providers/brevo";
-import { hashPassword, id, mutateDb, readDb } from "@/lib/store";
-import type { Database, User } from "@/lib/types";
+import { allRoles, hashPassword, id, mutateDb, readDb } from "@/lib/store";
+import { hasPermission, permissionCatalog } from "@/lib/permissions";
+import type { Database, PermissionKey, RolePermissions, User, UserRole } from "@/lib/types";
 
-const roles = ["super_admin", "admin", "owner", "manager", "creator", "client", "user"] as const;
+const roles = allRoles;
 const adminAssignableRoles = ["admin", "manager", "creator", "client", "user"] as const;
 
 function safeUser(user: User, db: Database) {
@@ -29,8 +30,9 @@ function safeUser(user: User, db: Database) {
 async function requireAdmin() {
   const user = await currentUser();
   if (!user) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  if (user.disabledAt || !isAdminRole(user.role)) return { error: NextResponse.json({ error: "Admin access required" }, { status: 403 }) };
-  return { user };
+  const db = await readDb();
+  if (user.disabledAt || !hasPermission(db, user, "admin.access")) return { error: NextResponse.json({ error: "Admin access required" }, { status: 403 }) };
+  return { user, db };
 }
 
 function defaultWorkspaceId(db: Database) {
@@ -46,9 +48,14 @@ function canAssignRole(actor: User, role: string) {
 export async function GET() {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
-  const db = await readDb();
+  const db = auth.db;
+  if (!hasPermission(db, auth.user, "users.view")) return NextResponse.json({ error: "Permission denied." }, { status: 403 });
   return NextResponse.json({
-    users: db.users.map((user) => safeUser(user, db)).sort((a, b) => a.email.localeCompare(b.email))
+    users: db.users.map((user) => safeUser(user, db)).sort((a, b) => a.email.localeCompare(b.email)),
+    roles,
+    permissions: db.rolePermissions,
+    permissionCatalog,
+    actorPermissions: db.rolePermissions[auth.user.role as UserRole] || []
   });
 }
 
@@ -62,6 +69,7 @@ export async function POST(req: Request) {
   const name = String(body.name || email.split("@")[0] || "User").trim();
   const verified = body.emailVerified !== false;
   if (!email.includes("@") || password.length < 8) return NextResponse.json({ error: "Use a valid email and an 8+ character password." }, { status: 400 });
+  if (!hasPermission(auth.db, auth.user, "users.create")) return NextResponse.json({ error: "Permission denied." }, { status: 403 });
   if (!canAssignRole(auth.user, role)) return NextResponse.json({ error: "You cannot assign that role." }, { status: 403 });
 
   const code = createVerificationCode();
@@ -106,10 +114,27 @@ export async function PATCH(req: Request) {
   const body = await req.json() as Record<string, unknown>;
   const operation = String(body.operation || "update");
   const userId = String(body.userId || "");
-  if (!userId) return NextResponse.json({ error: "User is required." }, { status: 400 });
+  if (operation !== "updateRolePermissions" && !userId) return NextResponse.json({ error: "User is required." }, { status: 400 });
 
   const code = createVerificationCode();
   const result = await mutateDb((db) => {
+    if (operation === "updateRolePermissions") {
+      if (!hasPermission(db, auth.user, "permissions.manage")) return { error: "Permission denied.", status: 403 as const };
+      const submitted = body.permissions as Partial<RolePermissions> | undefined;
+      if (!submitted || typeof submitted !== "object") return { error: "Permissions payload is required.", status: 400 as const };
+      const valid = new Set(permissionCatalog.map((item) => item.key));
+      const next = { ...db.rolePermissions };
+      for (const role of roles) {
+        if (role === "super_admin" || role === "owner") {
+          next[role] = permissionCatalog.map((item) => item.key);
+          continue;
+        }
+        const selected = Array.isArray(submitted[role]) ? submitted[role] : [];
+        next[role] = Array.from(new Set(selected)).filter((item): item is PermissionKey => valid.has(item as PermissionKey));
+      }
+      db.rolePermissions = next;
+      return { permissions: db.rolePermissions };
+    }
     const target = db.users.find((user) => user.id === userId);
     if (!target) return { error: "User not found.", status: 404 as const };
     if (target.id === auth.user.id && (operation === "disable" || operation === "update")) {
@@ -121,6 +146,7 @@ export async function PATCH(req: Request) {
     }
 
     if (operation === "resetPassword") {
+      if (!hasPermission(db, auth.user, "users.resetPassword")) return { error: "Permission denied.", status: 403 as const };
       const password = String(body.password || "");
       if (password.length < 8) return { error: "Use an 8+ character password.", status: 400 as const };
       target.passwordHash = hashPassword(password);
@@ -129,6 +155,7 @@ export async function PATCH(req: Request) {
     }
 
     if (operation === "resendVerification") {
+      if (!hasPermission(db, auth.user, "users.edit")) return { error: "Permission denied.", status: 403 as const };
       if (target.emailVerified) return { error: "User is already verified.", status: 400 as const };
       target.emailVerificationCodeHash = hashVerificationCode(code);
       target.emailVerificationExpiresAt = verificationExpiry();
@@ -136,7 +163,20 @@ export async function PATCH(req: Request) {
       return { user: safeUser(target, db), resendEmail: target.email };
     }
 
+    if (operation === "delete") {
+      if (!hasPermission(db, auth.user, "users.delete")) return { error: "Permission denied.", status: 403 as const };
+      if (target.id === auth.user.id) return { error: "You cannot delete your own account.", status: 400 as const };
+      if ((target.role === "owner" || target.role === "super_admin") && !(auth.user.role === "owner" || auth.user.role === "super_admin")) {
+        return { error: "Only owner or super admin can delete owner/super admin accounts.", status: 403 as const };
+      }
+      db.users = db.users.filter((user) => user.id !== target.id);
+      db.activity.push({ id: id("act"), workspaceId: target.workspaceId, message: `Admin deleted user ${target.email}.`, createdAt: new Date().toISOString() });
+      return { deleted: true };
+    }
+
+    if (!hasPermission(db, auth.user, "users.edit")) return { error: "Permission denied.", status: 403 as const };
     const role = typeof body.role === "string" ? body.role : target.role;
+    if (role !== target.role && !hasPermission(db, auth.user, "users.assignRole")) return { error: "Permission denied.", status: 403 as const };
     if (!canAssignRole(auth.user, role)) return { error: "You cannot assign that role.", status: 403 as const };
     if (typeof body.name === "string") target.name = body.name.trim() || target.name;
     target.role = role as User["role"];
@@ -147,11 +187,16 @@ export async function PATCH(req: Request) {
         delete target.emailVerificationExpiresAt;
       }
     }
-    if (typeof body.disabled === "boolean") target.disabledAt = body.disabled ? (target.disabledAt || new Date().toISOString()) : undefined;
+    if (typeof body.disabled === "boolean" && body.disabled !== Boolean(target.disabledAt)) {
+      if (!hasPermission(db, auth.user, "users.disable")) return { error: "Permission denied.", status: 403 as const };
+      target.disabledAt = body.disabled ? (target.disabledAt || new Date().toISOString()) : undefined;
+    }
     target.updatedAt = new Date().toISOString();
     return { user: safeUser(target, db) };
   });
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
+  if ("permissions" in result) return NextResponse.json({ ok: true, permissions: result.permissions });
+  if ("deleted" in result) return NextResponse.json({ ok: true, deleted: true });
   if ("resendEmail" in result && result.resendEmail) {
     try {
       await sendVerificationEmail({ email: result.resendEmail, code });

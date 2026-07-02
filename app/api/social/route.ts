@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { hasPermission } from "@/lib/permissions";
 import { defaultPersonaProfile, id, mutateDb } from "@/lib/store";
-import type { Asset, Brief, CompetitorResult, GenerationAssetReference, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
+import type { Asset, AutomationJob, AutomationRule, Brief, CompetitorResult, GenerationAssetReference, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext, normalizePersonaProfile } from "@/lib/persona";
 import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl, startKeywordScanRun, startSocialUrlScanRun } from "@/lib/providers/apify";
 import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
+
+const allowedPlatforms: Platform[] = ["TikTok", "Instagram", "YouTube", "LinkedIn", "Facebook", "X"];
 
 async function requireUser() {
   const user = await currentUser();
@@ -260,6 +262,79 @@ function normalizeDimensions(value: unknown) {
 
 function parseList(value: unknown) {
   return String(value || "").split(/\n|,/).map((item) => item.trim()).filter(Boolean);
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function nextAutomationRunAt(frequency: AutomationRule["frequency"], postingTime: string) {
+  const now = new Date();
+  const [hoursRaw, minutesRaw] = postingTime.split(":");
+  const hours = clampNumber(hoursRaw, 10, 0, 23);
+  const minutes = clampNumber(minutesRaw, 0, 0, 59);
+  const next = new Date(now);
+  next.setHours(hours, minutes, 0, 0);
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + (frequency === "weekly" ? 7 : 1));
+  return next.toISOString();
+}
+
+function automationTitle(rule: Pick<AutomationRule, "goal" | "instruction" | "contentType">) {
+  const firstLine = rule.instruction.split(/\n|\.|\?/)[0]?.trim();
+  const prefix = rule.goal.charAt(0).toUpperCase() + rule.goal.slice(1);
+  return `${prefix} ${rule.contentType.replace("-", " ")}: ${firstLine || "scheduled content"}`.slice(0, 110);
+}
+
+function normalizeIdeaText(value: string) {
+  const stopWords = new Set(["the", "and", "or", "a", "an", "to", "for", "of", "in", "on", "with", "from", "by", "is", "are", "be", "this", "that", "it", "as", "at", "your", "you"]);
+  return value
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[^a-z0-9#]+/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2 && !stopWords.has(word));
+}
+
+function ideaSimilarity(a: string, b: string) {
+  const left = new Set(normalizeIdeaText(a));
+  const right = new Set(normalizeIdeaText(b));
+  if (left.size === 0 || right.size === 0) return 0;
+  let overlap = 0;
+  left.forEach((word) => {
+    if (right.has(word)) overlap += 1;
+  });
+  return overlap / (left.size + right.size - overlap);
+}
+
+function sourceOverlapScore(sourceUrls: string[], candidate: string) {
+  const normalized = sourceUrls.map((url) => url.trim().toLowerCase()).filter(Boolean);
+  if (normalized.length === 0 || !candidate) return 0;
+  const lower = candidate.toLowerCase();
+  return normalized.some((url) => lower.includes(url) || url.includes(lower)) ? 1 : 0;
+}
+
+function automationPrompt(rule: AutomationRule) {
+  const platformText = rule.platforms.length ? rule.platforms.join(", ") : "selected social platforms";
+  return [
+    `Create a ${rule.contentType.replace("-", " ")} automation draft for ${platformText}.`,
+    `Goal: ${rule.goal}.`,
+    `Dimension: ${rule.aspectRatio}.`,
+    `Model preference: ${rule.model}.`,
+    `User instruction: ${rule.instruction}`,
+    rule.keywords.length ? `Keywords to consider: ${rule.keywords.join(", ")}.` : "",
+    rule.sourceUrls.length ? `Research/source URLs to consider: ${rule.sourceUrls.join(", ")}.` : "",
+    rule.researchMode !== "none" ? `Research mode: ${rule.researchMode}. Use relevant recent research only when it fits the instruction.` : "Research mode: none. Use the instruction only.",
+    rule.restrictions ? `Restrictions: ${rule.restrictions}` : "",
+    `Duplicate protection: ${rule.duplicateProtection.mode}. Avoid topics, source URLs, hooks, captions, visual structures, and angles similar to recent history within ${rule.duplicateProtection.topicWindowDays} days.`,
+    "Produce a fresh, reviewable content draft. Do not call a generation provider or publish automatically in this staging step."
+  ].filter(Boolean).join("\n");
+}
+
+function automationHashtag(keyword: string) {
+  const cleaned = keyword.replace(/[^a-zA-Z0-9]/g, "");
+  return cleaned ? `#${cleaned}` : "";
 }
 
 function hasField(body: Record<string, unknown>, key: string) {
@@ -1732,6 +1807,142 @@ export async function POST(req: Request) {
 
   const data = await mutateDb((db) => {
     const activity = (message: string) => db.activity.push({ id: id("act"), workspaceId, message, createdAt: new Date().toISOString() });
+
+    if (action === "createAutomationRule") {
+      db.automationRules ||= [];
+      db.automationJobs ||= [];
+      const now = new Date().toISOString();
+      const frequency = (["daily", "weekly", "custom"].includes(String(body.frequency)) ? String(body.frequency) : "weekly") as AutomationRule["frequency"];
+      const duplicateMode = (["off", "light", "standard", "strict"].includes(String(body.duplicateMode)) ? String(body.duplicateMode) : "standard") as AutomationRule["duplicateProtection"]["mode"];
+      const contentType = (["image", "short-video", "long-video", "text"].includes(String(body.contentType)) ? String(body.contentType) : "image") as AutomationRule["contentType"];
+      const aspectRatio = (["1:1", "4:5", "9:16", "16:9"].includes(String(body.aspectRatio)) ? String(body.aspectRatio) : "4:5") as AutomationRule["aspectRatio"];
+      const platformsInput = normalizeStringList(body.platforms).filter((item): item is Platform => allowedPlatforms.includes(item as Platform));
+      const rule: AutomationRule = {
+        id: id("auto"),
+        workspaceId,
+        name: String(body.name || "Untitled automation").trim() || "Untitled automation",
+        instruction: String(body.instruction || "").trim(),
+        goal: (["leads", "awareness", "engagement", "authority", "sales"].includes(String(body.goal)) ? String(body.goal) : "leads") as AutomationRule["goal"],
+        platforms: platformsInput.length ? platformsInput : ["Facebook"],
+        contentType,
+        aspectRatio,
+        model: String(body.model || (contentType === "image" ? "gpt-image-2" : contentType === "text" ? "gemini-3.5-flash" : "seedance-2.0")),
+        frequency,
+        postingDays: normalizeStringList(body.postingDays).length ? normalizeStringList(body.postingDays) : ["Mon", "Wed", "Fri"],
+        postingTime: String(body.postingTime || "10:00"),
+        timezone: String(body.timezone || "Asia/Kuala_Lumpur"),
+        quantityPerRun: clampNumber(body.quantityPerRun, 1, 1, 5),
+        approvalMode: (["draft-only", "generate-and-wait", "auto-schedule", "auto-publish"].includes(String(body.approvalMode)) ? String(body.approvalMode) : "draft-only") as AutomationRule["approvalMode"],
+        researchMode: (["latest-research", "keywords", "none"].includes(String(body.researchMode)) ? String(body.researchMode) : "keywords") as AutomationRule["researchMode"],
+        keywords: parseList(body.keywords).slice(0, 20),
+        sourceUrls: parseList(body.sourceUrls).slice(0, 20),
+        restrictions: String(body.restrictions || "").trim(),
+        duplicateProtection: {
+          mode: duplicateMode,
+          sourceWindowDays: clampNumber(body.sourceWindowDays, duplicateMode === "strict" ? 180 : 90, 1, 365),
+          topicWindowDays: clampNumber(body.topicWindowDays, duplicateMode === "strict" ? 120 : 45, 1, 365),
+          similarityThreshold: clampNumber(body.similarityThreshold, duplicateMode === "strict" ? 76 : 82, 50, 98),
+          maxRetries: clampNumber(body.maxRetries, duplicateMode === "off" ? 0 : 2, 0, 5)
+        },
+        status: "active",
+        nextRunAt: nextAutomationRunAt(frequency, String(body.postingTime || "10:00")),
+        createdAt: now,
+        updatedAt: now
+      };
+      if (!rule.instruction) throw new Error("Automation instruction is required.");
+      db.automationRules.push(rule);
+      activity(`Automation rule saved: ${rule.name}`);
+      return rule;
+    }
+
+    if (action === "pauseAutomationRule" || action === "resumeAutomationRule" || action === "deleteAutomationRule") {
+      db.automationRules ||= [];
+      const rule = db.automationRules.find((item) => item.id === body.id && item.workspaceId === workspaceId);
+      if (!rule) throw new Error("Automation rule not found.");
+      if (action === "deleteAutomationRule") {
+        db.automationRules = db.automationRules.filter((item) => item.id !== rule.id);
+        activity(`Automation deleted: ${rule.name}`);
+        return { id: rule.id, deleted: true };
+      }
+      rule.status = action === "pauseAutomationRule" ? "paused" : "active";
+      rule.updatedAt = new Date().toISOString();
+      activity(`Automation ${rule.status}: ${rule.name}`);
+      return rule;
+    }
+
+    if (action === "runAutomationNow") {
+      db.automationRules ||= [];
+      db.automationJobs ||= [];
+      const rule = db.automationRules.find((item) => item.id === body.id && item.workspaceId === workspaceId);
+      if (!rule) throw new Error("Automation rule not found.");
+      const now = new Date().toISOString();
+      const title = automationTitle(rule);
+      const prompt = automationPrompt(rule);
+      const candidateText = [title, prompt, rule.instruction, rule.keywords.join(" "), rule.sourceUrls.join(" ")].join("\n");
+      const threshold = rule.duplicateProtection.similarityThreshold / 100;
+      const cutoff = Date.now() - rule.duplicateProtection.topicWindowDays * 24 * 60 * 60 * 1000;
+      const history = [
+        ...(db.automationJobs || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt, item.caption].join("\n"), url: "", createdAt: item.createdAt })),
+        ...(db.publishQueue || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt, item.caption, (item.hashtags || []).join(" ")].join("\n"), url: item.sourceUrl || "", createdAt: item.createdAt })),
+        ...(db.assets || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt].join("\n"), url: item.sourceUrl || "", createdAt: item.createdAt })),
+        ...(db.competitorResults || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.description].join("\n"), url: item.url, createdAt: item.capturedAt || item.publishedAt }))
+      ].filter((item) => !item.createdAt || new Date(item.createdAt).getTime() >= cutoff);
+      let best = { id: "", title: "", score: 0, reason: "No close duplicate found in recent history." };
+      if (rule.duplicateProtection.mode !== "off") {
+        for (const item of history) {
+          const score = Math.max(sourceOverlapScore(rule.sourceUrls, item.url), ideaSimilarity(candidateText, item.text));
+          if (score > best.score) best = { id: item.id, title: item.title, score, reason: score >= 1 ? "Exact source URL already exists in recent history." : "Most similar recent topic found." };
+        }
+      }
+      const duplicate = rule.duplicateProtection.mode !== "off" && best.score >= threshold;
+      const job: AutomationJob = {
+        id: id("job"),
+        workspaceId,
+        automationRuleId: rule.id,
+        scheduledFor: now,
+        status: duplicate ? "skipped-duplicate" : "ready-for-generation",
+        title,
+        prompt,
+        caption: `Draft created from automation rule "${rule.name}". Review the prompt, attach assets if needed, then generate from Create Content.`,
+        hashtags: rule.keywords.map(automationHashtag).filter(Boolean).slice(0, 8),
+        duplicateCheck: {
+          mode: rule.duplicateProtection.mode,
+          checkedAt: now,
+          matchedItemId: best.id || undefined,
+          matchedTitle: best.title || undefined,
+          similarityScore: best.score,
+          reason: duplicate ? `${best.reason} Skipped because score ${Math.round(best.score * 100)}% is above ${rule.duplicateProtection.similarityThreshold}%.` : best.reason,
+          attempts: 1
+        },
+        createdAt: now,
+        updatedAt: now
+      };
+      db.automationJobs.push(job);
+      rule.lastRunAt = now;
+      rule.nextRunAt = nextAutomationRunAt(rule.frequency, rule.postingTime);
+      rule.updatedAt = now;
+      db.debugLogs ||= [];
+      db.debugLogs.push({
+        id: id("log"),
+        workspaceId,
+        action,
+        label: "Automation duplicate check",
+        status: duplicate ? "info" : "success",
+        provider: "system",
+        prompt,
+        details: {
+          ruleId: rule.id,
+          ruleName: rule.name,
+          duplicateMode: rule.duplicateProtection.mode,
+          threshold: rule.duplicateProtection.similarityThreshold,
+          bestMatch: best,
+          jobStatus: job.status
+        },
+        createdAt: now
+      });
+      activity(duplicate ? `Automation skipped duplicate idea for "${rule.name}".` : `Automation draft job ready for "${rule.name}".`);
+      return job;
+    }
 
     if (action === "clearWorkspaceHistory") {
       if (String(body.confirm || "") !== "DELETE_CURRENT_HISTORY") throw new Error("Missing clear-history confirmation.");

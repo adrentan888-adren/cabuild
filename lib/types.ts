@@ -255,6 +255,65 @@ export type PublishItem = {
   error?: string;
 };
 
+export type AutomationRule = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  instruction: string;
+  goal: "leads" | "awareness" | "engagement" | "authority" | "sales";
+  platforms: Platform[];
+  contentType: "image" | "short-video" | "long-video" | "text";
+  aspectRatio: "1:1" | "4:5" | "9:16" | "16:9";
+  model: string;
+  frequency: "daily" | "weekly" | "custom";
+  postingDays: string[];
+  postingTime: string;
+  timezone: string;
+  quantityPerRun: number;
+  approvalMode: "draft-only" | "generate-and-wait" | "auto-schedule" | "auto-publish";
+  researchMode: "latest-research" | "keywords" | "none";
+  keywords: string[];
+  sourceUrls: string[];
+  restrictions: string;
+  duplicateProtection: {
+    mode: "off" | "light" | "standard" | "strict";
+    sourceWindowDays: number;
+    topicWindowDays: number;
+    similarityThreshold: number;
+    maxRetries: number;
+  };
+  status: "active" | "paused" | "failed";
+  nextRunAt?: string;
+  lastRunAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AutomationJob = {
+  id: string;
+  workspaceId: string;
+  automationRuleId: string;
+  scheduledFor: string;
+  status: "pending" | "checking-duplicates" | "ready-for-generation" | "skipped-duplicate" | "failed";
+  title: string;
+  prompt: string;
+  caption: string;
+  hashtags: string[];
+  duplicateCheck: {
+    mode: AutomationRule["duplicateProtection"]["mode"];
+    checkedAt: string;
+    matchedItemId?: string;
+    matchedTitle?: string;
+    similarityScore: number;
+    reason: string;
+    attempts: number;
+  };
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+};
+
 export type GenerationAssetReference = {
   role: string;
   fileName: string;
@@ -303,6 +362,8 @@ export type Database = {
   briefs: Brief[];
   assets: Asset[];
   publishQueue: PublishItem[];
+  automationRules: AutomationRule[];
+  automationJobs: AutomationJob[];
   activity: Activity[];
   debugLogs: DebugLog[];
   promptTemplates: PromptTemplates;

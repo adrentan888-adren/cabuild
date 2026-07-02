@@ -29,7 +29,7 @@ import {
   UserRound,
   Wand2
 } from "lucide-react";
-import type { Asset, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
+import type { Asset, AutomationJob, AutomationRule, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 import type { PersonaProfile } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
 
@@ -53,6 +53,8 @@ type AppData = {
   briefs: Brief[];
   assets: Asset[];
   publishQueue: PublishItem[];
+  automationRules: AutomationRule[];
+  automationJobs: AutomationJob[];
   promptTemplates: PromptTemplates;
   researchScans: {
     id: string;
@@ -2249,29 +2251,188 @@ function LogPanel({ data }: { data: AppData }) {
 }
 
 function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+  const [expanded, setExpanded] = useState(data.automationRules.length === 0);
+  const [dedupeMode, setDedupeMode] = useState<AutomationRule["duplicateProtection"]["mode"]>("standard");
+  const rules = data.automationRules || [];
+  const jobs = data.automationJobs || [];
+  const weekdayOptions = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const contentTypes: { value: AutomationRule["contentType"]; label: string }[] = [
+    { value: "image", label: "Image" },
+    { value: "short-video", label: "Short video" },
+    { value: "long-video", label: "Long video" },
+    { value: "text", label: "Text post" }
+  ];
+  const models = [
+    { value: "gpt-image-2", label: "GPT Image 2" },
+    { value: "seedance-2.0", label: "Seedance 2.0" },
+    { value: "veo-fast", label: "VEO Fast" },
+    { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
+    { value: "claude-opus-4.8", label: "Claude Opus 4.8" }
+  ];
+  const jobStatusLabel: Record<AutomationJob["status"], string> = {
+    pending: "Pending",
+    "checking-duplicates": "Checking duplicates",
+    "ready-for-generation": "Ready draft",
+    "skipped-duplicate": "Skipped duplicate",
+    failed: "Failed"
+  };
+
   return (
-    <div className="mock-wrap">
-      <PanelCard title="Automation workflows">
-        <div className="auto-row">
-          <div><b>Weekly research refresh</b><span>Apify trend scan, competitor scoring, content generation queue</span></div>
-          <button onClick={() => run("refreshTrends", {}, "Workflow run started")}>Run now</button>
+    <div className="automation-page">
+      <section className="automation-hero">
+        <div>
+          <div className="clbl">Automation</div>
+          <h2>Scheduled content engine</h2>
+          <p>Tell the system what to create, how often to create it, and how strict it should be about avoiding repeated ideas. Staging v1 creates reviewed drafts only; final generation and posting stay behind approval.</p>
         </div>
-        <div className="auto-row">
-          <div><b>Approved plan to Create Content</b><span>Generate Kie video when a short-video plan is approved</span></div>
-          <span className="status scheduled">active</span>
-        </div>
-        <div className="auto-row">
-          <div><b>Publish queue retry</b><span>Retry Upload-Post failures and keep provider request IDs</span></div>
-          <span className="status scheduled">active</span>
-        </div>
-      </PanelCard>
-      <PanelCard title="Queue summary">
-        <div className="grid three">
-          <Metric label="Ready assets" value={data.assets.filter((item) => item.status === "ready").length} />
-          <Metric label="Scheduled" value={data.publishQueue.filter((item) => item.status === "scheduled").length} />
-          <Metric label="Failed" value={data.publishQueue.filter((item) => item.status === "failed").length} />
-        </div>
-      </PanelCard>
+        <button className="primary" type="button" onClick={() => setExpanded((value) => !value)}><Plus size={15} />{expanded ? "Hide builder" : "New automation"}</button>
+      </section>
+
+      <div className="automation-summary">
+        <Metric label="Active rules" value={rules.filter((item) => item.status === "active").length} />
+        <Metric label="Draft jobs" value={jobs.filter((item) => item.status === "ready-for-generation").length} />
+        <Metric label="Duplicates skipped" value={jobs.filter((item) => item.status === "skipped-duplicate").length} />
+      </div>
+
+      {expanded && (
+        <PanelCard title="Build automation">
+          <form className="automation-builder" action={(form) => {
+            const payload: Record<string, unknown> = Object.fromEntries(form.entries());
+            payload.platforms = form.getAll("platforms").map((item) => String(item));
+            payload.postingDays = form.getAll("postingDays").map((item) => String(item));
+            return run("createAutomationRule", payload, "Automation rule saved");
+          }}>
+            <div className="automation-section-head">
+              <span>Step 1</span>
+              <b>What should the agent create?</b>
+            </div>
+            <div className="modal-grid">
+              <label>Automation name<input name="name" placeholder="Daily Malay loan ads" required /></label>
+              <label>Goal<select name="goal" defaultValue="leads">
+                <option value="leads">Leads</option>
+                <option value="awareness">Awareness</option>
+                <option value="engagement">Engagement</option>
+                <option value="authority">Authority</option>
+                <option value="sales">Sales</option>
+              </select></label>
+            </div>
+            <label>Main instruction<textarea name="instruction" required placeholder="Create Malay FB ads for loan enquiries with a strong hook, compliance-safe USP, and clear CTA." /></label>
+            <div className="automation-choice-row">
+              {platforms.map((platform) => <label className="check-card" key={platform}><input name="platforms" type="checkbox" value={platform} defaultChecked={platform === "Facebook"} />{platform}</label>)}
+            </div>
+            <div className="modal-grid">
+              <label>Content type<select name="contentType" defaultValue="image">{contentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+              <label>Dimension<select name="aspectRatio" defaultValue="4:5">
+                <option value="1:1">1:1</option>
+                <option value="4:5">4:5</option>
+                <option value="9:16">9:16</option>
+                <option value="16:9">16:9</option>
+              </select></label>
+              <label>Default model<select name="model" defaultValue="gpt-image-2">{models.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+              <label>Approval mode<select name="approvalMode" defaultValue="draft-only">
+                <option value="draft-only">Draft only</option>
+                <option value="generate-and-wait">Generate asset, wait for approval</option>
+                <option value="auto-schedule">Generate and schedule</option>
+                <option value="auto-publish">Auto publish</option>
+              </select></label>
+            </div>
+
+            <div className="automation-section-head">
+              <span>Step 2</span>
+              <b>Schedule and research inputs</b>
+            </div>
+            <div className="modal-grid">
+              <label>Frequency<select name="frequency" defaultValue="weekly">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="custom">Custom days</option>
+              </select></label>
+              <label>Posting time<input name="postingTime" type="time" defaultValue="10:00" /></label>
+              <label>Timezone<input name="timezone" defaultValue="Asia/Kuala_Lumpur" /></label>
+              <label>Quantity per run<input name="quantityPerRun" type="number" min="1" max="5" defaultValue="1" /></label>
+            </div>
+            <div className="automation-choice-row">
+              {weekdayOptions.map((day) => <label className="check-card compact" key={day}><input name="postingDays" type="checkbox" value={day} defaultChecked={["Mon", "Wed", "Fri"].includes(day)} />{day}</label>)}
+            </div>
+            <div className="modal-grid">
+              <label>Research mode<select name="researchMode" defaultValue="keywords">
+                <option value="keywords">Use keywords</option>
+                <option value="latest-research">Use latest Research results</option>
+                <option value="none">No research input</option>
+              </select></label>
+              <label>Keywords<textarea name="keywords" placeholder="personal loan, SME loan, fast approval" /></label>
+              <label>Source URLs<textarea name="sourceUrls" placeholder="Optional competitor or reference URLs, one per line" /></label>
+              <label>Restrictions<textarea name="restrictions" placeholder="Avoid guaranteed approval, cash piles, misleading claims..." /></label>
+            </div>
+
+            <div className="automation-section-head">
+              <span>Step 3</span>
+              <b>Duplicate protection</b>
+            </div>
+            <div className="modal-grid">
+              <label>Protection level<select name="duplicateMode" value={dedupeMode} onChange={(event) => setDedupeMode(event.target.value as AutomationRule["duplicateProtection"]["mode"])}>
+                <option value="off">Off</option>
+                <option value="light">Light</option>
+                <option value="standard">Standard</option>
+                <option value="strict">Strict</option>
+              </select></label>
+              <label>Source window days<input name="sourceWindowDays" type="number" min="1" defaultValue={dedupeMode === "strict" ? 180 : 90} /></label>
+              <label>Topic window days<input name="topicWindowDays" type="number" min="1" defaultValue={dedupeMode === "strict" ? 120 : 45} /></label>
+              <label>Similarity threshold<input name="similarityThreshold" type="number" min="50" max="98" defaultValue={dedupeMode === "strict" ? 76 : dedupeMode === "light" ? 90 : 82} /></label>
+              <label>Retry new idea attempts<input name="maxRetries" type="number" min="0" max="5" defaultValue={dedupeMode === "off" ? 0 : 2} /></label>
+            </div>
+            <p className="muted">Duplicate checks compare source URLs, recent generated assets, publish queue entries, research titles, captions, and previous automation jobs before allowing a new draft job.</p>
+            <button className="primary"><Sparkles size={15} />Save automation</button>
+          </form>
+        </PanelCard>
+      )}
+
+      <div className="automation-grid">
+        <PanelCard title="Automation rules">
+          <div className="automation-rule-list">
+            {rules.map((rule) => (
+              <article className="automation-rule-card" key={rule.id}>
+                <div className="rule-main">
+                  <span className={`status ${rule.status === "active" ? "scheduled" : rule.status === "failed" ? "failed" : "draft"}`}>{rule.status}</span>
+                  <h3>{rule.name}</h3>
+                  <p>{rule.instruction}</p>
+                  <div className="rule-meta">
+                    <span>{rule.platforms.join(", ") || "No platform"}</span>
+                    <span>{rule.contentType} · {rule.aspectRatio}</span>
+                    <span>{rule.frequency} at {rule.postingTime}</span>
+                    <span>Dedupe: {rule.duplicateProtection.mode}</span>
+                  </div>
+                </div>
+                <div className="rule-actions">
+                  <button type="button" onClick={() => run("runAutomationNow", { id: rule.id }, "Automation draft job created")}>Run now</button>
+                  <button type="button" onClick={() => run(rule.status === "active" ? "pauseAutomationRule" : "resumeAutomationRule", { id: rule.id }, rule.status === "active" ? "Automation paused" : "Automation resumed")}>{rule.status === "active" ? "Pause" : "Resume"}</button>
+                  <button type="button" className="danger ghost" onClick={() => run("deleteAutomationRule", { id: rule.id }, "Automation deleted")}>Delete</button>
+                </div>
+              </article>
+            ))}
+            {rules.length === 0 && <div className="empty-state">No automation rules yet. Create one to start generating scheduled draft jobs.</div>}
+          </div>
+        </PanelCard>
+
+        <PanelCard title="Draft job history">
+          <div className="automation-job-list">
+            {jobs.map((job) => (
+              <article className="automation-job-row" key={job.id}>
+                <div>
+                  <b>{job.title}</b>
+                  <span>{jobStatusLabel[job.status]} · {new Date(job.createdAt).toLocaleString()}</span>
+                  <p>{job.duplicateCheck.reason}</p>
+                </div>
+                <div className="job-score">
+                  <strong>{Math.round(job.duplicateCheck.similarityScore * 100)}%</strong>
+                  <span>match</span>
+                </div>
+              </article>
+            ))}
+            {jobs.length === 0 && <div className="empty-state">No automation jobs yet. Use Run now on a rule to create the first reviewed draft.</div>}
+          </div>
+        </PanelCard>
+      </div>
     </div>
   );
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { KeyRound, Mail, Save, Settings, UserPlus } from "lucide-react";
-import type { BrandKit, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace, Asset, Brief, PersonaProfile } from "@/lib/types";
+import { KeyRound, Mail, Save, Server, Settings, UserPlus, Users, WandSparkles } from "lucide-react";
+import { useState } from "react";
+import type { Asset, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 
 export type AdminAppData = {
   user: { id: string; email: string; name: string; role: string };
@@ -61,20 +62,29 @@ export type AdminUserData = {
 
 type RunAction = (a: string, p?: Record<string, unknown>, m?: string) => Promise<unknown>;
 type RunAdminAction = (method: "POST" | "PATCH", payload: Record<string, unknown>, message?: string) => Promise<unknown>;
+type AdminTab = "users" | "prompts" | "keys" | "system";
 
-function PanelCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return <article className="card"><h3>{title}</h3>{children}</article>;
+function PanelCard({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <article className="card admin-card">
+      <div className="admin-card-head">
+        <h3>{title}</h3>
+        {action}
+      </div>
+      {children}
+    </article>
+  );
 }
 
 function PromptAdminCard({ data, run }: { data: AdminAppData; run: RunAction }) {
   return (
-    <PanelCard title="Prompt admin">
+    <PanelCard title="Prompt management">
       <form className="brand-form prompt-admin-form" action={async (form) => { await run("updatePromptTemplates", Object.fromEntries(form.entries()), "Prompt templates saved"); }}>
         <div className="modal-grid">
           <label>Username<input name="adminUsername" defaultValue="admin" autoComplete="username" /></label>
           <label>Password<input name="adminPassword" type="password" defaultValue="admin" autoComplete="current-password" /></label>
         </div>
-        <p className="muted">These templates power Research result to Generate Content. The video flow stays two-stage internally because Step 2 runs after the user edits the modal fields and uploads logo/person/audio references.</p>
+        <p className="muted">These templates power Research result to Generate Content. Video stays two-stage internally because Step 2 runs after the user edits modal fields and uploads logo/person/audio references.</p>
         <section className="prompt-module">
           <div className="prompt-module-head">
             <div>
@@ -116,7 +126,7 @@ function PromptAdminCard({ data, run }: { data: AdminAppData; run: RunAction }) 
 function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData | null; runAdmin: RunAdminAction }) {
   const roles = ["super_admin", "admin", "owner", "manager", "creator", "client", "user"];
   return (
-    <PanelCard title="User management">
+    <PanelCard title="User management" action={<span className="admin-pill">{adminData?.users.length || 0} users</span>}>
       <form className="admin-create-user" action={async (form) => {
         await runAdmin("POST", { ...Object.fromEntries(form.entries()), emailVerified: form.get("emailVerified") === "true" }, "User created");
         (document.activeElement as HTMLElement | null)?.blur();
@@ -144,8 +154,8 @@ function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData 
           <article className={`admin-user-row ${user.disabled ? "disabled" : ""}`} key={user.id}>
             <div className="admin-user-main">
               <b>{user.email}</b>
-              <span>{user.name} · {user.workspaceName}</span>
-              <small>Created {user.createdAt ? new Date(user.createdAt).toLocaleString() : "unknown"}{user.lastLoginAt ? ` · Last login ${new Date(user.lastLoginAt).toLocaleString()}` : ""}</small>
+              <span>{user.name} / {user.workspaceName}</span>
+              <small>Created {user.createdAt ? new Date(user.createdAt).toLocaleString() : "unknown"}{user.lastLoginAt ? ` / Last login ${new Date(user.lastLoginAt).toLocaleString()}` : ""}</small>
             </div>
             <form className="admin-user-edit" action={async (form) => {
               await runAdmin("PATCH", { operation: "update", userId: user.id, ...Object.fromEntries(form.entries()), disabled: form.get("disabled") === "true", emailVerified: form.get("emailVerified") === "true" }, "User updated");
@@ -174,33 +184,80 @@ function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData 
   );
 }
 
+function ApiKeyManagementCard({ integrations }: { integrations: IntegrationData | null }) {
+  return (
+    <div className="admin-tab-grid">
+      <PanelCard title="API key management">
+        <p className="muted">Provider keys are stored as environment variables or GitHub/GCP secrets. This page shows whether each provider is configured without exposing secret values.</p>
+        <div className="provider-list">{Object.entries(integrations || {}).map(([name, value]) => <div className="provider-row" key={name}><b>{name}</b><span className={value.ok || value.configured ? "good" : "bad"}>{value.ok ? "verified" : value.configured ? "configured" : "missing"}</span>{value.status && <small>HTTP {value.status}</small>}{value.error && <small>{value.error}</small>}{value.baseUrl && <small>{value.baseUrl}</small>}{value.actor && <small>{value.actor}</small>}</div>)}</div>
+      </PanelCard>
+      <PanelCard title="Secret handling">
+        <div className="admin-info-list">
+          <div><b>Runtime keys</b><span>Configured through Cloud Run environment variables or GitHub Actions secrets.</span></div>
+          <div><b>Display policy</b><span>Raw API keys are never shown in the browser. Only configured/missing/verified status is shown.</span></div>
+          <div><b>Phase 3</b><span>Editable provider configuration should move into a database-backed admin model after Postgres is added.</span></div>
+        </div>
+      </PanelCard>
+    </div>
+  );
+}
+
+function SystemCard() {
+  return (
+    <div className="admin-tab-grid">
+      <PanelCard title="Cloud backend">
+        <p>Production and staging currently serve frontend and backend API routes from the same Next.js Cloud Run service. Admin UI is split by route first; service split comes later.</p>
+        <code>/api</code>
+      </PanelCard>
+      <PanelCard title="Backend credentials">
+        <p className="muted">Phase 2 adds user lifecycle controls here. Keep default demo credentials only for testing, then create named admin users and rotate passwords.</p>
+        <code>username: admin</code>
+        <code>password: admin</code>
+      </PanelCard>
+    </div>
+  );
+}
+
 export default function AdminPanel({ data, run, runAdmin, integrations, adminData }: { data: AdminAppData; run: RunAction; runAdmin: RunAdminAction; integrations: IntegrationData | null; adminData: AdminUserData | null }) {
+  const [activeTab, setActiveTab] = useState<AdminTab>("users");
+  const tabs = [
+    { id: "users", label: "User Management", icon: Users },
+    { id: "prompts", label: "Prompt Management", icon: WandSparkles },
+    { id: "keys", label: "API Key Management", icon: KeyRound },
+    { id: "system", label: "System", icon: Server }
+  ] as const;
+  const totalUsers = adminData?.users.length || 0;
+  const activeUsers = adminData?.users.filter((user) => !user.disabled).length || 0;
+  const configuredProviders = Object.values(integrations || {}).filter((value) => value.ok || value.configured).length;
+
   return (
     <div className="admin-page">
-      <section className="plan-hero">
+      <section className="admin-hero">
         <div>
           <div className="clbl">Backend</div>
-          <h2>Backend controls</h2>
-          <p>Edit generation prompt templates and inspect runtime provider status. Admin template changes are saved to the same cloud data store used by the app.</p>
+          <h2>Admin workspace</h2>
+          <p>Manage users, generation prompts, provider configuration status, and backend operations from one protected surface.</p>
         </div>
-        <div className="plan-count-pill"><strong>admin</strong><span>Protected route</span></div>
+        <div className="admin-hero-stats">
+          <div><strong>{totalUsers}</strong><span>Users</span></div>
+          <div><strong>{activeUsers}</strong><span>Active</span></div>
+          <div><strong>{configuredProviders}</strong><span>Providers</span></div>
+        </div>
       </section>
-      <UserManagementCard adminData={adminData} runAdmin={runAdmin} />
-      <div className="grid two">
-        <PromptAdminCard data={data} run={run} />
-        <PanelCard title="Provider status">
-          <div className="provider-list">{Object.entries(integrations || {}).map(([name, value]) => <div className="provider-row" key={name}><b>{name}</b><span className={value.ok || value.configured ? "good" : "bad"}>{value.ok ? "verified" : value.configured ? "configured" : "missing"}</span>{value.status && <small>HTTP {value.status}</small>}{value.error && <small>{value.error}</small>}</div>)}</div>
-        </PanelCard>
-        <PanelCard title="Backend credentials">
-          <p className="muted">Phase 2 adds user lifecycle controls here. Keep default demo credentials only for testing, then create named admin users and rotate passwords.</p>
-          <code>username: admin</code>
-          <code>password: admin</code>
-        </PanelCard>
-        <PanelCard title="Cloud backend">
-          <p>Production and staging currently serve frontend and backend API routes from the same Next.js service. Admin UI is split by route first, service split comes later.</p>
-          <code>/api</code>
-        </PanelCard>
-      </div>
+
+      <nav className="admin-tabs" aria-label="Admin modules">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          return <button key={tab.id} className={activeTab === tab.id ? "on" : ""} onClick={() => setActiveTab(tab.id)}><Icon size={15} />{tab.label}</button>;
+        })}
+      </nav>
+
+      <section className="admin-tab-panel">
+        {activeTab === "users" && <UserManagementCard adminData={adminData} runAdmin={runAdmin} />}
+        {activeTab === "prompts" && <PromptAdminCard data={data} run={run} />}
+        {activeTab === "keys" && <ApiKeyManagementCard integrations={integrations} />}
+        {activeTab === "system" && <SystemCard />}
+      </section>
     </div>
   );
 }

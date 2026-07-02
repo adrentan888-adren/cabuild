@@ -29,7 +29,7 @@ import {
   UserRound,
   Wand2
 } from "lucide-react";
-import type { Asset, AutomationJob, AutomationRule, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
+import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 import type { PersonaProfile } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
 
@@ -55,6 +55,8 @@ type AppData = {
   publishQueue: PublishItem[];
   automationRules: AutomationRule[];
   automationJobs: AutomationJob[];
+  automationSourceWatchers: AutomationSourceWatcher[];
+  automationSourceRuns: AutomationSourceRun[];
   promptTemplates: PromptTemplates;
   researchScans: {
     id: string;
@@ -2251,10 +2253,14 @@ function LogPanel({ data }: { data: AppData }) {
 }
 
 function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+  const [automationMode, setAutomationMode] = useState<"scheduled" | "sources">("sources");
   const [expanded, setExpanded] = useState(data.automationRules.length === 0);
+  const [sourceExpanded, setSourceExpanded] = useState((data.automationSourceWatchers || []).length === 0);
   const [dedupeMode, setDedupeMode] = useState<AutomationRule["duplicateProtection"]["mode"]>("standard");
   const rules = data.automationRules || [];
   const jobs = data.automationJobs || [];
+  const sourceWatchers = data.automationSourceWatchers || [];
+  const sourceRuns = data.automationSourceRuns || [];
   const weekdayOptions = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const contentTypes: { value: AutomationRule["contentType"]; label: string }[] = [
     { value: "image", label: "Image" },
@@ -2276,25 +2282,108 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
     "skipped-duplicate": "Skipped duplicate",
     failed: "Failed"
   };
+  const sourceContentTypes: { value: AutomationSourceWatcher["contentType"]; label: string }[] = [
+    { value: "auto", label: "Auto choose" },
+    { value: "video", label: "Video" },
+    { value: "image", label: "Image" },
+    { value: "text", label: "Text post" }
+  ];
 
   return (
     <div className="automation-page">
       <section className="automation-hero">
         <div>
           <div className="clbl">Automation</div>
-          <h2>Scheduled content engine</h2>
-          <p>Tell the system what to create, how often to create it, and how strict it should be about avoiding repeated ideas. Staging v1 creates reviewed drafts only; final generation and posting stay behind approval.</p>
+          <h2>{automationMode === "sources" ? "Source Watcher" : "Scheduled content engine"}</h2>
+          <p>{automationMode === "sources" ? "Monitor competitor or inspiration URLs on a schedule, crawl the latest posts, pick the strongest suitable source, and turn it into content using your persona and uploaded references." : "Tell the system what to create, how often to create it, and how strict it should be about avoiding repeated ideas. Staging v1 creates reviewed drafts only; final generation and posting stay behind approval."}</p>
         </div>
-        <button className="primary" type="button" onClick={() => setExpanded((value) => !value)}><Plus size={15} />{expanded ? "Hide builder" : "New automation"}</button>
+        <button className="primary" type="button" onClick={() => automationMode === "sources" ? setSourceExpanded((value) => !value) : setExpanded((value) => !value)}><Plus size={15} />{automationMode === "sources" ? sourceExpanded ? "Hide watcher" : "New watcher" : expanded ? "Hide builder" : "New automation"}</button>
       </section>
 
-      <div className="automation-summary">
-        <Metric label="Active rules" value={rules.filter((item) => item.status === "active").length} />
-        <Metric label="Draft jobs" value={jobs.filter((item) => item.status === "ready-for-generation").length} />
-        <Metric label="Duplicates skipped" value={jobs.filter((item) => item.status === "skipped-duplicate").length} />
+      <div className="automation-tabs">
+        <button className={automationMode === "sources" ? "on" : ""} onClick={() => setAutomationMode("sources")}>Source Watcher</button>
+        <button className={automationMode === "scheduled" ? "on" : ""} onClick={() => setAutomationMode("scheduled")}>Scheduled Content</button>
       </div>
 
-      {expanded && (
+      <div className="automation-summary">
+        {automationMode === "sources" ? (
+          <>
+            <Metric label="Active watchers" value={sourceWatchers.filter((item) => item.status === "active").length} />
+            <Metric label="Source runs" value={sourceRuns.length} />
+            <Metric label="Content created" value={sourceRuns.filter((item) => item.publishItemId).length} />
+          </>
+        ) : (
+          <>
+            <Metric label="Active rules" value={rules.filter((item) => item.status === "active").length} />
+            <Metric label="Draft jobs" value={jobs.filter((item) => item.status === "ready-for-generation").length} />
+            <Metric label="Duplicates skipped" value={jobs.filter((item) => item.status === "skipped-duplicate").length} />
+          </>
+        )}
+      </div>
+
+      {automationMode === "sources" && sourceExpanded && (
+        <PanelCard title="Build Source Watcher">
+          <form className="automation-builder" action={(form) => {
+            const payload: Record<string, unknown> = Object.fromEntries(form.entries());
+            payload.postingDays = form.getAll("postingDays").map((item) => String(item));
+            return run("createSourceWatcher", payload, "Source Watcher saved");
+          }}>
+            <div className="automation-section-head"><span>Step 1</span><b>Sources to monitor</b></div>
+            <div className="modal-grid">
+              <label>Watcher name<input name="name" placeholder="Competitor best-post monitor" required /></label>
+              <label>Ranking<select name="rankingMode" defaultValue="balanced">
+                <option value="balanced">Balanced</option>
+                <option value="views">Views</option>
+                <option value="engagement">Engagement</option>
+                <option value="recent">Recent</option>
+              </select></label>
+            </div>
+            <label>Social media URLs<textarea name="sourceUrls" required placeholder={"https://www.instagram.com/example/\nhttps://www.tiktok.com/@example\nhttps://www.linkedin.com/company/example"} /></label>
+            <div className="modal-grid">
+              <label>Minimum views<input name="minViews" type="number" min="0" defaultValue="0" /></label>
+              <label>Content type<select name="contentType" defaultValue="auto">{sourceContentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+              <label>Default model<select name="model" defaultValue="veo-fast">{models.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+              <label>Dimension<select name="aspectRatio" defaultValue="9:16">
+                <option value="1:1">1:1</option>
+                <option value="4:5">4:5</option>
+                <option value="9:16">9:16</option>
+                <option value="16:9">16:9</option>
+              </select></label>
+            </div>
+            <label>Creation instruction<textarea name="instruction" placeholder="Recreate the best performing source content for my persona. Replace original logo/person/audio with my uploaded references where provided." /></label>
+            <div className="automation-section-head"><span>Step 2</span><b>Schedule and publishing</b></div>
+            <div className="modal-grid">
+              <label>Frequency<select name="frequency" defaultValue="daily"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="custom">Custom days</option></select></label>
+              <label>Run time<input name="postingTime" type="time" defaultValue="10:00" /></label>
+              <label>Timezone<input name="timezone" defaultValue="Asia/Kuala_Lumpur" /></label>
+              <label>Approval mode<select name="approvalMode" defaultValue="draft-only">
+                <option value="draft-only">Create draft only</option>
+                <option value="generate-and-wait">Generate asset, wait for approval</option>
+                <option value="auto-schedule">Generate and schedule</option>
+                <option value="auto-publish">Auto publish through Upload-Post</option>
+              </select></label>
+              <label>Video duration<input name="duration" type="number" min="4" max="15" defaultValue="8" /></label>
+            </div>
+            <div className="automation-choice-row">
+              {weekdayOptions.map((day) => <label className="check-card compact" key={day}><input name="postingDays" type="checkbox" value={day} defaultChecked={["Mon", "Wed", "Fri"].includes(day)} />{day}</label>)}
+            </div>
+            <div className="automation-section-head"><span>Step 3</span><b>User references for recreation</b></div>
+            <div className="modal-grid">
+              <label>Logo URL<input name="logoUrl" placeholder="https://..." /></label>
+              <label>Product photo URL<input name="productPhotoUrl" placeholder="https://..." /></label>
+              <label>Avatar/person URL<input name="avatarUrl" placeholder="https://..." /></label>
+              <label>Audio reference URL<input name="audioUrl" placeholder="https://..." /></label>
+              <label>Source window days<input name="sourceWindowDays" type="number" min="1" defaultValue="90" /></label>
+              <label>Topic window days<input name="topicWindowDays" type="number" min="1" defaultValue="45" /></label>
+              <label>Similarity threshold<input name="similarityThreshold" type="number" min="50" max="98" defaultValue="82" /></label>
+            </div>
+            <p className="muted">Each run crawls the URLs, stores source results, skips duplicate sources/topics, creates content in My Contents, and uses Upload-Post only when the selected approval mode allows publishing.</p>
+            <button className="primary"><Radar size={15} />Save Source Watcher</button>
+          </form>
+        </PanelCard>
+      )}
+
+      {automationMode === "scheduled" && expanded && (
         <PanelCard title="Build automation">
           <form className="automation-builder" action={(form) => {
             const payload: Record<string, unknown> = Object.fromEntries(form.entries());
@@ -2387,6 +2476,53 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
         </PanelCard>
       )}
 
+      {automationMode === "sources" ? (
+      <div className="automation-grid">
+        <PanelCard title="Source Watchers">
+          <div className="automation-rule-list">
+            {sourceWatchers.map((watcher) => (
+              <article className="automation-rule-card" key={watcher.id}>
+                <div className="rule-main">
+                  <span className={`status ${watcher.status === "active" ? "scheduled" : watcher.status === "failed" ? "failed" : "draft"}`}>{watcher.status}</span>
+                  <h3>{watcher.name}</h3>
+                  <p>{watcher.instruction}</p>
+                  <div className="rule-meta">
+                    <span>{watcher.sourceUrls.length} source URL{watcher.sourceUrls.length === 1 ? "" : "s"}</span>
+                    <span>{watcher.contentType} · {watcher.aspectRatio}</span>
+                    <span>{watcher.frequency} at {watcher.postingTime}</span>
+                    <span>{watcher.approvalMode}</span>
+                  </div>
+                </div>
+                <div className="rule-actions">
+                  <button type="button" onClick={() => run("runSourceWatcherNow", { id: watcher.id }, "Source Watcher run started")}>Run now</button>
+                  <button type="button" onClick={() => run(watcher.status === "active" ? "pauseSourceWatcher" : "resumeSourceWatcher", { id: watcher.id }, watcher.status === "active" ? "Watcher paused" : "Watcher resumed")}>{watcher.status === "active" ? "Pause" : "Resume"}</button>
+                  <button type="button" className="danger ghost" onClick={() => run("deleteSourceWatcher", { id: watcher.id }, "Source Watcher deleted")}>Delete</button>
+                </div>
+              </article>
+            ))}
+            {sourceWatchers.length === 0 && <div className="empty-state">No Source Watchers yet. Add social media URLs to monitor competitor content automatically.</div>}
+          </div>
+        </PanelCard>
+        <PanelCard title="Source run history">
+          <div className="automation-job-list">
+            {sourceRuns.map((item) => (
+              <article className="automation-job-row" key={item.id}>
+                <div>
+                  <b>{item.selectedTitle || item.status}</b>
+                  <span>{item.status} · {new Date(item.startedAt).toLocaleString()} · {item.scannedCount} scanned</span>
+                  <p>{item.selectionReason || item.error || "Run recorded."}</p>
+                </div>
+                <div className="job-score">
+                  <strong>{item.selectedScore ? Math.round(item.selectedScore) : 0}</strong>
+                  <span>score</span>
+                </div>
+              </article>
+            ))}
+            {sourceRuns.length === 0 && <div className="empty-state">No source runs yet. Use Run now to crawl the configured source URLs.</div>}
+          </div>
+        </PanelCard>
+      </div>
+      ) : (
       <div className="automation-grid">
         <PanelCard title="Automation rules">
           <div className="automation-rule-list">
@@ -2433,6 +2569,7 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
           </div>
         </PanelCard>
       </div>
+      )}
     </div>
   );
 }

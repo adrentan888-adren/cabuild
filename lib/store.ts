@@ -216,6 +216,8 @@ export function seeded(): Database {
     publishQueue: [],
     automationRules: [],
     automationJobs: [],
+    automationSourceWatchers: [],
+    automationSourceRuns: [],
     activity: [
       { id: id("act"), workspaceId, message: "Detected TikTok automation topic crossing high-priority threshold.", createdAt: new Date().toISOString() }
     ],
@@ -239,6 +241,8 @@ export function normalizeDb(db: Database): Database {
   db.debugLogs ||= [];
   db.automationRules ||= [];
   db.automationJobs ||= [];
+  db.automationSourceWatchers ||= [];
+  db.automationSourceRuns ||= [];
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
   const existingPermissions = (db as Database & { rolePermissions?: Partial<RolePermissions> }).rolePermissions || {};
   db.rolePermissions = allRoles.reduce((acc, role) => {

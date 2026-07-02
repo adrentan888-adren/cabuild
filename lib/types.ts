@@ -314,6 +314,61 @@ export type AutomationJob = {
   error?: string;
 };
 
+export type AutomationSourceWatcher = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  sourceUrls: string[];
+  instruction: string;
+  contentType: "auto" | "video" | "image" | "text";
+  model: string;
+  aspectRatio: "1:1" | "4:5" | "9:16" | "16:9";
+  duration?: number;
+  minViews: number;
+  rankingMode: "balanced" | "views" | "engagement" | "recent";
+  frequency: "daily" | "weekly" | "custom";
+  postingDays: string[];
+  postingTime: string;
+  timezone: string;
+  approvalMode: "draft-only" | "generate-and-wait" | "auto-schedule" | "auto-publish";
+  referenceUrls: {
+    logo?: string;
+    productPhoto?: string;
+    avatar?: string;
+    audio?: string;
+  };
+  duplicateProtection: {
+    sourceWindowDays: number;
+    topicWindowDays: number;
+    similarityThreshold: number;
+  };
+  status: "active" | "paused" | "failed";
+  nextRunAt?: string;
+  lastRunAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AutomationSourceRun = {
+  id: string;
+  workspaceId: string;
+  watcherId: string;
+  status: "running" | "completed" | "no-match" | "failed";
+  sourceUrls: string[];
+  scannedCount: number;
+  selectedResultId?: string;
+  selectedTitle?: string;
+  selectedUrl?: string;
+  selectedScore?: number;
+  selectionReason?: string;
+  publishItemId?: string;
+  assetId?: string;
+  startedAt: string;
+  completedAt?: string;
+  error?: string;
+};
+
 export type GenerationAssetReference = {
   role: string;
   fileName: string;
@@ -364,6 +419,8 @@ export type Database = {
   publishQueue: PublishItem[];
   automationRules: AutomationRule[];
   automationJobs: AutomationJob[];
+  automationSourceWatchers: AutomationSourceWatcher[];
+  automationSourceRuns: AutomationSourceRun[];
   activity: Activity[];
   debugLogs: DebugLog[];
   promptTemplates: PromptTemplates;

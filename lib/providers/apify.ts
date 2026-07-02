@@ -1,4 +1,5 @@
 import type { Platform } from "@/lib/types";
+import { getProviderApiKey } from "@/lib/apiKeyOverrides";
 
 type ApifySearchItem = {
   organicResults?: Array<Record<string, unknown>>;
@@ -38,15 +39,15 @@ type ResearchRunMeta = {
   minViews: number;
 };
 
-function apifyTokens() {
-  return [process.env.APIFY_API_TOKEN, process.env.APIFY_BACKUP_API_TOKEN]
+async function apifyTokens() {
+  return [await getProviderApiKey("apify"), await getProviderApiKey("apifyBackup")]
     .map((value) => value?.trim())
     .filter((value): value is string => Boolean(value))
     .filter((value, index, all) => all.indexOf(value) === index);
 }
 
-export function hasApify() {
-  return apifyTokens().length > 0;
+export async function hasApify() {
+  return (await apifyTokens()).length > 0;
 }
 
 function shouldRetryWithBackup(status: number, text: string) {
@@ -54,7 +55,7 @@ function shouldRetryWithBackup(status: number, text: string) {
 }
 
 async function fetchWithApifyToken(urlForToken: (tokenValue: string) => string, init: RequestInit, label: string) {
-  const availableTokens = apifyTokens();
+  const availableTokens = await apifyTokens();
   if (!availableTokens.length) throw new Error("APIFY_API_TOKEN is not configured.");
   let lastStatus = 0;
   let lastText = "";
@@ -70,7 +71,7 @@ async function fetchWithApifyToken(urlForToken: (tokenValue: string) => string, 
 }
 
 export async function fetchTrendSignals(niche: string) {
-  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!(await hasApify())) throw new Error("APIFY_API_TOKEN is not configured.");
   const actorId = process.env.APIFY_ACTOR_ID || "apify/google-search-scraper";
   const apiActorId = actorId.replace("/", "~");
   const { text } = await fetchWithApifyToken((tokenValue) => `https://api.apify.com/v2/actors/${apiActorId}/run-sync-get-dataset-items?token=${tokenValue}`, {
@@ -229,7 +230,7 @@ function normalizeSocialItem(item: Record<string, unknown>, index: number, fallb
 }
 
 export async function scanSocialUrl(url: string, minViews: number) {
-  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!(await hasApify())) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = actorSourceFromUrl(url);
   const actorId = process.env.APIFY_SOCIAL_ACTOR_ID || sourceActorId(source);
   if (actorId) {
@@ -604,7 +605,7 @@ async function startApifyActor(actorId: string, input: Record<string, unknown>) 
 }
 
 export async function startSocialUrlScanRun(url: string, minViews: number): Promise<ResearchRunMeta> {
-  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!(await hasApify())) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = actorSourceFromUrl(url);
   const actorId = process.env.APIFY_SOCIAL_ACTOR_ID || sourceActorId(source);
   if (!actorId) throw new Error(`No Apify actor configured for ${source}.`);
@@ -613,7 +614,7 @@ export async function startSocialUrlScanRun(url: string, minViews: number): Prom
 }
 
 export async function startKeywordScanRun(keywords: string, dimensions: KeywordDimensions, minViews: number): Promise<ResearchRunMeta & { contentType: string }> {
-  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!(await hasApify())) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = selectedSource(dimensions);
   const actorId = sourceKeywordActorId(source);
   if (!actorId) throw new Error(`No Apify actor configured for ${source}.`);
@@ -623,7 +624,7 @@ export async function startKeywordScanRun(keywords: string, dimensions: KeywordD
 }
 
 export async function completeSocialUrlScanRun(meta: ResearchRunMeta) {
-  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!(await hasApify())) throw new Error("APIFY_API_TOKEN is not configured.");
   const { text: runText } = await fetchWithApifyToken((tokenValue) => `https://api.apify.com/v2/actor-runs/${meta.runId}?token=${tokenValue}`, { cache: "no-store" }, "Apify run status");
   const runJson = JSON.parse(runText) as { data?: { status?: string } };
   const status = runJson.data?.status || "";
@@ -705,7 +706,7 @@ function matchesVisibleKeywordIntent(item: NormalizedSocialItem, keywords: strin
 }
 
 export async function scanKeywordsWithApify(keywords: string, dimensions: KeywordDimensions, minViews: number, options: { skipPlatformActor?: boolean } = {}) {
-  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!(await hasApify())) throw new Error("APIFY_API_TOKEN is not configured.");
   const source = selectedSource(dimensions);
   const actorId = sourceKeywordActorId(source);
   const uploadDate = dimensions.uploadDate || "";
@@ -794,7 +795,7 @@ export async function scanKeywordsWithApify(keywords: string, dimensions: Keywor
 }
 
 export async function crawlPersonaSourcesWithApify(urls: Record<string, string>) {
-  if (!hasApify()) throw new Error("APIFY_API_TOKEN is not configured.");
+  if (!(await hasApify())) throw new Error("APIFY_API_TOKEN is not configured.");
   const entries = Object.entries(urls).filter(([, url]) => url.trim());
   if (!entries.length) return [];
   const actorId = (process.env.APIFY_KEYWORD_ACTOR_ID || process.env.APIFY_ACTOR_ID || "apify/google-search-scraper").replace("/", "~");
@@ -837,5 +838,5 @@ export async function crawlPersonaSourcesWithApify(urls: Record<string, string>)
 }
 
 export async function checkApifyHealth() {
-  return { configured: hasApify(), actor: process.env.APIFY_ACTOR_ID || "apify/google-search-scraper" };
+  return { configured: await hasApify(), actor: process.env.APIFY_ACTOR_ID || "apify/google-search-scraper" };
 }

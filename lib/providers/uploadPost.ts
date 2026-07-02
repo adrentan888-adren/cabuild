@@ -1,9 +1,10 @@
 import type { Platform } from "@/lib/types";
+import { getProviderApiKey } from "@/lib/apiKeyOverrides";
 
 const baseUrl = "https://api.upload-post.com/api";
 
-function token() {
-  return process.env.UPLOAD_POST_API_KEY;
+async function token() {
+  return getProviderApiKey("uploadPost");
 }
 
 function profile() {
@@ -49,14 +50,15 @@ function accountUrl(platform: Platform | "Unknown", handle: string) {
   return "";
 }
 
-export function hasUploadPost() {
-  return Boolean(token());
+export async function hasUploadPost() {
+  return Boolean(await token());
 }
 
 export async function verifyUploadPost() {
-  if (!token()) return { configured: false };
+  const apiToken = await token();
+  if (!apiToken) return { configured: false };
   const res = await fetch(`${baseUrl}/uploadposts/users`, {
-    headers: { Authorization: `Apikey ${token()}` }
+    headers: { Authorization: `Apikey ${apiToken}` }
   });
   if (!res.ok) return { configured: true, ok: false, status: res.status };
   const json = await res.json();
@@ -73,9 +75,10 @@ export async function verifyUploadPost() {
 }
 
 export async function getConnectedUploadPostAccounts() {
-  if (!token()) return [];
+  const apiToken = await token();
+  if (!apiToken) return [];
   const res = await fetch(`${baseUrl}/uploadposts/users`, {
-    headers: { Authorization: `Apikey ${token()}` },
+    headers: { Authorization: `Apikey ${apiToken}` },
     cache: "no-store"
   });
   if (!res.ok) return [];
@@ -101,11 +104,12 @@ export async function getConnectedUploadPostAccounts() {
 }
 
 export async function ensureUploadPostProfile() {
-  if (!token()) throw new Error("UPLOAD_POST_API_KEY is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("UPLOAD_POST_API_KEY is not configured.");
   const res = await fetch(`${baseUrl}/uploadposts/users`, {
     method: "POST",
     headers: {
-      Authorization: `Apikey ${token()}`,
+      Authorization: `Apikey ${apiToken}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ username: profile() })
@@ -117,12 +121,13 @@ export async function ensureUploadPostProfile() {
 }
 
 export async function createUploadPostConnectionUrl() {
-  if (!token()) throw new Error("UPLOAD_POST_API_KEY is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("UPLOAD_POST_API_KEY is not configured.");
   await ensureUploadPostProfile();
   const res = await fetch(`${baseUrl}/uploadposts/users/generate-jwt`, {
     method: "POST",
     headers: {
-      Authorization: `Apikey ${token()}`,
+      Authorization: `Apikey ${apiToken}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
@@ -145,7 +150,8 @@ export async function publishTextPost(input: {
   platform: Platform;
   scheduledAt?: string;
 }) {
-  if (!token()) throw new Error("UPLOAD_POST_API_KEY is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("UPLOAD_POST_API_KEY is not configured.");
   await ensureUploadPostProfile();
   const form = new FormData();
   form.append("user", profile());
@@ -157,7 +163,7 @@ export async function publishTextPost(input: {
 
   const res = await fetch(`${baseUrl}/upload_text`, {
     method: "POST",
-    headers: { Authorization: `Apikey ${token()}` },
+    headers: { Authorization: `Apikey ${apiToken}` },
     body: form
   });
   const json = await res.json().catch(() => ({}));
@@ -174,7 +180,8 @@ export async function publishVideoPost(input: {
   videoUrl: string;
   scheduledAt?: string;
 }) {
-  if (!token()) throw new Error("UPLOAD_POST_API_KEY is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("UPLOAD_POST_API_KEY is not configured.");
   await ensureUploadPostProfile();
   const form = new FormData();
   form.append("user", profile());
@@ -188,7 +195,7 @@ export async function publishVideoPost(input: {
 
   const res = await fetch(`${baseUrl}/upload`, {
     method: "POST",
-    headers: { Authorization: `Apikey ${token()}` },
+    headers: { Authorization: `Apikey ${apiToken}` },
     body: form
   });
   const json = await res.json().catch(() => ({}));

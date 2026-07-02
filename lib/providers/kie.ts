@@ -1,3 +1,5 @@
+import { getProviderApiKey } from "@/lib/apiKeyOverrides";
+
 type KieGenerateResponse = {
   code: number;
   msg: string;
@@ -58,12 +60,12 @@ export type KieReferenceAsset = {
   contentType?: string;
 };
 
-function token() {
-  return process.env.KIE_API_TOKEN;
+async function token() {
+  return getProviderApiKey("kie");
 }
 
-export function hasKie() {
-  return Boolean(token());
+export async function hasKie() {
+  return Boolean(await token());
 }
 
 function referenceUrls(refs?: KieReferenceAsset[]) {
@@ -79,12 +81,13 @@ function referenceUrls(refs?: KieReferenceAsset[]) {
 }
 
 export async function generateVeoVideo(prompt: string, options: { duration?: number; aspectRatio?: string; references?: KieReferenceAsset[] } = {}) {
-  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
   const imageUrls = referenceUrls(options.references).slice(0, 3);
   const res = await fetch(`${baseUrl}/api/v1/veo/generate`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token()}`,
+      Authorization: `Bearer ${apiToken}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
@@ -106,13 +109,14 @@ export async function generateVeoVideo(prompt: string, options: { duration?: num
 }
 
 export async function generateSeedanceVideo(prompt: string, options: { duration?: number; aspectRatio?: string; references?: KieReferenceAsset[] } = {}) {
-  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
   const duration = Math.max(4, Math.min(15, Math.round(options.duration || 8)));
   const imageUrls = referenceUrls(options.references).slice(0, 2);
   const res = await fetch(`${baseUrl}/api/v1/jobs/createTask`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token()}`,
+      Authorization: `Bearer ${apiToken}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
@@ -136,7 +140,8 @@ export async function generateSeedanceVideo(prompt: string, options: { duration?
 }
 
 export async function generateImage(prompt: string, options: { model?: string; aspectRatio?: string; references?: KieReferenceAsset[] } = {}) {
-  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
   const imageUrls = referenceUrls(options.references);
   const model = options.model === "gpt-image-2"
     ? imageUrls.length ? "gpt-image-2-image-to-image" : "gpt-image-2-text-to-image"
@@ -150,7 +155,7 @@ export async function generateImage(prompt: string, options: { model?: string; a
   const res = await fetch(`${baseUrl}/api/v1/jobs/createTask`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token()}`,
+      Authorization: `Bearer ${apiToken}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ model, input })
@@ -167,10 +172,11 @@ function normalizeAspectRatio(value?: string) {
 }
 
 export async function getVeoVideo(taskId: string) {
-  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
   const url = new URL(`${baseUrl}/api/v1/veo/record-info`);
   url.searchParams.set("taskId", taskId);
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token()}` } });
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${apiToken}` } });
   const json = (await res.json()) as KieStatusResponse;
   if (!res.ok || json.code !== 200 || !json.data) {
     throw new Error(json.msg || `Kie status check failed with HTTP ${res.status}.`);
@@ -185,10 +191,11 @@ export async function getVeoVideo(taskId: string) {
 }
 
 export async function getMarketTask(taskId: string) {
-  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
   const url = new URL(`${baseUrl}/api/v1/jobs/recordInfo`);
   url.searchParams.set("taskId", taskId);
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token()}` } });
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${apiToken}` } });
   const json = (await res.json()) as KieMarketStatusResponse;
   if (!res.ok || !json.data) {
     throw new Error(json.msg || `Kie task status check failed with HTTP ${res.status}.`);
@@ -212,7 +219,7 @@ export async function getMarketTask(taskId: string) {
 }
 
 export async function checkKieHealth() {
-  return { configured: hasKie(), baseUrl };
+  return { configured: await hasKie(), baseUrl };
 }
 
 type PlanInput = {
@@ -274,11 +281,12 @@ Create a complete editable content plan. Return ONLY valid JSON with this exact 
 }
 
 export async function generateContentPlanWithGpt55(input: { idea: string; niche: string; requestedFormat?: string; requestedDuration?: number; requestedModel?: string; personaContext?: string }, prompt = buildAiBriefPrompt(input)) {
-  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
   const res = await fetch(`${baseUrl}/codex/v1/responses`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token()}`,
+      Authorization: `Bearer ${apiToken}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
@@ -335,12 +343,13 @@ export function buildFinalVideoPromptInstruction(prompt: string, template?: stri
 }
 
 export async function generateFinalVideoPromptWithGpt55(prompt: string, template?: string) {
-  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
   const instruction = buildFinalVideoPromptInstruction(prompt, template);
   const res = await fetch(`${baseUrl}/codex/v1/responses`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token()}`,
+      Authorization: `Bearer ${apiToken}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
@@ -377,11 +386,12 @@ export async function generateFinalVideoPromptWithGpt55(prompt: string, template
 }
 
 export async function generatePersonaAutofillWithGpt55(prompt: string) {
-  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
   const res = await fetch(`${baseUrl}/codex/v1/responses`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token()}`,
+      Authorization: `Bearer ${apiToken}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
@@ -454,12 +464,13 @@ Return this JSON shape:
 }
 
 export async function generateContentPlanWithGemini(input: PlanInput, prompt = buildContentPlanPrompt(input)) {
-  if (!token()) throw new Error("KIE_API_TOKEN is not configured.");
+  const apiToken = await token();
+  if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
 
   const res = await fetch(`${baseUrl}/gemini/v1/models/gemini-3-5-flash:streamGenerateContent`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token()}`,
+      Authorization: `Bearer ${apiToken}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({

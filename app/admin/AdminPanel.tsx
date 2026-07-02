@@ -40,7 +40,9 @@ export type AdminAppData = {
   }[];
 };
 
-export type IntegrationData = Record<string, { configured?: boolean; ok?: boolean; status?: number; error?: string; baseUrl?: string; actor?: string }>;
+export type IntegrationData = Record<string, { configured?: boolean; ok?: boolean; status?: number; error?: string; baseUrl?: string; actor?: string }> & {
+  apiKeyOverrides?: Record<string, { envConfigured?: boolean; overrideConfigured?: boolean; updatedAt?: string; updatedBy?: string }>;
+};
 
 export type AdminUserData = {
   users: {
@@ -326,18 +328,66 @@ function PermissionCard({ adminData, runAdmin }: { adminData: AdminUserData | nu
   );
 }
 
-function ApiKeyManagementCard({ integrations }: { integrations: IntegrationData | null }) {
+function ApiKeyManagementCard({ integrations, adminData }: { integrations: IntegrationData | null; adminData: AdminUserData | null }) {
+  const [status, setStatus] = useState(integrations?.apiKeyOverrides || {});
+  const [saving, setSaving] = useState("");
+  const [message, setMessage] = useState("");
+  const canEdit = Boolean(adminData?.actorPermissions.includes("apiKeys.edit"));
+  const providers = [
+    { id: "kie", label: "Kie.ai", hint: "Used for Gemini/GPT prompt generation, Seedance, VEO, and image generation." },
+    { id: "apify", label: "Apify primary", hint: "Used for Research, Source Watcher crawling, and persona crawling." },
+    { id: "apifyBackup", label: "Apify backup", hint: "Used automatically when the primary Apify token hits quota/auth/rate-limit errors." },
+    { id: "uploadPost", label: "Upload-Post", hint: "Used to connect social accounts and publish approved content." }
+  ];
+  async function saveKey(provider: string, form: FormData) {
+    setMessage("");
+    setSaving(provider);
+    try {
+      const value = String(form.get("value") || "").trim();
+      const res = await fetch("/api/admin/api-keys", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, value })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not update API key.");
+      setStatus(json.providers || {});
+      setMessage(`${provider} key updated. Future provider calls will use the saved override.`);
+      form.set("value", "");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update API key.");
+    } finally {
+      setSaving("");
+    }
+  }
   return (
     <div className="admin-tab-grid">
       <PanelCard title="API key management">
-        <p className="muted">Provider keys are stored as environment variables or GitHub/GCP secrets. This page shows whether each provider is configured without exposing secret values.</p>
-        <div className="provider-list">{Object.entries(integrations || {}).map(([name, value]) => <div className="provider-row" key={name}><b>{name}</b><span className={value.ok || value.configured ? "good" : "bad"}>{value.ok ? "verified" : value.configured ? "configured" : "missing"}</span>{value.status && <small>HTTP {value.status}</small>}{value.error && <small>{value.error}</small>}{value.baseUrl && <small>{value.baseUrl}</small>}{value.actor && <small>{value.actor}</small>}</div>)}</div>
+        <p className="muted">Paste a new key to replace a provider at runtime. Stored overrides are encrypted in the app database and raw keys are never displayed after saving.</p>
+        {message && <div className="provider-error inline">{message}</div>}
+        <div className="api-key-editor-list">
+          {providers.map((provider) => {
+            const item = status?.[provider.id] || {};
+            return (
+              <form className="api-key-editor" key={provider.id} action={(form) => saveKey(provider.id, form)}>
+                <div>
+                  <b>{provider.label}</b>
+                  <span>{provider.hint}</span>
+                  <small>Env: {item.envConfigured ? "configured" : "missing"} · Backend override: {item.overrideConfigured ? `saved ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : ""}` : "not set"}</small>
+                </div>
+                <input name="value" type="password" placeholder="Paste new API key" disabled={!canEdit || saving === provider.id} />
+                <button className="primary" disabled={!canEdit || saving === provider.id}>{saving === provider.id ? "Saving..." : "Save key"}</button>
+              </form>
+            );
+          })}
+        </div>
       </PanelCard>
       <PanelCard title="Secret handling">
         <div className="admin-info-list">
-          <div><b>Runtime keys</b><span>Configured through Cloud Run environment variables or GitHub Actions secrets.</span></div>
-          <div><b>Display policy</b><span>Raw API keys are never shown in the browser. Only configured/missing/verified status is shown.</span></div>
-          <div><b>Phase 3</b><span>Editable provider configuration should move into a database-backed admin model after Postgres is added.</span></div>
+          <div><b>Kie</b><span>{integrations?.kie?.configured ? "configured" : "missing"} {integrations?.kie?.baseUrl || "https://api.kie.ai"}</span></div>
+          <div><b>Apify</b><span>{integrations?.apify?.configured ? "configured" : "missing"} {integrations?.apify?.actor || "apify/google-search-scraper"}</span></div>
+          <div><b>Upload-Post</b><span>{integrations?.uploadPost?.ok ? "verified" : integrations?.uploadPost?.configured ? "configured" : "missing"}</span></div>
+          <div><b>Display policy</b><span>Raw API keys are accepted for replacement only and are never returned to the browser.</span></div>
         </div>
       </PanelCard>
     </div>
@@ -399,7 +449,7 @@ export default function AdminPanel({ data, run, runAdmin, integrations, adminDat
         {activeTab === "users" && <UserManagementCard adminData={adminData} runAdmin={runAdmin} />}
         {activeTab === "permissions" && <PermissionCard adminData={adminData} runAdmin={runAdmin} />}
         {activeTab === "prompts" && <PromptAdminCard data={data} run={run} />}
-        {activeTab === "keys" && <ApiKeyManagementCard integrations={integrations} />}
+        {activeTab === "keys" && <ApiKeyManagementCard integrations={integrations} adminData={adminData} />}
         {activeTab === "system" && <SystemCard />}
       </section>
     </div>

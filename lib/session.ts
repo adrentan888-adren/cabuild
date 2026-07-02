@@ -40,3 +40,7 @@ export async function currentUser() {
   const db = await readDb();
   return db.users.find((user) => user.id === userId) || null;
 }
+
+export function isAdminRole(role?: string) {
+  return role === "super_admin" || role === "admin" || role === "owner";
+}

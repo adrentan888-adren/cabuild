@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { flushSync } from "react-dom";
 import {
   Activity,
@@ -261,10 +262,9 @@ async function post(action: string, payload: Record<string, unknown> = {}) {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [data, setData] = useState<AppData | null>(null);
   const [screen, setScreen] = useState("home");
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [authError, setAuthError] = useState("");
   const [toast, setToast] = useState("");
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
   const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);
@@ -277,6 +277,7 @@ export default function Home() {
     if (res.status === 401) {
       setData(null);
       setLoading(false);
+      router.replace("/login");
       return;
     }
     setData(await res.json());
@@ -314,18 +315,6 @@ export default function Home() {
     }
   }
 
-  async function submitAuth(form: FormData) {
-    setAuthError("");
-    const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
-    const body = Object.fromEntries(form.entries());
-    const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (!res.ok) {
-      setAuthError((await res.json()).error || "Authentication failed");
-      return;
-    }
-    await refresh();
-  }
-
   const metrics = useMemo(() => {
     if (!data) return null;
     return {
@@ -338,36 +327,7 @@ export default function Home() {
 
   if (loading) return <div className="loading">Loading ContentAgent Social...</div>;
 
-  if (!data) {
-    return (
-      <main className="auth-shell">
-        <section className="auth-panel">
-          <div>
-            <div className="brand-mark">CA</div>
-            <h1>ContentAgent Social</h1>
-            <p>Intelligence-first content planning, production, and publishing for SME social channels.</p>
-          </div>
-          <form action={submitAuth} className="auth-card">
-            <div className="segmented">
-              <button type="button" className={authMode === "login" ? "on" : ""} onClick={() => setAuthMode("login")}>Sign in</button>
-              <button type="button" className={authMode === "register" ? "on" : ""} onClick={() => setAuthMode("register")}>Create account</button>
-            </div>
-            {authMode === "register" && (
-              <>
-                <label>Name<input name="name" placeholder="Sean Tan" /></label>
-                <label>Workspace<input name="workspaceName" placeholder="My Social Workspace" /></label>
-                <label>Niche<input name="niche" placeholder="SME AI automation" /></label>
-              </>
-            )}
-            <label>Email<input name="email" type="email" defaultValue={authMode === "login" ? "demo@contentagent.tech" : ""} required /></label>
-            <label>Password<input name="password" type="password" defaultValue={authMode === "login" ? "demo1234" : ""} required /></label>
-            {authError && <div className="error">{authError}</div>}
-            <button className="primary" type="submit">{authMode === "login" ? "Enter workspace" : "Create workspace"}</button>
-          </form>
-        </section>
-      </main>
-    );
-  }
+  if (!data) return <div className="loading">Redirecting to sign in...</div>;
 
   const nav = [
     ["home", "Home", Activity],
@@ -378,8 +338,7 @@ export default function Home() {
     ["publish", "My Contents", CalendarDays],
     ["automation", "Automation", RefreshCcw],
     ["analyse", "Analyse", BarChart3],
-    ["logs", "Logs", Bug],
-    ["admin", "Backend", Settings]
+    ["logs", "Logs", Bug]
   ] as const;
 
   return (
@@ -426,7 +385,7 @@ export default function Home() {
               <span className="credit-pill"><b>{data.workspace.credits}</b> credits</span>
               <button className="icon-btn" title="Refresh" onClick={refresh}><RefreshCcw size={15} /></button>
               <button className="icon-btn" title="Settings" onClick={() => setScreen("settings")}><Settings size={15} /></button>
-              <button className="icon-btn" title="Log out" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); setData(null); }}><LogOut size={15} /></button>
+              <button className="icon-btn" title="Log out" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); setData(null); router.replace("/login"); }}><LogOut size={15} /></button>
             </div>
           </div>
           <div className="momentum-strip">
@@ -447,7 +406,6 @@ export default function Home() {
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
           {screen === "analyse" && <AnalyticsPanel data={data} />}
           {screen === "logs" && <LogPanel data={data} />}
-          {screen === "admin" && <AdminPanel data={data} run={run} integrations={integrations} />}
           {screen === "settings" && <SettingsPanel data={data} run={run} integrations={integrations} />}
         </section>
       </main>
@@ -2319,6 +2277,7 @@ function AdminPanel({ data, run, integrations }: { data: AppData; run: (a: strin
 function SettingsPanel({ data, run, integrations }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; integrations: IntegrationData | null }) {
   const [connectUrl, setConnectUrl] = useState("");
   const [connectError, setConnectError] = useState("");
+  const canOpenAdmin = ["owner", "admin", "super_admin"].includes(data.user.role);
   async function createConnectUrl() {
     setConnectError("");
     const res = await fetch("/api/integrations/upload-post/connect", { method: "POST" });
@@ -2341,18 +2300,18 @@ function SettingsPanel({ data, run, integrations }: { data: AppData; run: (a: st
           <button className="primary">Save workspace context</button>
         </form>
       </PanelCard>
-      <PromptAdminCard data={data} run={run} />
-      <PanelCard title="Provider status">
-        <div className="provider-list">{Object.entries(integrations || {}).map(([name, value]) => <div className="provider-row" key={name}><b>{name}</b><span className={value.ok || value.configured ? "good" : "bad"}>{value.ok ? "verified" : value.configured ? "configured" : "missing"}</span>{value.status && <small>HTTP {value.status}</small>}{value.error && <small>{value.error}</small>}</div>)}</div>
-      </PanelCard>
       <PanelCard title="Connect social accounts">
         <p className="muted">Demo is configured to Upload-Post profile Mariana and publishes to TikTok, Facebook, and X. Use this only if you need to re-open the connection page.</p>
         <button className="primary" onClick={createConnectUrl}><Megaphone size={14} />Open Mariana connect link</button>
         {connectUrl && <p className="muted">Connection page opened in a new tab.</p>}
         {connectError && <p className="provider-error">{connectError}</p>}
       </PanelCard>
-      <PanelCard title="Token handling"><p>Keys are loaded from ignored local environment variables. Rotate the pasted keys before production because they were exposed in chat.</p><code>KIE_API_TOKEN, APIFY_API_TOKEN, UPLOAD_POST_API_KEY</code></PanelCard>
-      <PanelCard title="Recommended production shape"><p>GCP Cloud Run or a VPS can run this app later. Keep Postgres, queue, object storage, and provider keys outside the client.</p></PanelCard>
+      {canOpenAdmin && (
+        <PanelCard title="Admin controls moved">
+          <p className="muted">Prompt templates, provider status, logs, and backend credentials are now managed from the separate admin surface.</p>
+          <a className="asset-link" href="/admin">Open admin</a>
+        </PanelCard>
+      )}
     </div>
   );
 }

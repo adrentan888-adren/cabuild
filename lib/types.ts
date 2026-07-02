@@ -5,7 +5,7 @@ export type User = {
   email: string;
   name: string;
   passwordHash: string;
-  role: "owner" | "manager" | "creator" | "client";
+  role: "super_admin" | "admin" | "owner" | "manager" | "creator" | "client" | "user";
   workspaceId: string;
 };
 

@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     });
     db.personaProfiles ||= [];
     db.personaProfiles.push(defaultPersonaProfile(workspaceId));
-    db.users.push({ id: userId, email, name: name || "Owner", passwordHash: hashPassword(password), role: "owner", workspaceId });
+    db.users.push({ id: userId, email, name: name || "User", passwordHash: hashPassword(password), role: "user", workspaceId });
     db.activity.push({ id: id("act"), workspaceId, message: "Workspace created.", createdAt: new Date().toISOString() });
     return { userId };
   });

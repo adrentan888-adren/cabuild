@@ -1,4 +1,4 @@
-import type { PersonaProfile } from "./types";
+import type { PersonaMediaAsset, PersonaProfile } from "./types";
 
 type PersonaInput = Partial<PersonaProfile> & Record<string, unknown>;
 
@@ -10,6 +10,29 @@ function list(value: unknown, fallback: string[] = []) {
   if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
   if (typeof value === "string") return value.split(/\n|,/).map((item) => item.trim()).filter(Boolean);
   return fallback;
+}
+
+function mediaAssets(value: unknown): PersonaMediaAsset[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .flatMap((item, index) => {
+      if (!item || typeof item !== "object") return [];
+      const record = item as Record<string, unknown>;
+      const role = text(record.role);
+      const url = text(record.url);
+      const fileName = text(record.fileName);
+      if (!["product photo", "avatar/persona", "logo", "audio"].includes(role) || !url || !fileName) return [];
+      return [{
+        id: text(record.id) || `media_${index}_${Date.now()}`,
+        role: role as PersonaMediaAsset["role"],
+        label: text(record.label) || fileName,
+        fileName,
+        url,
+        storageKey: text(record.storageKey),
+        contentType: text(record.contentType),
+        createdAt: text(record.createdAt) || new Date().toISOString()
+      }];
+    });
 }
 
 function toneLabel(value: unknown, low: string, middle: string, high: string) {
@@ -64,6 +87,7 @@ export function normalizePersonaProfile(workspaceId: string, input: PersonaInput
       facebook: text(sourceUrls.facebook),
       x: text(sourceUrls.x)
     },
+    mediaAssets: mediaAssets(input.mediaAssets),
     updatedAt: text(input.updatedAt) || new Date().toISOString()
   };
 }

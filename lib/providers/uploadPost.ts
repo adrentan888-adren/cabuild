@@ -170,7 +170,7 @@ export async function publishTextPost(input: {
   if (!res.ok) {
     throw new Error(json?.message || json?.error || `Upload-Post failed with HTTP ${res.status}.`);
   }
-  return json as { request_id?: string; success?: boolean; message?: string };
+  return json as { request_id?: string; job_id?: string; success?: boolean; message?: string };
 }
 
 export async function publishVideoPost(input: {
@@ -202,9 +202,41 @@ export async function publishVideoPost(input: {
   if (!res.ok) {
     throw new Error(json?.message || json?.error || `Upload-Post video upload failed with HTTP ${res.status}.`);
   }
-  return json as { request_id?: string; success?: boolean; message?: string };
+  return json as { request_id?: string; job_id?: string; success?: boolean; message?: string };
+}
+
+export async function publishPhotoPost(input: {
+  title: string;
+  description?: string;
+  platform: Platform;
+  photoUrl: string;
+  scheduledAt?: string;
+}) {
+  const apiToken = await token();
+  if (!apiToken) throw new Error("UPLOAD_POST_API_KEY is not configured.");
+  await ensureUploadPostProfile();
+  const form = new FormData();
+  form.append("user", profile());
+  targetPlatforms(input.platform).forEach((platform) => form.append("platform[]", platform));
+  form.append("photos[]", input.photoUrl);
+  form.append("title", input.title);
+  if (input.description) form.append("description", input.description);
+  if (input.scheduledAt) form.append("scheduled_date", input.scheduledAt);
+  form.append("async_upload", "true");
+
+  const res = await fetch(`${baseUrl}/upload_photos`, {
+    method: "POST",
+    headers: { Authorization: `Apikey ${apiToken}` },
+    body: form
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(json?.message || json?.error || `Upload-Post photo upload failed with HTTP ${res.status}.`);
+  }
+  return json as { request_id?: string; job_id?: string; success?: boolean; message?: string };
 }
 
 export async function checkUploadPostHealth() {
   return verifyUploadPost();
 }
+

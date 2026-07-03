@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { hasPermission } from "@/lib/permissions";
 import { defaultPersonaProfile, id, mutateDb } from "@/lib/store";
-import type { Asset, Brief, CompetitorResult, GenerationAssetReference, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
+import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, Brief, CompetitorResult, GenerationAssetReference, PersonaMediaAsset, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext, normalizePersonaProfile } from "@/lib/persona";
 import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl, startKeywordScanRun, startSocialUrlScanRun } from "@/lib/providers/apify";
 import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
-import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
+import { getConnectedUploadPostAccounts, publishPhotoPost, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
+
+const allowedPlatforms: Platform[] = ["TikTok", "Instagram", "YouTube", "LinkedIn", "Facebook", "X"];
 
 async function requireUser() {
   const user = await currentUser();
@@ -66,6 +68,92 @@ async function debugLog(workspaceId: string, entry: { action: string; label: str
   });
 }
 
+function publishDescription(item: PublishItem, asset?: Asset) {
+  return [item.caption, ...(item.hashtags || [])].filter(Boolean).join("\n\n") || asset?.prompt || item.prompt || item.title;
+}
+
+async function sendToUploadPost(item: PublishItem, asset?: Asset) {
+  const description = publishDescription(item, asset);
+  if (asset?.assetUrl && (item.generationType === "image" || asset.type === "image")) {
+    return publishPhotoPost({ title: item.title, description, platform: item.platform, photoUrl: asset.assetUrl, scheduledAt: undefined });
+  }
+  if (asset?.assetUrl) {
+    return publishVideoPost({ title: item.title, description, platform: item.platform, videoUrl: asset.assetUrl, scheduledAt: undefined });
+  }
+  return publishTextPost({ title: item.title, description, platform: item.platform, scheduledAt: undefined });
+}
+
+async function autoPublishReadySourceWatcherItems(workspaceId: string, action: string, assetId?: string) {
+  const candidates = await mutateDb((db) => {
+    return db.publishQueue
+      .filter((item) => item.workspaceId === workspaceId)
+      .filter((item) => !assetId || item.assetId === assetId)
+      .filter((item) => item.status === "done")
+      .filter((item) => item.provider !== "upload-post")
+      .map((item) => {
+        const asset = db.assets.find((asset) => asset.id === item.assetId && asset.workspaceId === workspaceId);
+        const watcherId = String((item.generationSettings?.sourceWatcherId || asset?.generationSettings?.sourceWatcherId || "") as string);
+        const watcher = watcherId ? (db.automationSourceWatchers || []).find((watcher) => watcher.id === watcherId && watcher.workspaceId === workspaceId) : undefined;
+        if (!watcher || watcher.approvalMode !== "auto-publish") return null;
+        if ((item.generationType === "video" || item.generationType === "image") && !asset?.assetUrl && !item.assetUrl) return null;
+        return { item, asset };
+      })
+      .filter((entry): entry is { item: PublishItem; asset: Asset | undefined } => Boolean(entry));
+  });
+
+  const results = [];
+  for (const candidate of candidates) {
+    await debugLog(workspaceId, {
+      action,
+      label: `Automation auto-publish sent to Upload-Post: ${candidate.item.title}`,
+      status: "started",
+      provider: "upload-post",
+      prompt: publishDescription(candidate.item, candidate.asset),
+      details: {
+        publishId: candidate.item.id,
+        assetId: candidate.asset?.id,
+        platform: candidate.item.platform,
+        generationType: candidate.item.generationType,
+        hasAssetUrl: Boolean(candidate.asset?.assetUrl || candidate.item.assetUrl)
+      }
+    });
+    try {
+      const upload = await sendToUploadPost(candidate.item, candidate.asset);
+      const updated = await mutateDb((db) => {
+        const item = db.publishQueue.find((item) => item.id === candidate.item.id && item.workspaceId === workspaceId);
+        if (!item) return null;
+        item.status = "published";
+        item.provider = "upload-post";
+        item.providerRequestId = upload.request_id || upload.job_id;
+        item.error = "";
+        db.activity.push({ id: id("act"), workspaceId, message: `Automation auto-published "${item.title}" through Upload-Post.`, createdAt: new Date().toISOString() });
+        return item;
+      });
+      await debugLog(workspaceId, {
+        action,
+        label: `Automation auto-publish accepted: ${candidate.item.title}`,
+        status: "success",
+        provider: "upload-post",
+        details: { requestId: upload.request_id, jobId: upload.job_id, platform: candidate.item.platform }
+      });
+      results.push({ id: candidate.item.id, status: "published", requestId: upload.request_id || upload.job_id, item: updated });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Upload-Post publish failed";
+      await mutateDb((db) => {
+        const item = db.publishQueue.find((item) => item.id === candidate.item.id && item.workspaceId === workspaceId);
+        if (item) {
+          item.status = "failed";
+          item.provider = "upload-post";
+          item.error = message;
+        }
+      });
+      await debugLog(workspaceId, { action, label: "Automation auto-publish failed", status: "failed", provider: "upload-post", error: message });
+      results.push({ id: candidate.item.id, status: "failed", error: message });
+    }
+  }
+  return results;
+}
+
 function parseAssetReferences(input: unknown): GenerationAssetReference[] {
   if (!Array.isArray(input)) return [];
   return input
@@ -80,6 +168,36 @@ function parseAssetReferences(input: unknown): GenerationAssetReference[] {
       return role && fileName ? { role, fileName, ...(url ? { url } : {}), ...(storageKey ? { storageKey } : {}), ...(contentType ? { contentType } : {}) } : null;
     })
     .filter((item): item is GenerationAssetReference => Boolean(item));
+}
+
+function parsePersonaMediaAssets(input: unknown): PersonaMediaAsset[] {
+  const raw = typeof input === "string" ? (() => {
+    try {
+      return JSON.parse(input);
+    } catch {
+      return [];
+    }
+  })() : input;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .flatMap((item, index) => {
+      if (!item || typeof item !== "object") return [];
+      const record = item as Record<string, unknown>;
+      const role = String(record.role || "").trim();
+      const url = String(record.url || "").trim();
+      const fileName = String(record.fileName || "").trim();
+      if (!["product photo", "avatar/persona", "logo", "audio"].includes(role) || !url || !fileName) return [];
+      return [{
+        id: String(record.id || `pmedia_${Date.now()}_${index}`),
+        role: role as PersonaMediaAsset["role"],
+        label: String(record.label || fileName).trim() || fileName,
+        fileName,
+        url,
+        storageKey: String(record.storageKey || "").trim() || undefined,
+        contentType: String(record.contentType || "").trim() || undefined,
+        createdAt: String(record.createdAt || new Date().toISOString())
+      }];
+    });
 }
 
 function enrichPromptWithAssetReferences(prompt: string, generationType: "video" | "image" | "text", refs: GenerationAssetReference[]) {
@@ -262,6 +380,227 @@ function parseList(value: unknown) {
   return String(value || "").split(/\n|,/).map((item) => item.trim()).filter(Boolean);
 }
 
+function clampNumber(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function nextAutomationRunAt(frequency: AutomationRule["frequency"], postingTime: string) {
+  const now = new Date();
+  const [hoursRaw, minutesRaw] = postingTime.split(":");
+  const hours = clampNumber(hoursRaw, 10, 0, 23);
+  const minutes = clampNumber(minutesRaw, 0, 0, 59);
+  const next = new Date(now);
+  next.setHours(hours, minutes, 0, 0);
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + (frequency === "weekly" ? 7 : 1));
+  return next.toISOString();
+}
+
+function automationTitle(rule: Pick<AutomationRule, "goal" | "instruction" | "contentType">) {
+  const firstLine = rule.instruction.split(/\n|\.|\?/)[0]?.trim();
+  const prefix = rule.goal.charAt(0).toUpperCase() + rule.goal.slice(1);
+  return `${prefix} ${rule.contentType.replace("-", " ")}: ${firstLine || "scheduled content"}`.slice(0, 110);
+}
+
+function normalizeIdeaText(value: string) {
+  const stopWords = new Set(["the", "and", "or", "a", "an", "to", "for", "of", "in", "on", "with", "from", "by", "is", "are", "be", "this", "that", "it", "as", "at", "your", "you"]);
+  return value
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[^a-z0-9#]+/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2 && !stopWords.has(word));
+}
+
+function ideaSimilarity(a: string, b: string) {
+  const left = new Set(normalizeIdeaText(a));
+  const right = new Set(normalizeIdeaText(b));
+  if (left.size === 0 || right.size === 0) return 0;
+  let overlap = 0;
+  left.forEach((word) => {
+    if (right.has(word)) overlap += 1;
+  });
+  return overlap / (left.size + right.size - overlap);
+}
+
+function sourceOverlapScore(sourceUrls: string[], candidate: string) {
+  const normalized = sourceUrls.map((url) => url.trim().toLowerCase()).filter(Boolean);
+  if (normalized.length === 0 || !candidate) return 0;
+  const lower = candidate.toLowerCase();
+  return normalized.some((url) => lower.includes(url) || url.includes(lower)) ? 1 : 0;
+}
+
+function automationPrompt(rule: AutomationRule) {
+  const platformText = rule.platforms.length ? rule.platforms.join(", ") : "selected social platforms";
+  return [
+    `Create a ${rule.contentType.replace("-", " ")} automation draft for ${platformText}.`,
+    `Goal: ${rule.goal}.`,
+    `Dimension: ${rule.aspectRatio}.`,
+    `Model preference: ${rule.model}.`,
+    `User instruction: ${rule.instruction}`,
+    rule.keywords.length ? `Keywords to consider: ${rule.keywords.join(", ")}.` : "",
+    rule.sourceUrls.length ? `Research/source URLs to consider: ${rule.sourceUrls.join(", ")}.` : "",
+    rule.researchMode !== "none" ? `Research mode: ${rule.researchMode}. Use relevant recent research only when it fits the instruction.` : "Research mode: none. Use the instruction only.",
+    rule.restrictions ? `Restrictions: ${rule.restrictions}` : "",
+    `Duplicate protection: ${rule.duplicateProtection.mode}. Avoid topics, source URLs, hooks, captions, visual structures, and angles similar to recent history within ${rule.duplicateProtection.topicWindowDays} days.`,
+    "Produce a fresh, reviewable content draft. Do not call a generation provider or publish automatically in this staging step."
+  ].filter(Boolean).join("\n");
+}
+
+function automationHashtag(keyword: string) {
+  const cleaned = keyword.replace(/[^a-zA-Z0-9]/g, "");
+  return cleaned ? `#${cleaned}` : "";
+}
+
+function automationKindFromContentType(contentType: string): "video" | "image" | "text" | "auto" {
+  if (contentType === "short-video" || contentType === "long-video" || contentType === "video") return "video";
+  if (contentType === "text") return "text";
+  if (contentType === "auto") return "auto";
+  return "image";
+}
+
+function defaultAutomationModel(contentType: string) {
+  const kind = automationKindFromContentType(contentType);
+  if (kind === "video") return "veo-fast";
+  if (kind === "image") return "gpt-image-2";
+  if (kind === "text") return "gemini-3.5-flash";
+  return "auto";
+}
+
+function normalizeAutomationModel(contentType: string, value: unknown) {
+  const model = String(value || "").trim();
+  const kind = automationKindFromContentType(contentType);
+  const valid = kind === "video"
+    ? ["veo-fast", "seedance-2.0"]
+    : kind === "image"
+      ? ["gpt-image-2", "nanobanana-pro"]
+      : kind === "text"
+        ? ["gemini-3.5-flash", "claude-opus-4.8"]
+        : ["auto", "veo-fast", "seedance-2.0", "gpt-image-2", "nanobanana-pro", "gemini-3.5-flash", "claude-opus-4.8"];
+  return valid.includes(model) ? model : defaultAutomationModel(contentType);
+}
+
+function normalizeAutomationAspectRatio(contentType: string, value: unknown) {
+  const ratio = String(value || "").trim();
+  if (contentType === "long-video") return "16:9";
+  if (contentType === "short-video" || contentType === "video") return ratio === "16:9" ? "16:9" : "9:16";
+  if (contentType === "text") return "1:1";
+  if (contentType === "auto") return ratio === "16:9" ? "16:9" : "9:16";
+  return ["1:1", "4:5", "9:16", "16:9"].includes(ratio) ? ratio : "4:5";
+}
+
+function modelForResolvedSourceWatcherKind(watcherModel: string, generationType: "video" | "image" | "text") {
+  if (generationType === "video") return ["veo-fast", "seedance-2.0"].includes(watcherModel) ? watcherModel : "veo-fast";
+  if (generationType === "image") return isKieImageModel(watcherModel) ? watcherModel : "gpt-image-2";
+  return ["gemini-3.5-flash", "claude-opus-4.8"].includes(watcherModel) ? watcherModel : "gemini-3.5-flash";
+}
+
+type SourceWatcherCandidate = {
+  id: string;
+  platform: Platform;
+  sourceUrl: string;
+  url: string;
+  title: string;
+  description: string;
+  thumbnailUrl?: string;
+  mediaUrl?: string;
+  mediaType: "video" | "image" | "unknown";
+  views: number;
+  likes: number;
+  comments: number;
+  publishedAt?: string;
+  duration?: number;
+  score: number;
+};
+
+function sourceWatcherNextRunAt(frequency: AutomationSourceWatcher["frequency"], postingTime: string) {
+  return nextAutomationRunAt(frequency, postingTime);
+}
+
+function sourceWatcherKind(candidate: SourceWatcherCandidate, requested: AutomationSourceWatcher["contentType"]): "video" | "image" | "text" {
+  if (requested !== "auto") return requested;
+  if (candidate.mediaType === "video") return "video";
+  if (candidate.mediaType === "image") return "image";
+  return candidate.platform === "LinkedIn" || candidate.platform === "X" ? "text" : "image";
+}
+
+function sourceWatcherScore(candidate: Omit<SourceWatcherCandidate, "score">, mode: AutomationSourceWatcher["rankingMode"]) {
+  const views = Math.log10(Math.max(candidate.views, 1));
+  const engagement = candidate.views > 0 ? ((candidate.likes + candidate.comments * 2) / candidate.views) * 100 : 0;
+  const ageHours = candidate.publishedAt ? Math.max(1, (Date.now() - new Date(candidate.publishedAt).getTime()) / 36e5) : 720;
+  const recency = Math.max(0, 10 - Math.log10(ageHours + 1) * 3);
+  if (mode === "views") return views * 24 + engagement * 2 + recency;
+  if (mode === "engagement") return engagement * 18 + views * 8 + recency;
+  if (mode === "recent") return recency * 14 + views * 7 + engagement * 4;
+  return views * 12 + engagement * 8 + recency * 5;
+}
+
+function sourceWatcherReferences(watcher: AutomationSourceWatcher): GenerationAssetReference[] {
+  const refs: GenerationAssetReference[] = [...(watcher.referenceAssets || [])];
+  if (watcher.referenceUrls.logo) refs.push({ role: "logo", fileName: "source-watcher-logo", url: watcher.referenceUrls.logo });
+  if (watcher.referenceUrls.productPhoto) refs.push({ role: "product photo", fileName: "source-watcher-product-photo", url: watcher.referenceUrls.productPhoto });
+  if (watcher.referenceUrls.avatar) refs.push({ role: "avatar/persona", fileName: "source-watcher-avatar", url: watcher.referenceUrls.avatar });
+  if (watcher.referenceUrls.audio) refs.push({ role: "audio", fileName: "source-watcher-audio", url: watcher.referenceUrls.audio });
+  return refs;
+}
+
+function sourceWatcherPrompt(input: {
+  watcher: AutomationSourceWatcher;
+  candidate: SourceWatcherCandidate;
+  generationType: "video" | "image" | "text";
+  personaContext: string;
+}) {
+  const { watcher, candidate, generationType, personaContext } = input;
+  const media = candidate.mediaUrl || candidate.thumbnailUrl || candidate.url;
+  const referenceInstruction = generationType === "text"
+    ? "Do not copy the original wording. Rebuild the angle in the user's persona and brand voice."
+    : generationType === "image"
+      ? "Analyse the attached/source image or graphic and create a fresh social image concept. If logo/product/avatar references are attached, use those user assets to replace original brand/person/product elements. If no matching attachment exists, remove or change the original brand/person/product."
+      : "Analyse the attached/source video and create a fresh social video concept. If logo/person/audio/product references are attached, use those user assets to replace original logo/person/audio/product elements. If no matching attachment exists, remove the original logo, change the person, and replace the audio.";
+  return appendPersonaContext([
+    `Create ${generationType} content based on this high-performing source selected by Source Watcher.`,
+    `User automation instruction: ${watcher.instruction}`,
+    `Source title: ${candidate.title}`,
+    `Source description/caption: ${candidate.description}`,
+    `Source media: ${media}`,
+    `Exact source post/page: ${candidate.url}`,
+    `Performance: ${candidate.views} views, ${candidate.likes} likes, ${candidate.comments} comments.`,
+    generationType === "video" ? `The video duration is supposed to be ${watcher.duration || candidate.duration || 8}s.` : "",
+    `Target dimension: ${watcher.aspectRatio}.`,
+    referenceInstruction,
+    "Make the result suitable for the user's saved persona, brand context, and social media audience. Keep it original, high-conversion, mobile-first, and compliance-safe.",
+    watcher.referenceUrls.logo ? `Use the uploaded logo/reference URL exactly as the brand logo: ${watcher.referenceUrls.logo}` : "No user logo is attached; do not copy any original source logo.",
+    watcher.referenceUrls.productPhoto ? `Use the uploaded product photo/reference URL as the product visual: ${watcher.referenceUrls.productPhoto}` : "",
+    watcher.referenceUrls.avatar ? `Use the uploaded avatar/person reference URL for the on-screen person style: ${watcher.referenceUrls.avatar}` : "",
+    watcher.referenceUrls.audio && generationType === "video" ? `Use the uploaded audio reference URL only as user-approved audio direction: ${watcher.referenceUrls.audio}` : "",
+    "Return an execution-ready prompt/caption direction, not analysis notes."
+  ].filter(Boolean).join("\n"), personaContext);
+}
+
+function sourceWatcherDuplicate(
+  watcher: AutomationSourceWatcher,
+  candidate: SourceWatcherCandidate,
+  db: { automationSourceRuns?: AutomationSourceRun[]; publishQueue?: PublishItem[]; assets?: Asset[]; competitorResults?: CompetitorResult[] },
+  workspaceId: string
+) {
+  const threshold = watcher.duplicateProtection.similarityThreshold / 100;
+  const cutoff = Date.now() - watcher.duplicateProtection.topicWindowDays * 24 * 60 * 60 * 1000;
+  const text = [candidate.title, candidate.description, candidate.url].join("\n");
+  const history = [
+    ...(db.automationSourceRuns || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.selectedTitle || "", text: [item.selectedTitle, item.selectedUrl, item.selectionReason].join("\n"), url: item.selectedUrl || "", createdAt: item.completedAt || item.startedAt })),
+    ...(db.publishQueue || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt, item.caption].join("\n"), url: item.sourceUrl || "", createdAt: item.createdAt || item.scheduledAt })),
+    ...(db.assets || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt].join("\n"), url: item.sourceUrl || "", createdAt: item.createdAt })),
+    ...(db.competitorResults || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.description].join("\n"), url: item.url, createdAt: item.capturedAt || item.publishedAt }))
+  ].filter((item) => !item.createdAt || new Date(item.createdAt).getTime() >= cutoff);
+  let best = { score: 0, title: "", id: "", reason: "No duplicate found." };
+  for (const item of history) {
+    const score = Math.max(sourceOverlapScore([candidate.url], item.url), ideaSimilarity(text, item.text));
+    if (score > best.score) best = { score, title: item.title, id: item.id, reason: score >= 1 ? "Exact source URL was used before." : "Similar source/topic was used before." };
+  }
+  return { duplicate: best.score >= threshold, best, threshold };
+}
+
 function hasField(body: Record<string, unknown>, key: string) {
   return Object.prototype.hasOwnProperty.call(body, key);
 }
@@ -424,6 +763,7 @@ function personaFromBody(workspaceId: string, body: Record<string, unknown>, pre
       facebook: stringField(body, "facebookUrl", fallback.sourceUrls.facebook || ""),
       x: stringField(body, "xUrl", fallback.sourceUrls.x)
     },
+    mediaAssets: hasField(body, "mediaAssets") ? parsePersonaMediaAssets(body.mediaAssets) : fallback.mediaAssets,
     updatedAt: new Date().toISOString()
   });
 }
@@ -782,7 +1122,8 @@ export async function POST(req: Request) {
         }
         return asset;
       });
-      return NextResponse.json(updated);
+      const autoPublish = await autoPublishReadySourceWatcherItems(workspaceId, action, updated.id);
+      return NextResponse.json({ ...updated, autoPublish });
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : "Kie poll failed" }, { status: 502 });
     }
@@ -1330,7 +1671,7 @@ export async function POST(req: Request) {
         if (item.status === "generating") throw new Error("This draft is still generating.");
         return { item, asset: db.assets.find((asset) => asset.id === item.assetId && asset.workspaceId === workspaceId) };
       });
-      const description = [snapshot.item.caption, ...(snapshot.item.hashtags || [])].filter(Boolean).join("\n\n") || snapshot.asset?.prompt;
+      const description = publishDescription(snapshot.item, snapshot.asset);
       await debugLog(workspaceId, {
         action,
         label: `Publish payload sent to Upload-Post: ${snapshot.item.title}`,
@@ -1339,18 +1680,7 @@ export async function POST(req: Request) {
         prompt: description,
         details: { publishId: snapshot.item.id, platform: snapshot.item.platform, hasAssetUrl: Boolean(snapshot.asset?.assetUrl) }
       });
-      const result = snapshot.asset?.assetUrl
-        ? await publishVideoPost({
-            title: snapshot.item.title,
-            description,
-            platform: snapshot.item.platform,
-            videoUrl: snapshot.asset.assetUrl
-          })
-        : await publishTextPost({
-            title: snapshot.item.title,
-            description,
-            platform: snapshot.item.platform
-          });
+      const result = await sendToUploadPost(snapshot.item, snapshot.asset);
       const updated = await mutateDb((db) => {
         const item = db.publishQueue.find((queue) => queue.id === body.id && queue.workspaceId === workspaceId);
         if (!item) return snapshot.item;
@@ -1730,8 +2060,472 @@ export async function POST(req: Request) {
     return NextResponse.json(templates);
   }
 
+  if (action === "runSourceWatcherNow") {
+    const watcher = await mutateDb((db) => (db.automationSourceWatchers || []).find((item) => item.id === body.id && item.workspaceId === workspaceId) || null);
+    if (!watcher) return NextResponse.json({ error: "Source watcher not found." }, { status: 404 });
+    const startedAt = new Date().toISOString();
+    await debugLog(workspaceId, {
+      action,
+      label: `Source Watcher crawl started: ${watcher.name}`,
+      status: "started",
+      provider: "apify",
+      details: { watcherId: watcher.id, sourceUrls: watcher.sourceUrls, minViews: watcher.minViews, contentType: watcher.contentType }
+    });
+    const candidates: SourceWatcherCandidate[] = [];
+    const errors: string[] = [];
+    for (const sourceUrl of watcher.sourceUrls) {
+      try {
+        const platform = platformFromUrl(sourceUrl);
+        const items = await scanSocialUrl(sourceUrl, watcher.minViews);
+        for (const item of items) {
+          const base = {
+            id: id("res"),
+            platform,
+            sourceUrl,
+            url: item.sourceUrl,
+            title: item.title,
+            description: item.description,
+            thumbnailUrl: item.thumbnailUrl,
+            mediaUrl: item.mediaUrl,
+            mediaType: item.mediaType,
+            views: item.views,
+            likes: item.likes,
+            comments: item.comments,
+            publishedAt: item.publishedAt,
+            duration: item.duration
+          };
+          candidates.push({ ...base, score: sourceWatcherScore(base, watcher.rankingMode) });
+        }
+      } catch (error) {
+        errors.push(`${sourceUrl}: ${error instanceof Error ? error.message : "crawl failed"}`);
+      }
+    }
+    const filtered = candidates
+      .filter((item) => watcher.contentType === "auto" || sourceWatcherKind(item, watcher.contentType) === watcher.contentType)
+      .sort((a, b) => b.score - a.score);
+    const personaContext = await mutateDb((db) => buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId)));
+    const result = await mutateDb((db) => {
+      db.automationSourceRuns ||= [];
+      db.competitorResults ||= [];
+      db.assets ||= [];
+      db.publishQueue ||= [];
+      const run: AutomationSourceRun = {
+        id: id("srun"),
+        workspaceId,
+        watcherId: watcher.id,
+        status: "running",
+        sourceUrls: watcher.sourceUrls,
+        scannedCount: candidates.length,
+        startedAt
+      };
+      const storedResults: CompetitorResult[] = candidates.slice(0, 40).map((candidate) => ({
+        id: candidate.id,
+        workspaceId,
+        competitorId: watcher.id,
+        platform: candidate.platform,
+        url: candidate.url,
+        title: candidate.title,
+        thumbnailUrl: candidate.thumbnailUrl || "",
+        mediaUrl: candidate.mediaUrl,
+        mediaType: candidate.mediaType,
+        description: candidate.description,
+        views: candidate.views,
+        likes: candidate.likes,
+        comments: candidate.comments,
+        publishedAt: candidate.publishedAt || startedAt,
+        duration: candidate.duration,
+        capturedAt: startedAt
+      }));
+      db.competitorResults.push(...storedResults);
+      const watcherRecord = (db.automationSourceWatchers || []).find((item) => item.id === watcher.id && item.workspaceId === workspaceId);
+      const firstUsable = filtered.find((candidate) => !sourceWatcherDuplicate(watcher, candidate, db, workspaceId).duplicate);
+      if (!firstUsable) {
+        const duplicate = filtered[0] ? sourceWatcherDuplicate(watcher, filtered[0], db, workspaceId) : null;
+        run.status = "no-match";
+        run.completedAt = new Date().toISOString();
+        run.selectionReason = filtered.length ? `No suitable non-duplicate source found. Best duplicate score was ${Math.round((duplicate?.best.score || 0) * 100)}%.` : "No source results matched the watcher filters.";
+        if (watcherRecord) {
+          watcherRecord.lastRunAt = run.completedAt;
+          watcherRecord.nextRunAt = sourceWatcherNextRunAt(watcherRecord.frequency, watcherRecord.postingTime);
+          watcherRecord.updatedAt = run.completedAt;
+        }
+        db.automationSourceRuns.push(run);
+        db.activity.push({ id: id("act"), workspaceId, message: `Source Watcher found no usable content for "${watcher.name}".`, createdAt: run.completedAt });
+        return { run, publishItem: null, asset: null, selected: null };
+      }
+      const selected = firstUsable;
+      const generationType = sourceWatcherKind(selected, watcher.contentType);
+      const model = modelForResolvedSourceWatcherKind(watcher.model, generationType);
+      const references = sourceWatcherReferences(watcher);
+      const basePrompt = sourceWatcherPrompt({ watcher, candidate: selected, generationType, personaContext });
+      const prompt = generationType === "video"
+        ? enhanceVideoPromptForProvider({ prompt: enrichPromptWithAssetReferences(basePrompt, generationType, references), model, duration: watcher.duration || selected.duration || 8, aspectRatio: watcher.aspectRatio, references })
+        : enrichPromptWithAssetReferences(basePrompt, generationType, references);
+      const caption = selected.description || `Inspired by a high-performing ${selected.platform} source: ${selected.title}`;
+      const hashtags = ["#ContentAgent", `#${selected.platform.replace(/\s+/g, "")}`];
+      const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
+      const isKieImage = generationType === "image" && isKieImageModel(model);
+      const isKieGeneration = isKieVideo || isKieImage;
+      const now = new Date().toISOString();
+      const generationSettings = { aspectRatio: watcher.aspectRatio, duration: generationType === "video" ? closestVideoDuration(watcher.duration || selected.duration || 8, model) : undefined, sourceWatcherId: watcher.id };
+      const asset: Asset = {
+        id: id("ast"),
+        workspaceId,
+        briefId: "source-watcher",
+        title: `Source Watcher: ${selected.title}`.slice(0, 120),
+        type: generationType === "video" ? "video" : generationType === "image" ? "image" : "text",
+        status: isKieGeneration ? "queued" : "ready",
+        progress: isKieGeneration ? 10 : 100,
+        createdAt: now,
+        provider: isKieGeneration ? "kie" : "local",
+        generationModel: model,
+        generationSettings,
+        prompt,
+        assetReferences: references,
+        sourceUrl: selected.url,
+        sourceTitle: selected.title,
+        sourceThumbnailUrl: selected.thumbnailUrl,
+        sourceMediaUrl: selected.mediaUrl,
+        sourceMediaType: selected.mediaType,
+        assetUrl: isKieGeneration ? undefined : generationType === "video" ? demoVideoUrl : generationType === "text" ? `data:text/plain;charset=utf-8,${encodeURIComponent(`${caption}\n\n${hashtags.join(" ")}`)}` : undefined
+      };
+      db.assets.push(asset);
+      const publishItem: PublishItem = {
+        id: id("pub"),
+        workspaceId,
+        assetId: asset.id,
+        title: asset.title,
+        platform: selected.platform,
+        scheduledAt: now,
+        status: isKieGeneration ? "generating" : watcher.approvalMode === "auto-schedule" ? "scheduled" : watcher.approvalMode === "auto-publish" && generationType === "text" ? "draft" : "done",
+        provider: isKieGeneration ? "kie" : "local",
+        caption,
+        hashtags,
+        generationModel: model,
+        generationType,
+        generationSettings,
+        duration: generationType === "video" ? Number(generationSettings.duration || 8) : undefined,
+        prompt,
+        assetReferences: references,
+        sourceUrl: selected.url,
+        sourceTitle: selected.title,
+        sourceThumbnailUrl: selected.thumbnailUrl,
+        sourceMediaUrl: selected.mediaUrl,
+        sourceMediaType: selected.mediaType,
+        assetUrl: asset.assetUrl,
+        createdAt: now
+      };
+      db.publishQueue.push(publishItem);
+      run.status = "completed";
+      run.completedAt = now;
+      run.selectedResultId = selected.id;
+      run.selectedTitle = selected.title;
+      run.selectedUrl = selected.url;
+      run.selectedScore = selected.score;
+      run.selectionReason = `Selected by ${watcher.rankingMode} ranking from ${candidates.length} crawled result${candidates.length === 1 ? "" : "s"}.`;
+      run.publishItemId = publishItem.id;
+      run.assetId = asset.id;
+      db.automationSourceRuns.push(run);
+      if (watcherRecord) {
+        watcherRecord.lastRunAt = now;
+        watcherRecord.nextRunAt = sourceWatcherNextRunAt(watcherRecord.frequency, watcherRecord.postingTime);
+        watcherRecord.updatedAt = now;
+        watcherRecord.lastError = "";
+      }
+      db.activity.push({ id: id("act"), workspaceId, message: `Source Watcher selected "${selected.title}" and created a My Contents item.`, createdAt: now });
+      return { run, publishItem, asset, selected };
+    });
+    await debugLog(workspaceId, {
+      action,
+      label: `Source Watcher crawl completed: ${watcher.name}`,
+      status: result.run.status === "failed" ? "failed" : "success",
+      provider: "apify",
+      prompt: result.publishItem?.prompt,
+      details: { watcherId: watcher.id, scannedCount: candidates.length, selected: result.selected, errors }
+    });
+    if (result.asset?.provider === "kie" && result.publishItem) {
+      try {
+        const model = result.asset.generationModel || watcher.model;
+        const refs = result.asset.assetReferences || [];
+        const settings = result.asset.generationSettings || {};
+        const taskId = isKieImageModel(model)
+          ? await generateImage(result.asset.prompt || result.asset.title, { model, aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs })
+          : model === "seedance-2.0"
+            ? await generateSeedanceVideo(result.asset.prompt || result.asset.title, { duration: Number(settings.duration || 8), aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs })
+            : await generateVeoVideo(result.asset.prompt || result.asset.title, { duration: Number(settings.duration || 8), aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs });
+        const updated = await mutateDb((db) => {
+          const asset = db.assets.find((item) => item.id === result.asset?.id && item.workspaceId === workspaceId);
+          if (asset) {
+            asset.providerTaskId = taskId;
+            asset.status = "rendering";
+            asset.progress = 35;
+          }
+          const pub = db.publishQueue.find((item) => item.id === result.publishItem?.id && item.workspaceId === workspaceId);
+          if (pub) pub.providerRequestId = taskId;
+          db.activity.push({ id: id("act"), workspaceId, message: `Source Watcher Kie task started: ${taskId}`, createdAt: new Date().toISOString() });
+          return { asset, publishItem: pub };
+        });
+        await debugLog(workspaceId, {
+          action,
+          label: `Source Watcher Kie task started: ${taskId}`,
+          status: "success",
+          provider: "kie",
+          prompt: result.asset.prompt,
+          details: { model, taskId, watcherId: watcher.id, publishItemId: result.publishItem.id }
+        });
+        return NextResponse.json({ ...result, ...updated });
+      } catch (error) {
+        const failed = await mutateDb((db) => {
+          const asset = db.assets.find((item) => item.id === result.asset?.id && item.workspaceId === workspaceId);
+          if (asset) {
+            asset.status = "failed";
+            asset.error = error instanceof Error ? error.message : "Kie generation failed";
+          }
+          const pub = db.publishQueue.find((item) => item.id === result.publishItem?.id && item.workspaceId === workspaceId);
+          if (pub) {
+            pub.status = "failed";
+            pub.error = asset?.error || "Kie generation failed";
+          }
+          return { asset, publishItem: pub };
+        });
+        await debugLog(workspaceId, {
+          action,
+          label: "Source Watcher Kie generation failed",
+          status: "failed",
+          provider: "kie",
+          prompt: result.asset.prompt,
+          error: error instanceof Error ? error.message : "Kie generation failed"
+        });
+        return NextResponse.json({ ...result, ...failed }, { status: 502 });
+      }
+    }
+    if (watcher.approvalMode === "auto-publish" && result.publishItem && result.publishItem.generationType === "text") {
+      try {
+        const upload = await sendToUploadPost(result.publishItem, result.asset || undefined);
+        const updated = await mutateDb((db) => {
+          const item = db.publishQueue.find((queue) => queue.id === result.publishItem?.id && queue.workspaceId === workspaceId);
+          if (item) {
+            item.status = "published";
+            item.provider = "upload-post";
+            item.providerRequestId = upload.request_id || upload.job_id;
+          }
+          return item;
+        });
+        return NextResponse.json({ ...result, publishItem: updated || result.publishItem });
+      } catch (error) {
+        await debugLog(workspaceId, { action, label: "Source Watcher Upload-Post publish failed", status: "failed", provider: "upload-post", error: error instanceof Error ? error.message : "Upload-Post publish failed" });
+        return NextResponse.json(result);
+      }
+    }
+    return NextResponse.json(result);
+  }
+
   const data = await mutateDb((db) => {
     const activity = (message: string) => db.activity.push({ id: id("act"), workspaceId, message, createdAt: new Date().toISOString() });
+
+    if (action === "createAutomationRule") {
+      db.automationRules ||= [];
+      db.automationJobs ||= [];
+      const now = new Date().toISOString();
+      const frequency = (["daily", "weekly", "custom"].includes(String(body.frequency)) ? String(body.frequency) : "weekly") as AutomationRule["frequency"];
+      const duplicateMode = (["off", "light", "standard", "strict"].includes(String(body.duplicateMode)) ? String(body.duplicateMode) : "standard") as AutomationRule["duplicateProtection"]["mode"];
+      const contentType = (["image", "short-video", "long-video", "text"].includes(String(body.contentType)) ? String(body.contentType) : "image") as AutomationRule["contentType"];
+      const aspectRatio = normalizeAutomationAspectRatio(contentType, body.aspectRatio) as AutomationRule["aspectRatio"];
+      const model = normalizeAutomationModel(contentType, body.model);
+      const referenceAssets = parseAssetReferences(body.referenceAssets);
+      const platformsInput = normalizeStringList(body.platforms).filter((item): item is Platform => allowedPlatforms.includes(item as Platform));
+      const rule: AutomationRule = {
+        id: id("auto"),
+        workspaceId,
+        name: String(body.name || "Untitled automation").trim() || "Untitled automation",
+        instruction: String(body.instruction || "").trim(),
+        goal: (["leads", "awareness", "engagement", "authority", "sales"].includes(String(body.goal)) ? String(body.goal) : "leads") as AutomationRule["goal"],
+        platforms: platformsInput.length ? platformsInput : ["Facebook"],
+        contentType,
+        aspectRatio,
+        model,
+        frequency,
+        postingDays: normalizeStringList(body.postingDays).length ? normalizeStringList(body.postingDays) : ["Mon", "Wed", "Fri"],
+        postingTime: String(body.postingTime || "10:00"),
+        timezone: String(body.timezone || "Asia/Kuala_Lumpur"),
+        quantityPerRun: clampNumber(body.quantityPerRun, 1, 1, 5),
+        approvalMode: (["draft-only", "generate-and-wait", "auto-schedule", "auto-publish"].includes(String(body.approvalMode)) ? String(body.approvalMode) : "draft-only") as AutomationRule["approvalMode"],
+        researchMode: (["latest-research", "keywords", "none"].includes(String(body.researchMode)) ? String(body.researchMode) : "keywords") as AutomationRule["researchMode"],
+        keywords: parseList(body.keywords).slice(0, 20),
+        sourceUrls: parseList(body.sourceUrls).slice(0, 20),
+        restrictions: String(body.restrictions || "").trim(),
+        duplicateProtection: {
+          mode: duplicateMode,
+          sourceWindowDays: clampNumber(body.sourceWindowDays, duplicateMode === "strict" ? 180 : 90, 1, 365),
+          topicWindowDays: clampNumber(body.topicWindowDays, duplicateMode === "strict" ? 120 : 45, 1, 365),
+          similarityThreshold: clampNumber(body.similarityThreshold, duplicateMode === "strict" ? 76 : 82, 50, 98),
+          maxRetries: clampNumber(body.maxRetries, duplicateMode === "off" ? 0 : 2, 0, 5)
+        },
+        referenceAssets,
+        status: "active",
+        nextRunAt: nextAutomationRunAt(frequency, String(body.postingTime || "10:00")),
+        createdAt: now,
+        updatedAt: now
+      };
+      if (!rule.instruction) throw new Error("Automation instruction is required.");
+      db.automationRules.push(rule);
+      activity(`Automation rule saved: ${rule.name}`);
+      return rule;
+    }
+
+    if (action === "createSourceWatcher") {
+      db.automationSourceWatchers ||= [];
+      db.automationSourceRuns ||= [];
+      const now = new Date().toISOString();
+      const sourceUrls = parseList(body.sourceUrls).filter((url) => /^https?:\/\/.+\..+/.test(url)).slice(0, 20);
+      if (sourceUrls.length === 0) throw new Error("Add at least one valid social media source URL.");
+      const frequency = (["daily", "weekly", "custom"].includes(String(body.frequency)) ? String(body.frequency) : "daily") as AutomationSourceWatcher["frequency"];
+      const contentType = (["auto", "video", "image", "text"].includes(String(body.contentType)) ? String(body.contentType) : "auto") as AutomationSourceWatcher["contentType"];
+      const aspectRatio = normalizeAutomationAspectRatio(contentType, body.aspectRatio) as AutomationSourceWatcher["aspectRatio"];
+      const model = normalizeAutomationModel(contentType, body.model);
+      const referenceAssets = parseAssetReferences(body.referenceAssets);
+      const watcher: AutomationSourceWatcher = {
+        id: id("watch"),
+        workspaceId,
+        name: String(body.name || "Source Watcher").trim() || "Source Watcher",
+        sourceUrls,
+        instruction: String(body.instruction || "Recreate the best source content for my brand and persona.").trim(),
+        contentType,
+        model,
+        aspectRatio,
+        duration: contentType === "video" || contentType === "auto" ? closestVideoDuration(body.duration || 8, model === "auto" ? "veo-fast" : model) : undefined,
+        minViews: clampNumber(body.minViews, 0, 0, 1000000000),
+        rankingMode: (["balanced", "views", "engagement", "recent"].includes(String(body.rankingMode)) ? String(body.rankingMode) : "balanced") as AutomationSourceWatcher["rankingMode"],
+        frequency,
+        postingDays: normalizeStringList(body.postingDays).length ? normalizeStringList(body.postingDays) : ["Mon", "Wed", "Fri"],
+        postingTime: String(body.postingTime || "10:00"),
+        timezone: String(body.timezone || "Asia/Kuala_Lumpur"),
+        approvalMode: (["draft-only", "generate-and-wait", "auto-schedule", "auto-publish"].includes(String(body.approvalMode)) ? String(body.approvalMode) : "draft-only") as AutomationSourceWatcher["approvalMode"],
+        referenceUrls: {
+          logo: String(body.logoUrl || "").trim() || undefined,
+          productPhoto: String(body.productPhotoUrl || "").trim() || undefined,
+          avatar: String(body.avatarUrl || "").trim() || undefined,
+          audio: String(body.audioUrl || "").trim() || undefined
+        },
+        referenceAssets,
+        duplicateProtection: {
+          sourceWindowDays: clampNumber(body.sourceWindowDays, 90, 1, 365),
+          topicWindowDays: clampNumber(body.topicWindowDays, 45, 1, 365),
+          similarityThreshold: clampNumber(body.similarityThreshold, 82, 50, 98)
+        },
+        status: "active",
+        nextRunAt: sourceWatcherNextRunAt(frequency, String(body.postingTime || "10:00")),
+        createdAt: now,
+        updatedAt: now
+      };
+      db.automationSourceWatchers.push(watcher);
+      activity(`Source Watcher saved: ${watcher.name}`);
+      return watcher;
+    }
+
+    if (action === "pauseSourceWatcher" || action === "resumeSourceWatcher" || action === "deleteSourceWatcher") {
+      db.automationSourceWatchers ||= [];
+      const watcher = db.automationSourceWatchers.find((item) => item.id === body.id && item.workspaceId === workspaceId);
+      if (!watcher) throw new Error("Source watcher not found.");
+      if (action === "deleteSourceWatcher") {
+        db.automationSourceWatchers = db.automationSourceWatchers.filter((item) => item.id !== watcher.id);
+        activity(`Source Watcher deleted: ${watcher.name}`);
+        return { id: watcher.id, deleted: true };
+      }
+      watcher.status = action === "pauseSourceWatcher" ? "paused" : "active";
+      watcher.updatedAt = new Date().toISOString();
+      activity(`Source Watcher ${watcher.status}: ${watcher.name}`);
+      return watcher;
+    }
+
+    if (action === "pauseAutomationRule" || action === "resumeAutomationRule" || action === "deleteAutomationRule") {
+      db.automationRules ||= [];
+      const rule = db.automationRules.find((item) => item.id === body.id && item.workspaceId === workspaceId);
+      if (!rule) throw new Error("Automation rule not found.");
+      if (action === "deleteAutomationRule") {
+        db.automationRules = db.automationRules.filter((item) => item.id !== rule.id);
+        activity(`Automation deleted: ${rule.name}`);
+        return { id: rule.id, deleted: true };
+      }
+      rule.status = action === "pauseAutomationRule" ? "paused" : "active";
+      rule.updatedAt = new Date().toISOString();
+      activity(`Automation ${rule.status}: ${rule.name}`);
+      return rule;
+    }
+
+    if (action === "runAutomationNow") {
+      db.automationRules ||= [];
+      db.automationJobs ||= [];
+      const rule = db.automationRules.find((item) => item.id === body.id && item.workspaceId === workspaceId);
+      if (!rule) throw new Error("Automation rule not found.");
+      const now = new Date().toISOString();
+      const title = automationTitle(rule);
+      const prompt = automationPrompt(rule);
+      const candidateText = [title, prompt, rule.instruction, rule.keywords.join(" "), rule.sourceUrls.join(" ")].join("\n");
+      const threshold = rule.duplicateProtection.similarityThreshold / 100;
+      const cutoff = Date.now() - rule.duplicateProtection.topicWindowDays * 24 * 60 * 60 * 1000;
+      const history = [
+        ...(db.automationJobs || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt, item.caption].join("\n"), url: "", createdAt: item.createdAt })),
+        ...(db.publishQueue || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt, item.caption, (item.hashtags || []).join(" ")].join("\n"), url: item.sourceUrl || "", createdAt: item.createdAt })),
+        ...(db.assets || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt].join("\n"), url: item.sourceUrl || "", createdAt: item.createdAt })),
+        ...(db.competitorResults || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.description].join("\n"), url: item.url, createdAt: item.capturedAt || item.publishedAt }))
+      ].filter((item) => !item.createdAt || new Date(item.createdAt).getTime() >= cutoff);
+      let best = { id: "", title: "", score: 0, reason: "No close duplicate found in recent history." };
+      if (rule.duplicateProtection.mode !== "off") {
+        for (const item of history) {
+          const score = Math.max(sourceOverlapScore(rule.sourceUrls, item.url), ideaSimilarity(candidateText, item.text));
+          if (score > best.score) best = { id: item.id, title: item.title, score, reason: score >= 1 ? "Exact source URL already exists in recent history." : "Most similar recent topic found." };
+        }
+      }
+      const duplicate = rule.duplicateProtection.mode !== "off" && best.score >= threshold;
+      const job: AutomationJob = {
+        id: id("job"),
+        workspaceId,
+        automationRuleId: rule.id,
+        scheduledFor: now,
+        status: duplicate ? "skipped-duplicate" : "ready-for-generation",
+        title,
+        prompt,
+        caption: `Draft created from automation rule "${rule.name}". Review the prompt, attach assets if needed, then generate from Create Content.`,
+        hashtags: rule.keywords.map(automationHashtag).filter(Boolean).slice(0, 8),
+        duplicateCheck: {
+          mode: rule.duplicateProtection.mode,
+          checkedAt: now,
+          matchedItemId: best.id || undefined,
+          matchedTitle: best.title || undefined,
+          similarityScore: best.score,
+          reason: duplicate ? `${best.reason} Skipped because score ${Math.round(best.score * 100)}% is above ${rule.duplicateProtection.similarityThreshold}%.` : best.reason,
+          attempts: 1
+        },
+        createdAt: now,
+        updatedAt: now
+      };
+      db.automationJobs.push(job);
+      rule.lastRunAt = now;
+      rule.nextRunAt = nextAutomationRunAt(rule.frequency, rule.postingTime);
+      rule.updatedAt = now;
+      db.debugLogs ||= [];
+      db.debugLogs.push({
+        id: id("log"),
+        workspaceId,
+        action,
+        label: "Automation duplicate check",
+        status: duplicate ? "info" : "success",
+        provider: "system",
+        prompt,
+        details: {
+          ruleId: rule.id,
+          ruleName: rule.name,
+          duplicateMode: rule.duplicateProtection.mode,
+          threshold: rule.duplicateProtection.similarityThreshold,
+          bestMatch: best,
+          jobStatus: job.status
+        },
+        createdAt: now
+      });
+      activity(duplicate ? `Automation skipped duplicate idea for "${rule.name}".` : `Automation draft job ready for "${rule.name}".`);
+      return job;
+    }
 
     if (action === "clearWorkspaceHistory") {
       if (String(body.confirm || "") !== "DELETE_CURRENT_HISTORY") throw new Error("Missing clear-history confirmation.");

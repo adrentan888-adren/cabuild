@@ -83,7 +83,19 @@ export type PersonaProfile = {
     facebook: string;
     x: string;
   };
+  mediaAssets: PersonaMediaAsset[];
   updatedAt?: string;
+};
+
+export type PersonaMediaAsset = {
+  id: string;
+  role: "product photo" | "avatar/persona" | "logo" | "audio";
+  label: string;
+  fileName: string;
+  url: string;
+  storageKey?: string;
+  contentType?: string;
+  createdAt: string;
 };
 
 export type Competitor = {
@@ -256,6 +268,122 @@ export type PublishItem = {
   error?: string;
 };
 
+export type AutomationRule = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  instruction: string;
+  goal: "leads" | "awareness" | "engagement" | "authority" | "sales";
+  platforms: Platform[];
+  contentType: "image" | "short-video" | "long-video" | "text";
+  aspectRatio: "1:1" | "4:5" | "9:16" | "16:9";
+  model: string;
+  frequency: "daily" | "weekly" | "custom";
+  postingDays: string[];
+  postingTime: string;
+  timezone: string;
+  quantityPerRun: number;
+  approvalMode: "draft-only" | "generate-and-wait" | "auto-schedule" | "auto-publish";
+  researchMode: "latest-research" | "keywords" | "none";
+  keywords: string[];
+  sourceUrls: string[];
+  restrictions: string;
+  duplicateProtection: {
+    mode: "off" | "light" | "standard" | "strict";
+    sourceWindowDays: number;
+    topicWindowDays: number;
+    similarityThreshold: number;
+    maxRetries: number;
+  };
+  referenceAssets?: GenerationAssetReference[];
+  status: "active" | "paused" | "failed";
+  nextRunAt?: string;
+  lastRunAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AutomationJob = {
+  id: string;
+  workspaceId: string;
+  automationRuleId: string;
+  scheduledFor: string;
+  status: "pending" | "checking-duplicates" | "ready-for-generation" | "skipped-duplicate" | "failed";
+  title: string;
+  prompt: string;
+  caption: string;
+  hashtags: string[];
+  duplicateCheck: {
+    mode: AutomationRule["duplicateProtection"]["mode"];
+    checkedAt: string;
+    matchedItemId?: string;
+    matchedTitle?: string;
+    similarityScore: number;
+    reason: string;
+    attempts: number;
+  };
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+};
+
+export type AutomationSourceWatcher = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  sourceUrls: string[];
+  instruction: string;
+  contentType: "auto" | "video" | "image" | "text";
+  model: string;
+  aspectRatio: "1:1" | "4:5" | "9:16" | "16:9";
+  duration?: number;
+  minViews: number;
+  rankingMode: "balanced" | "views" | "engagement" | "recent";
+  frequency: "daily" | "weekly" | "custom";
+  postingDays: string[];
+  postingTime: string;
+  timezone: string;
+  approvalMode: "draft-only" | "generate-and-wait" | "auto-schedule" | "auto-publish";
+  referenceUrls: {
+    logo?: string;
+    productPhoto?: string;
+    avatar?: string;
+    audio?: string;
+  };
+  referenceAssets?: GenerationAssetReference[];
+  duplicateProtection: {
+    sourceWindowDays: number;
+    topicWindowDays: number;
+    similarityThreshold: number;
+  };
+  status: "active" | "paused" | "failed";
+  nextRunAt?: string;
+  lastRunAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AutomationSourceRun = {
+  id: string;
+  workspaceId: string;
+  watcherId: string;
+  status: "running" | "completed" | "no-match" | "failed";
+  sourceUrls: string[];
+  scannedCount: number;
+  selectedResultId?: string;
+  selectedTitle?: string;
+  selectedUrl?: string;
+  selectedScore?: number;
+  selectionReason?: string;
+  publishItemId?: string;
+  assetId?: string;
+  startedAt: string;
+  completedAt?: string;
+  error?: string;
+};
+
 export type ApiKeyProvider = "kie" | "apify" | "apifyBackup" | "uploadPost";
 
 export type ApiKeyOverride = {
@@ -313,6 +441,10 @@ export type Database = {
   briefs: Brief[];
   assets: Asset[];
   publishQueue: PublishItem[];
+  automationRules: AutomationRule[];
+  automationJobs: AutomationJob[];
+  automationSourceWatchers: AutomationSourceWatcher[];
+  automationSourceRuns: AutomationSourceRun[];
   apiKeyOverrides: ApiKeyOverride[];
   activity: Activity[];
   debugLogs: DebugLog[];

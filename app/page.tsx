@@ -29,8 +29,8 @@ import {
   UserRound,
   Wand2
 } from "lucide-react";
-import type { Asset, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
-import type { PersonaProfile } from "@/lib/types";
+import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
+import type { PersonaMediaAsset, PersonaProfile } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
 
 type AppData = {
@@ -53,6 +53,10 @@ type AppData = {
   briefs: Brief[];
   assets: Asset[];
   publishQueue: PublishItem[];
+  automationRules: AutomationRule[];
+  automationJobs: AutomationJob[];
+  automationSourceWatchers: AutomationSourceWatcher[];
+  automationSourceRuns: AutomationSourceRun[];
   promptTemplates: PromptTemplates;
   researchScans: {
     id: string;
@@ -412,6 +416,7 @@ export default function Home() {
       {directCreateInitial && (
         <ResearchGenerateModal
           initial={directCreateInitial}
+          personaAssets={data.personaProfile.mediaAssets || []}
           run={run}
           onClose={() => setDirectCreateInitial(null)}
           setScreen={setScreen}
@@ -710,10 +715,86 @@ function PersonaChips({ items }: { items?: string[] }) {
   return <div className="persona-chip-row">{values.map((item) => <span className="persona-chip" key={item}>{item}</span>)}</div>;
 }
 
+async function uploadReferenceFile(role: ReferenceRole, file: File): Promise<GenerationAssetReference> {
+  const form = new FormData();
+  form.set("role", role);
+  form.set("file", file);
+  const res = await fetch("/api/uploads", { method: "POST", body: form });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `Upload failed for ${file.name}`);
+  return {
+    role,
+    fileName: String(json.fileName || file.name),
+    url: String(json.url || ""),
+    storageKey: String(json.storageKey || ""),
+    contentType: String(json.contentType || file.type || "")
+  };
+}
+
+function PersonaMediaLibrary({ assets, onChange }: { assets: PersonaMediaAsset[]; onChange: (assets: PersonaMediaAsset[]) => void }) {
+  const [uploadingRole, setUploadingRole] = useState<ReferenceRole | "">("");
+  const addAsset = async (role: ReferenceRole, file?: File | null) => {
+    if (!file?.name) return;
+    setUploadingRole(role);
+    try {
+      const uploaded = await uploadReferenceFile(role, file);
+      const asset: PersonaMediaAsset = {
+        id: `pmedia_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        role,
+        label: uploaded.fileName,
+        fileName: uploaded.fileName,
+        url: uploaded.url || "",
+        storageKey: uploaded.storageKey,
+        contentType: uploaded.contentType,
+        createdAt: new Date().toISOString()
+      };
+      if (role === "logo" || role === "avatar/persona" || role === "audio") onChange([...assets.filter((item) => item.role !== role), asset]);
+      else onChange([...assets, asset]);
+    } finally {
+      setUploadingRole("");
+    }
+  };
+  const updateLabel = (id: string, label: string) => onChange(assets.map((item) => item.id === id ? { ...item, label } : item));
+  const remove = (id: string) => onChange(assets.filter((item) => item.id !== id));
+  const roles: ReferenceRole[] = ["logo", "avatar/persona", "product photo", "audio"];
+  return (
+    <div className="persona-media-library">
+      <div className="media-upload-row">
+        {roles.map((role) => (
+          <label className="upbox compact" key={role}>
+            <input type="file" accept={role === "audio" ? "audio/*" : "image/*"} onChange={(event) => void addAsset(role, event.currentTarget.files?.[0])} />
+            {role === "audio" ? <Mic size={17} /> : role === "logo" ? <Sparkles size={17} /> : role === "avatar/persona" ? <UserRound size={17} /> : <Palette size={17} />}
+            <b>{referenceLabelForRole(role)}</b>
+            <span>{uploadingRole === role ? "Uploading..." : role === "product photo" ? "Can add many" : "One default"}</span>
+          </label>
+        ))}
+      </div>
+      <div className="persona-media-list">
+        {assets.map((asset) => (
+          <div className="persona-media-item" key={asset.id}>
+            {asset.contentType?.startsWith("audio/") || asset.role === "audio" ? <div className="audio-chip"><Mic size={15} />Audio</div> : <img src={asset.url} alt={asset.label || asset.fileName} />}
+            <div>
+              <span>{referenceLabelForRole(asset.role)}</span>
+              <input value={asset.label} onChange={(event) => updateLabel(asset.id, event.target.value)} />
+              <small>{asset.fileName}</small>
+            </div>
+            <button type="button" onClick={() => remove(asset.id)}>Remove</button>
+          </div>
+        ))}
+        {assets.length === 0 && <div className="empty-state compact">No saved persona media yet. Add reusable logo, avatar, product photos, or audio references.</div>}
+      </div>
+    </div>
+  );
+}
+
 function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
   const [showAutofill, setShowAutofill] = useState(false);
   const [autoFilling, setAutoFilling] = useState(false);
   const persona = data.personaProfile;
+  const [mediaAssets, setMediaAssets] = useState<PersonaMediaAsset[]>(persona.mediaAssets || []);
+  useEffect(() => {
+    setMediaAssets(persona.mediaAssets || []);
+  }, [persona.updatedAt, persona.mediaAssets]);
   const completionChecks = [
     persona.displayName,
     persona.role,
@@ -725,6 +806,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   ];
   const completion = Math.round((completionChecks.filter(Boolean).length / completionChecks.length) * 100);
   const save = async (form: FormData) => {
+    form.set("mediaAssets", JSON.stringify(mediaAssets));
     await run("updatePersonaProfile", Object.fromEntries(form.entries()), "Persona saved");
   };
   const autoFill = async (form?: HTMLFormElement | null) => {
@@ -808,6 +890,12 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
                 <label>Content language<select name="contentLanguage" defaultValue={persona.contentLanguage}><option>English only</option><option>English + BM</option><option>English + Mandarin</option><option>Manglish</option><option>Multi-language</option></select></label>
               </div>
               <label>Writing samples<textarea name="writingSamples" defaultValue={listValue(persona.writingSamples)} placeholder="Paste up to 3 samples, separated by a blank line or comma." /></label>
+            </div>
+
+            <div className="persona-advanced">
+              <div className="clbl">Reusable media references</div>
+              <p className="muted">These saved assets can be selected later in Create Content and Automation. Product photos can have multiple entries; logo, avatar, and audio keep one default each.</p>
+              <PersonaMediaLibrary assets={mediaAssets} onChange={setMediaAssets} />
             </div>
 
             <details className="persona-advanced">
@@ -1191,6 +1279,24 @@ const generationModels = {
 
 type AssetReference = { role: "product photo" | "avatar/persona" | "logo" | "audio"; fileName: string; previewUrl: string; file: File };
 type GenerationAssetReference = Pick<AssetReference, "role" | "fileName"> & { url?: string; storageKey?: string; contentType?: string };
+type ReferenceRole = AssetReference["role"];
+
+function personaAssetToReference(asset: PersonaMediaAsset): GenerationAssetReference {
+  return {
+    role: asset.role,
+    fileName: asset.label || asset.fileName,
+    url: asset.url,
+    storageKey: asset.storageKey,
+    contentType: asset.contentType
+  };
+}
+
+function referenceLabelForRole(role: ReferenceRole) {
+  if (role === "product photo") return "Product photo";
+  if (role === "avatar/persona") return "Avatar";
+  if (role === "logo") return "Logo";
+  return "Audio";
+}
 
 function createContentInitialFromDraft(draft: PlanDraft): CreateContentInitial {
   const format = draft.format && contentFormatOptions.includes(draft.format) ? draft.format : "Short video 9:16";
@@ -1222,6 +1328,62 @@ function durationOptionsForModel(model: string) {
   if (model === "veo-fast") return [8];
   if (model === "seedance-2.0") return Array.from({ length: 12 }, (_, index) => index + 4);
   return [];
+}
+
+const automationModelOptions = {
+  video: [
+    { value: "veo-fast", label: "VEO Fast" },
+    { value: "seedance-2.0", label: "Seedance 2.0" }
+  ],
+  image: [
+    { value: "gpt-image-2", label: "GPT Image 2" },
+    { value: "nanobanana-pro", label: "Nanobanana Pro" }
+  ],
+  text: [
+    { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
+    { value: "claude-opus-4.8", label: "Claude Opus 4.8" }
+  ],
+  auto: [
+    { value: "auto", label: "Auto by selected source" },
+    { value: "veo-fast", label: "VEO Fast for video" },
+    { value: "gpt-image-2", label: "GPT Image 2 for image" },
+    { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash for text" }
+  ]
+} as const;
+
+function automationKindFromContentType(contentType: string): "video" | "image" | "text" | "auto" {
+  if (contentType === "short-video" || contentType === "long-video" || contentType === "video") return "video";
+  if (contentType === "text") return "text";
+  if (contentType === "auto") return "auto";
+  return "image";
+}
+
+function automationDefaultModel(contentType: string) {
+  const kind = automationKindFromContentType(contentType);
+  return automationModelOptions[kind][0].value;
+}
+
+function automationDimensionOptions(contentType: string, selectedPlatforms: Platform[] = []) {
+  const kind = automationKindFromContentType(contentType);
+  const has = (platform: Platform) => selectedPlatforms.includes(platform);
+  if (kind === "text") return [] as { value: string; label: string }[];
+  if (contentType === "long-video") return [{ value: "16:9", label: "16:9 landscape - YouTube / long video" }];
+  if (contentType === "short-video" || contentType === "video") return [{ value: "9:16", label: "9:16 vertical - Reels / TikTok / Shorts" }, { value: "16:9", label: "16:9 landscape - YouTube / Facebook video" }];
+  if (kind === "auto") return [{ value: "9:16", label: "9:16 vertical default" }, { value: "16:9", label: "16:9 landscape fallback" }];
+  const options = [
+    { value: "4:5", label: "4:5 portrait - Instagram / Facebook feed" },
+    { value: "1:1", label: "1:1 square - Instagram / Facebook" },
+    { value: "9:16", label: "9:16 story/reel cover" },
+    { value: "16:9", label: "16:9 landscape - LinkedIn / website / YouTube community" }
+  ];
+  if (selectedPlatforms.length === 0) return options;
+  if (has("LinkedIn") && !has("Instagram") && !has("TikTok")) return [options[3], options[0], options[1]];
+  if (has("Instagram") || has("Facebook")) return options;
+  return options;
+}
+
+function automationDefaultAspectRatio(contentType: string, selectedPlatforms: Platform[] = []) {
+  return automationDimensionOptions(contentType, selectedPlatforms)[0]?.value || "1:1";
 }
 
 function closestDuration(value: number | string | undefined, options: number[]) {
@@ -1465,6 +1627,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
       {generatingBrief && (
         <GenerationModal
           brief={generatingBrief}
+          personaAssets={data.personaProfile.mediaAssets || []}
           onClose={() => setGeneratingBrief(null)}
           onStart={(generation) => {
             flushSync(() => {
@@ -1547,7 +1710,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
   );
 }
 
-function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate", busyLabel = "Sending to Publish", allowAiAssist = false }: { initial: CreateContentInitial; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string; busyLabel?: string; allowAiAssist?: boolean }) {
+function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate", busyLabel = "Sending to Publish", allowAiAssist = false }: { initial: CreateContentInitial; personaAssets?: PersonaMediaAsset[]; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string; busyLabel?: string; allowAiAssist?: boolean }) {
   const [activeInitial, setActiveInitial] = useState<CreateContentInitial>(initial);
   const [formVersion, setFormVersion] = useState(0);
   const [kind, setKind] = useState<GenerationKind>(initial.kind);
@@ -1560,6 +1723,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
   const [aiError, setAiError] = useState("");
   const [aiIdea, setAiIdea] = useState("");
   const [assetRefs, setAssetRefs] = useState<AssetReference[]>([]);
+  const [selectedPersonaAssetIds, setSelectedPersonaAssetIds] = useState<string[]>([]);
   const assetRefsRef = useRef<AssetReference[]>([]);
   const durationOptions = durationOptionsForModel(model);
   const visualAssetsEnabled = kind === "video" || kind === "image";
@@ -1602,6 +1766,9 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
       return file?.name ? [...rest, { role, fileName: file.name, previewUrl: URL.createObjectURL(file), file }] : rest;
     });
   };
+  const togglePersonaAsset = (id: string, checked: boolean) => {
+    setSelectedPersonaAssetIds((current) => checked ? Array.from(new Set([...current, id])) : current.filter((item) => item !== id));
+  };
   const generateAiDraft = async () => {
     const idea = aiIdea.trim();
     if (!idea) {
@@ -1632,12 +1799,13 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
       const selectedPlatform = String(form.get("platform") || platform || defaultPlatformForKind(kind));
       onStart?.({
         title: activeInitial.sourceTitle,
-        description: visualAssetsEnabled && assetRefs.length ? "Uploading references and preparing provider generation." : "Preparing provider generation.",
+        description: visualAssetsEnabled && (assetRefs.length || selectedPersonaAssetIds.length) ? "Preparing selected references and provider generation." : "Preparing provider generation.",
         kind,
         model,
         startedAt: Date.now()
       });
-      const cleanRefs = visualAssetsEnabled ? await uploadAssetReferences(assetRefs) : [];
+      const personaRefs = personaAssets.filter((asset) => selectedPersonaAssetIds.includes(asset.id)).map(personaAssetToReference);
+      const cleanRefs = visualAssetsEnabled ? [...personaRefs, ...await uploadAssetReferences(assetRefs)] : [];
       const promptWithDuration = withSelectedVideoDuration(String(form.get("prompt") || ""), kind, duration);
       const prompt = enrichPromptForSocialConversion(promptWithDuration, kind, cleanRefs);
       await onSubmit({
@@ -1727,12 +1895,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
       {visualAssetsEnabled && (
         <section className="create-card">
           <div className="clbl">Optional reference assets</div>
-          <div className="upload-pair three">
-            <AssetUploadBox icon={<Palette size={18} />} title="Product photo" helper="Optional visual reference" role="product photo" refs={assetRefs} onChange={updateAssetRef} />
-            <AssetUploadBox icon={<UserRound size={18} />} title="Override avatar" helper="Optional persona reference" role="avatar/persona" refs={assetRefs} onChange={updateAssetRef} />
-            <AssetUploadBox icon={<Sparkles size={18} />} title="Logo" helper="Optional brand mark" role="logo" refs={assetRefs} onChange={updateAssetRef} />
-            {kind === "video" && <AssetUploadBox icon={<Mic size={18} />} title="Audio" helper="Optional audio reference" role="audio" refs={assetRefs} onChange={updateAssetRef} />}
-          </div>
+          <ReferenceAssetPicker personaAssets={personaAssets} selectedIds={selectedPersonaAssetIds} onTogglePersona={togglePersonaAsset} uploadRefs={assetRefs} onUploadChange={updateAssetRef} video={kind === "video"} />
         </section>
       )}
 
@@ -1790,7 +1953,35 @@ function AssetUploadBox({ icon, title, helper, role, refs, onChange }: { icon: R
   );
 }
 
-function GenerationModal({ brief, onClose, onStart, onSubmit }: { brief: Brief; onClose: () => void; onStart?: (generation: PendingGeneration) => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+function ReferenceAssetPicker({ personaAssets, selectedIds, onTogglePersona, uploadRefs, onUploadChange, video }: { personaAssets: PersonaMediaAsset[]; selectedIds: string[]; onTogglePersona: (id: string, checked: boolean) => void; uploadRefs: AssetReference[]; onUploadChange: (role: ReferenceRole, file?: File | null) => void; video: boolean }) {
+  const allowedRoles: ReferenceRole[] = video ? ["product photo", "avatar/persona", "logo", "audio"] : ["product photo", "avatar/persona", "logo"];
+  const filtered = personaAssets.filter((asset) => allowedRoles.includes(asset.role));
+  return (
+    <div className="reference-picker">
+      <div className="clbl">Choose from Persona</div>
+      <div className="persona-reference-grid">
+        {filtered.map((asset) => (
+          <label className={`persona-reference-card ${selectedIds.includes(asset.id) ? "on" : ""}`} key={asset.id}>
+            <input type="checkbox" checked={selectedIds.includes(asset.id)} onChange={(event) => onTogglePersona(asset.id, event.target.checked)} />
+            {asset.contentType?.startsWith("audio/") || asset.role === "audio" ? <div className="audio-chip"><Mic size={15} />Audio</div> : <img src={asset.url} alt={asset.label || asset.fileName} />}
+            <span>{asset.label || asset.fileName}</span>
+            <small>{referenceLabelForRole(asset.role)}</small>
+          </label>
+        ))}
+        {filtered.length === 0 && <div className="empty-state compact">No saved persona assets for this content type yet.</div>}
+      </div>
+      <div className="clbl">Or upload for this generation</div>
+      <div className="upload-pair three">
+        <AssetUploadBox icon={<Palette size={18} />} title="Product photo" helper="Optional visual reference" role="product photo" refs={uploadRefs} onChange={onUploadChange} />
+        <AssetUploadBox icon={<UserRound size={18} />} title="Override avatar" helper="Optional persona reference" role="avatar/persona" refs={uploadRefs} onChange={onUploadChange} />
+        <AssetUploadBox icon={<Sparkles size={18} />} title="Logo" helper="Optional brand mark" role="logo" refs={uploadRefs} onChange={onUploadChange} />
+        {video && <AssetUploadBox icon={<Mic size={18} />} title="Audio" helper="Optional audio reference" role="audio" refs={uploadRefs} onChange={onUploadChange} />}
+      </div>
+    </div>
+  );
+}
+
+function GenerationModal({ brief, personaAssets, onClose, onStart, onSubmit }: { brief: Brief; personaAssets: PersonaMediaAsset[]; onClose: () => void; onStart?: (generation: PendingGeneration) => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
   const kind = planContentKind(brief.format);
   const initial: CreateContentInitial = {
     sourceLabel: "Content plan",
@@ -1815,13 +2006,13 @@ function GenerationModal({ brief, onClose, onStart, onSubmit }: { brief: Brief; 
           </div>
           <button type="button" className="icon-btn" onClick={onClose}>x</button>
         </div>
-        <CreateContentModule initial={initial} onCancel={onClose} onStart={onStart} submitLabel="Create asset" onSubmit={(payload) => onSubmit({ ...payload, id: brief.id })} />
+        <CreateContentModule initial={initial} personaAssets={personaAssets} onCancel={onClose} onStart={onStart} submitLabel="Create asset" onSubmit={(payload) => onSubmit({ ...payload, id: brief.id })} />
       </section>
     </div>
   );
 }
 
-function ResearchGenerateModal({ initial, run, onClose, setScreen, setPendingGeneration }: { initial: CreateContentInitial; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onClose: () => void; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
+function ResearchGenerateModal({ initial, personaAssets, run, onClose, setScreen, setPendingGeneration }: { initial: CreateContentInitial; personaAssets: PersonaMediaAsset[]; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onClose: () => void; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
   const [g01Review, setG01Review] = useState<{ videoPrompt: string; debugJson: string } | null>(null);
   const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -1900,7 +2091,7 @@ function ResearchGenerateModal({ initial, run, onClose, setScreen, setPendingGen
             </div>
           </div>
         ) : (
-          <CreateContentModule initial={initial} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing G01" : "Sending to Publish"} onSubmit={prepareGeneration} />
+          <CreateContentModule initial={initial} personaAssets={personaAssets} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing G01" : "Sending to Publish"} onSubmit={prepareGeneration} />
         )}
       </section>
     </div>
@@ -1933,6 +2124,7 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
       </div>
       <CreateContentModule
         initial={initial}
+        personaAssets={data.personaProfile.mediaAssets || []}
         allowAiAssist
         onStart={(generation) => {
           flushSync(() => {
@@ -2249,29 +2441,367 @@ function LogPanel({ data }: { data: AppData }) {
 }
 
 function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+  const [automationMode, setAutomationMode] = useState<"scheduled" | "sources">("sources");
+  const [expanded, setExpanded] = useState(data.automationRules.length === 0);
+  const [sourceExpanded, setSourceExpanded] = useState((data.automationSourceWatchers || []).length === 0);
+  const [dedupeMode, setDedupeMode] = useState<AutomationRule["duplicateProtection"]["mode"]>("standard");
+  const [sourceContentType, setSourceContentType] = useState<AutomationSourceWatcher["contentType"]>("auto");
+  const [sourceModel, setSourceModel] = useState("auto");
+  const [sourceAspectRatio, setSourceAspectRatio] = useState("9:16");
+  const [scheduledContentType, setScheduledContentType] = useState<AutomationRule["contentType"]>("image");
+  const [scheduledModel, setScheduledModel] = useState("gpt-image-2");
+  const [scheduledPlatforms, setScheduledPlatforms] = useState<Platform[]>(["Facebook"]);
+  const [scheduledAspectRatio, setScheduledAspectRatio] = useState("4:5");
+  const [sourceSelectedPersonaAssetIds, setSourceSelectedPersonaAssetIds] = useState<string[]>([]);
+  const [sourceUploadRefs, setSourceUploadRefs] = useState<AssetReference[]>([]);
+  const [scheduledSelectedPersonaAssetIds, setScheduledSelectedPersonaAssetIds] = useState<string[]>([]);
+  const [scheduledUploadRefs, setScheduledUploadRefs] = useState<AssetReference[]>([]);
+  const rules = data.automationRules || [];
+  const jobs = data.automationJobs || [];
+  const sourceWatchers = data.automationSourceWatchers || [];
+  const sourceRuns = data.automationSourceRuns || [];
+  const weekdayOptions = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const contentTypes: { value: AutomationRule["contentType"]; label: string }[] = [
+    { value: "image", label: "Image" },
+    { value: "short-video", label: "Short video" },
+    { value: "long-video", label: "Long video" },
+    { value: "text", label: "Text post" }
+  ];
+  const sourceModelOptions = automationModelOptions[automationKindFromContentType(sourceContentType)];
+  const sourceDimensionOptions = automationDimensionOptions(sourceContentType);
+  const scheduledModelOptions = automationModelOptions[automationKindFromContentType(scheduledContentType)];
+  const scheduledDimensionOptions = automationDimensionOptions(scheduledContentType, scheduledPlatforms);
+  const changeSourceContentType = (value: AutomationSourceWatcher["contentType"]) => {
+    setSourceContentType(value);
+    setSourceModel(automationDefaultModel(value));
+    setSourceAspectRatio(automationDefaultAspectRatio(value));
+  };
+  const changeScheduledContentType = (value: AutomationRule["contentType"]) => {
+    setScheduledContentType(value);
+    setScheduledModel(automationDefaultModel(value));
+    setScheduledAspectRatio(automationDefaultAspectRatio(value, scheduledPlatforms));
+  };
+  const toggleScheduledPlatform = (platform: Platform, checked: boolean) => {
+    const next = checked ? Array.from(new Set([...scheduledPlatforms, platform])) : scheduledPlatforms.filter((item) => item !== platform);
+    setScheduledPlatforms(next);
+    const allowed = automationDimensionOptions(scheduledContentType, next);
+    if (allowed.length && !allowed.some((item) => item.value === scheduledAspectRatio)) setScheduledAspectRatio(allowed[0].value);
+  };
+  const toggleSourcePersonaAsset = (id: string, checked: boolean) => setSourceSelectedPersonaAssetIds((current) => checked ? Array.from(new Set([...current, id])) : current.filter((item) => item !== id));
+  const toggleScheduledPersonaAsset = (id: string, checked: boolean) => setScheduledSelectedPersonaAssetIds((current) => checked ? Array.from(new Set([...current, id])) : current.filter((item) => item !== id));
+  const updateSourceUploadRef = (role: ReferenceRole, file?: File | null) => {
+    setSourceUploadRefs((current) => {
+      const existing = current.find((item) => item.role === role);
+      if (existing) URL.revokeObjectURL(existing.previewUrl);
+      const rest = current.filter((item) => item.role !== role);
+      return file?.name ? [...rest, { role, fileName: file.name, previewUrl: URL.createObjectURL(file), file }] : rest;
+    });
+  };
+  const updateScheduledUploadRef = (role: ReferenceRole, file?: File | null) => {
+    setScheduledUploadRefs((current) => {
+      const existing = current.find((item) => item.role === role);
+      if (existing) URL.revokeObjectURL(existing.previewUrl);
+      const rest = current.filter((item) => item.role !== role);
+      return file?.name ? [...rest, { role, fileName: file.name, previewUrl: URL.createObjectURL(file), file }] : rest;
+    });
+  };
+  const buildReferenceAssets = async (selectedIds: string[], uploads: AssetReference[]) => [
+    ...(data.personaProfile.mediaAssets || []).filter((asset) => selectedIds.includes(asset.id)).map(personaAssetToReference),
+    ...await uploadAssetReferences(uploads)
+  ];
+  const jobStatusLabel: Record<AutomationJob["status"], string> = {
+    pending: "Pending",
+    "checking-duplicates": "Checking duplicates",
+    "ready-for-generation": "Ready draft",
+    "skipped-duplicate": "Skipped duplicate",
+    failed: "Failed"
+  };
+  const sourceContentTypes: { value: AutomationSourceWatcher["contentType"]; label: string }[] = [
+    { value: "auto", label: "Auto choose" },
+    { value: "video", label: "Video" },
+    { value: "image", label: "Image" },
+    { value: "text", label: "Text post" }
+  ];
+
   return (
-    <div className="mock-wrap">
-      <PanelCard title="Automation workflows">
-        <div className="auto-row">
-          <div><b>Weekly research refresh</b><span>Apify trend scan, competitor scoring, content generation queue</span></div>
-          <button onClick={() => run("refreshTrends", {}, "Workflow run started")}>Run now</button>
+    <div className="automation-page">
+      <section className="automation-hero">
+        <div>
+          <div className="clbl">Automation</div>
+          <h2>{automationMode === "sources" ? "Source Watcher" : "Scheduled content engine"}</h2>
+          <p>{automationMode === "sources" ? "Monitor competitor or inspiration URLs on a schedule, crawl the latest posts, pick the strongest suitable source, and turn it into content using your persona and uploaded references." : "Tell the system what to create, how often to create it, and how strict it should be about avoiding repeated ideas. Staging v1 creates reviewed drafts only; final generation and posting stay behind approval."}</p>
         </div>
-        <div className="auto-row">
-          <div><b>Approved plan to Create Content</b><span>Generate Kie video when a short-video plan is approved</span></div>
-          <span className="status scheduled">active</span>
-        </div>
-        <div className="auto-row">
-          <div><b>Publish queue retry</b><span>Retry Upload-Post failures and keep provider request IDs</span></div>
-          <span className="status scheduled">active</span>
-        </div>
-      </PanelCard>
-      <PanelCard title="Queue summary">
-        <div className="grid three">
-          <Metric label="Ready assets" value={data.assets.filter((item) => item.status === "ready").length} />
-          <Metric label="Scheduled" value={data.publishQueue.filter((item) => item.status === "scheduled").length} />
-          <Metric label="Failed" value={data.publishQueue.filter((item) => item.status === "failed").length} />
-        </div>
-      </PanelCard>
+        <button className="primary" type="button" onClick={() => automationMode === "sources" ? setSourceExpanded((value) => !value) : setExpanded((value) => !value)}><Plus size={15} />{automationMode === "sources" ? sourceExpanded ? "Hide watcher" : "New watcher" : expanded ? "Hide builder" : "New automation"}</button>
+      </section>
+
+      <div className="automation-tabs">
+        <button className={automationMode === "sources" ? "on" : ""} onClick={() => setAutomationMode("sources")}>Source Watcher</button>
+        <button className={automationMode === "scheduled" ? "on" : ""} onClick={() => setAutomationMode("scheduled")}>Scheduled Content</button>
+      </div>
+
+      <div className="automation-summary">
+        {automationMode === "sources" ? (
+          <>
+            <Metric label="Active watchers" value={sourceWatchers.filter((item) => item.status === "active").length} />
+            <Metric label="Source runs" value={sourceRuns.length} />
+            <Metric label="Content created" value={sourceRuns.filter((item) => item.publishItemId).length} />
+          </>
+        ) : (
+          <>
+            <Metric label="Active rules" value={rules.filter((item) => item.status === "active").length} />
+            <Metric label="Draft jobs" value={jobs.filter((item) => item.status === "ready-for-generation").length} />
+            <Metric label="Duplicates skipped" value={jobs.filter((item) => item.status === "skipped-duplicate").length} />
+          </>
+        )}
+      </div>
+
+      {automationMode === "sources" && sourceExpanded && (
+        <PanelCard title="Build Source Watcher">
+          <form className="automation-builder" action={async (form) => {
+            const payload: Record<string, unknown> = Object.fromEntries(form.entries());
+            payload.postingDays = form.getAll("postingDays").map((item) => String(item));
+            payload.referenceAssets = await buildReferenceAssets(sourceSelectedPersonaAssetIds, sourceUploadRefs);
+            return run("createSourceWatcher", payload, "Source Watcher saved");
+          }}>
+            <div className="automation-section-head"><span>Step 1</span><b>Sources to monitor</b></div>
+            <div className="modal-grid">
+              <label>Watcher name<input name="name" placeholder="Competitor best-post monitor" required /></label>
+              <label>Ranking<select name="rankingMode" defaultValue="balanced">
+                <option value="balanced">Balanced</option>
+                <option value="views">Views</option>
+                <option value="engagement">Engagement</option>
+                <option value="recent">Recent</option>
+              </select></label>
+            </div>
+            <label>Social media URLs<textarea name="sourceUrls" required placeholder={"https://www.instagram.com/example/\nhttps://www.tiktok.com/@example\nhttps://www.linkedin.com/company/example"} /></label>
+            <div className="modal-grid">
+              <label>Minimum views<input name="minViews" type="number" min="0" defaultValue="0" /></label>
+              <label>Content type<select name="contentType" value={sourceContentType} onChange={(event) => changeSourceContentType(event.target.value as AutomationSourceWatcher["contentType"])}>{sourceContentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+              <label>Default model<select name="model" value={sourceModel} onChange={(event) => setSourceModel(event.target.value)}>{sourceModelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+              {sourceDimensionOptions.length > 0 ? (
+                <label>Dimension<select name="aspectRatio" value={sourceAspectRatio} onChange={(event) => setSourceAspectRatio(event.target.value)}>
+                  {sourceDimensionOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select></label>
+              ) : <input type="hidden" name="aspectRatio" value="1:1" />}
+            </div>
+            <label>Creation instruction<textarea name="instruction" placeholder="Recreate the best performing source content for my persona. Replace original logo/person/audio with my uploaded references where provided." /></label>
+            <div className="automation-section-head"><span>Step 2</span><b>Schedule and publishing</b></div>
+            <div className="modal-grid">
+              <label>Frequency<select name="frequency" defaultValue="daily"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="custom">Custom days</option></select></label>
+              <label>Run time<input name="postingTime" type="time" defaultValue="10:00" /></label>
+              <label>Timezone<input name="timezone" defaultValue="Asia/Kuala_Lumpur" /></label>
+              <label>Approval mode<select name="approvalMode" defaultValue="draft-only">
+                <option value="draft-only">Create draft only</option>
+                <option value="generate-and-wait">Generate asset, wait for approval</option>
+                <option value="auto-schedule">Generate and schedule</option>
+                <option value="auto-publish">Auto publish through Upload-Post</option>
+              </select></label>
+              {automationKindFromContentType(sourceContentType) !== "image" && automationKindFromContentType(sourceContentType) !== "text" && <label>Video duration<input name="duration" type="number" min="4" max="15" defaultValue="8" /></label>}
+            </div>
+            <div className="automation-choice-row">
+              {weekdayOptions.map((day) => <label className="check-card compact" key={day}><input name="postingDays" type="checkbox" value={day} defaultChecked={["Mon", "Wed", "Fri"].includes(day)} />{day}</label>)}
+            </div>
+            <div className="automation-section-head"><span>Step 3</span><b>User references for recreation</b></div>
+            <ReferenceAssetPicker personaAssets={data.personaProfile.mediaAssets || []} selectedIds={sourceSelectedPersonaAssetIds} onTogglePersona={toggleSourcePersonaAsset} uploadRefs={sourceUploadRefs} onUploadChange={updateSourceUploadRef} video={automationKindFromContentType(sourceContentType) !== "image" && automationKindFromContentType(sourceContentType) !== "text"} />
+            <div className="modal-grid">
+              <label>Source window days<input name="sourceWindowDays" type="number" min="1" defaultValue="90" /></label>
+              <label>Topic window days<input name="topicWindowDays" type="number" min="1" defaultValue="45" /></label>
+              <label>Similarity threshold<input name="similarityThreshold" type="number" min="50" max="98" defaultValue="82" /></label>
+            </div>
+            <p className="muted">Each run crawls the URLs, stores source results, skips duplicate sources/topics, creates content in My Contents, and uses Upload-Post only when the selected approval mode allows publishing.</p>
+            <button className="primary"><Radar size={15} />Save Source Watcher</button>
+          </form>
+        </PanelCard>
+      )}
+
+      {automationMode === "scheduled" && expanded && (
+        <PanelCard title="Build automation">
+          <form className="automation-builder" action={async (form) => {
+            const payload: Record<string, unknown> = Object.fromEntries(form.entries());
+            payload.platforms = form.getAll("platforms").map((item) => String(item));
+            payload.postingDays = form.getAll("postingDays").map((item) => String(item));
+            payload.referenceAssets = await buildReferenceAssets(scheduledSelectedPersonaAssetIds, scheduledUploadRefs);
+            return run("createAutomationRule", payload, "Automation rule saved");
+          }}>
+            <div className="automation-section-head">
+              <span>Step 1</span>
+              <b>What should the agent create?</b>
+            </div>
+            <div className="modal-grid">
+              <label>Automation name<input name="name" placeholder="Daily Malay loan ads" required /></label>
+              <label>Goal<select name="goal" defaultValue="leads">
+                <option value="leads">Leads</option>
+                <option value="awareness">Awareness</option>
+                <option value="engagement">Engagement</option>
+                <option value="authority">Authority</option>
+                <option value="sales">Sales</option>
+              </select></label>
+            </div>
+            <label>Main instruction<textarea name="instruction" required placeholder="Create Malay FB ads for loan enquiries with a strong hook, compliance-safe USP, and clear CTA." /></label>
+            <div className="automation-choice-row">
+              {platforms.map((platform) => <label className="check-card" key={platform}><input name="platforms" type="checkbox" value={platform} checked={scheduledPlatforms.includes(platform)} onChange={(event) => toggleScheduledPlatform(platform, event.target.checked)} />{platform}</label>)}
+            </div>
+            <div className="modal-grid">
+              <label>Content type<select name="contentType" value={scheduledContentType} onChange={(event) => changeScheduledContentType(event.target.value as AutomationRule["contentType"])}>{contentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+              {scheduledDimensionOptions.length > 0 ? (
+                <label>Dimension<select name="aspectRatio" value={scheduledAspectRatio} onChange={(event) => setScheduledAspectRatio(event.target.value)}>
+                  {scheduledDimensionOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select></label>
+              ) : <input type="hidden" name="aspectRatio" value="1:1" />}
+              <label>Default model<select name="model" value={scheduledModel} onChange={(event) => setScheduledModel(event.target.value)}>{scheduledModelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+              <label>Approval mode<select name="approvalMode" defaultValue="draft-only">
+                <option value="draft-only">Draft only</option>
+                <option value="generate-and-wait">Generate asset, wait for approval</option>
+                <option value="auto-schedule">Generate and schedule</option>
+                <option value="auto-publish">Auto publish</option>
+              </select></label>
+            </div>
+
+            <div className="automation-section-head">
+              <span>Step 2</span>
+              <b>Schedule and research inputs</b>
+            </div>
+            <div className="modal-grid">
+              <label>Frequency<select name="frequency" defaultValue="weekly">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="custom">Custom days</option>
+              </select></label>
+              <label>Posting time<input name="postingTime" type="time" defaultValue="10:00" /></label>
+              <label>Timezone<input name="timezone" defaultValue="Asia/Kuala_Lumpur" /></label>
+              <label>Quantity per run<input name="quantityPerRun" type="number" min="1" max="5" defaultValue="1" /></label>
+            </div>
+            <div className="automation-choice-row">
+              {weekdayOptions.map((day) => <label className="check-card compact" key={day}><input name="postingDays" type="checkbox" value={day} defaultChecked={["Mon", "Wed", "Fri"].includes(day)} />{day}</label>)}
+            </div>
+            <div className="modal-grid">
+              <label>Research mode<select name="researchMode" defaultValue="keywords">
+                <option value="keywords">Use keywords</option>
+                <option value="latest-research">Use latest Research results</option>
+                <option value="none">No research input</option>
+              </select></label>
+              <label>Keywords<textarea name="keywords" placeholder="personal loan, SME loan, fast approval" /></label>
+              <label>Source URLs<textarea name="sourceUrls" placeholder="Optional competitor or reference URLs, one per line" /></label>
+              <label>Restrictions<textarea name="restrictions" placeholder="Avoid guaranteed approval, cash piles, misleading claims..." /></label>
+            </div>
+
+            <div className="automation-section-head">
+              <span>Step 3</span>
+              <b>References and duplicate protection</b>
+            </div>
+            <ReferenceAssetPicker personaAssets={data.personaProfile.mediaAssets || []} selectedIds={scheduledSelectedPersonaAssetIds} onTogglePersona={toggleScheduledPersonaAsset} uploadRefs={scheduledUploadRefs} onUploadChange={updateScheduledUploadRef} video={automationKindFromContentType(scheduledContentType) === "video"} />
+            <div className="modal-grid">
+              <label>Protection level<select name="duplicateMode" value={dedupeMode} onChange={(event) => setDedupeMode(event.target.value as AutomationRule["duplicateProtection"]["mode"])}>
+                <option value="off">Off</option>
+                <option value="light">Light</option>
+                <option value="standard">Standard</option>
+                <option value="strict">Strict</option>
+              </select></label>
+              <label>Source window days<input name="sourceWindowDays" type="number" min="1" defaultValue={dedupeMode === "strict" ? 180 : 90} /></label>
+              <label>Topic window days<input name="topicWindowDays" type="number" min="1" defaultValue={dedupeMode === "strict" ? 120 : 45} /></label>
+              <label>Similarity threshold<input name="similarityThreshold" type="number" min="50" max="98" defaultValue={dedupeMode === "strict" ? 76 : dedupeMode === "light" ? 90 : 82} /></label>
+              <label>Retry new idea attempts<input name="maxRetries" type="number" min="0" max="5" defaultValue={dedupeMode === "off" ? 0 : 2} /></label>
+            </div>
+            <p className="muted">Duplicate checks compare source URLs, recent generated assets, publish queue entries, research titles, captions, and previous automation jobs before allowing a new draft job.</p>
+            <button className="primary"><Sparkles size={15} />Save automation</button>
+          </form>
+        </PanelCard>
+      )}
+
+      {automationMode === "sources" ? (
+      <div className="automation-grid">
+        <PanelCard title="Source Watchers">
+          <div className="automation-rule-list">
+            {sourceWatchers.map((watcher) => (
+              <article className="automation-rule-card" key={watcher.id}>
+                <div className="rule-main">
+                  <span className={`status ${watcher.status === "active" ? "scheduled" : watcher.status === "failed" ? "failed" : "draft"}`}>{watcher.status}</span>
+                  <h3>{watcher.name}</h3>
+                  <p>{watcher.instruction}</p>
+                  <div className="rule-meta">
+                    <span>{watcher.sourceUrls.length} source URL{watcher.sourceUrls.length === 1 ? "" : "s"}</span>
+                    <span>{watcher.contentType} · {watcher.aspectRatio}</span>
+                    <span>{watcher.frequency} at {watcher.postingTime}</span>
+                    <span>{watcher.approvalMode}</span>
+                  </div>
+                </div>
+                <div className="rule-actions">
+                  <button type="button" onClick={() => run("runSourceWatcherNow", { id: watcher.id }, "Source Watcher run started")}>Run now</button>
+                  <button type="button" onClick={() => run(watcher.status === "active" ? "pauseSourceWatcher" : "resumeSourceWatcher", { id: watcher.id }, watcher.status === "active" ? "Watcher paused" : "Watcher resumed")}>{watcher.status === "active" ? "Pause" : "Resume"}</button>
+                  <button type="button" className="danger ghost" onClick={() => run("deleteSourceWatcher", { id: watcher.id }, "Source Watcher deleted")}>Delete</button>
+                </div>
+              </article>
+            ))}
+            {sourceWatchers.length === 0 && <div className="empty-state">No Source Watchers yet. Add social media URLs to monitor competitor content automatically.</div>}
+          </div>
+        </PanelCard>
+        <PanelCard title="Source run history">
+          <div className="automation-job-list">
+            {sourceRuns.map((item) => (
+              <article className="automation-job-row" key={item.id}>
+                <div>
+                  <b>{item.selectedTitle || item.status}</b>
+                  <span>{item.status} · {new Date(item.startedAt).toLocaleString()} · {item.scannedCount} scanned</span>
+                  <p>{item.selectionReason || item.error || "Run recorded."}</p>
+                </div>
+                <div className="job-score">
+                  <strong>{item.selectedScore ? Math.round(item.selectedScore) : 0}</strong>
+                  <span>score</span>
+                </div>
+              </article>
+            ))}
+            {sourceRuns.length === 0 && <div className="empty-state">No source runs yet. Use Run now to crawl the configured source URLs.</div>}
+          </div>
+        </PanelCard>
+      </div>
+      ) : (
+      <div className="automation-grid">
+        <PanelCard title="Automation rules">
+          <div className="automation-rule-list">
+            {rules.map((rule) => (
+              <article className="automation-rule-card" key={rule.id}>
+                <div className="rule-main">
+                  <span className={`status ${rule.status === "active" ? "scheduled" : rule.status === "failed" ? "failed" : "draft"}`}>{rule.status}</span>
+                  <h3>{rule.name}</h3>
+                  <p>{rule.instruction}</p>
+                  <div className="rule-meta">
+                    <span>{rule.platforms.join(", ") || "No platform"}</span>
+                    <span>{rule.contentType} · {rule.aspectRatio}</span>
+                    <span>{rule.frequency} at {rule.postingTime}</span>
+                    <span>Dedupe: {rule.duplicateProtection.mode}</span>
+                  </div>
+                </div>
+                <div className="rule-actions">
+                  <button type="button" onClick={() => run("runAutomationNow", { id: rule.id }, "Automation draft job created")}>Run now</button>
+                  <button type="button" onClick={() => run(rule.status === "active" ? "pauseAutomationRule" : "resumeAutomationRule", { id: rule.id }, rule.status === "active" ? "Automation paused" : "Automation resumed")}>{rule.status === "active" ? "Pause" : "Resume"}</button>
+                  <button type="button" className="danger ghost" onClick={() => run("deleteAutomationRule", { id: rule.id }, "Automation deleted")}>Delete</button>
+                </div>
+              </article>
+            ))}
+            {rules.length === 0 && <div className="empty-state">No automation rules yet. Create one to start generating scheduled draft jobs.</div>}
+          </div>
+        </PanelCard>
+
+        <PanelCard title="Draft job history">
+          <div className="automation-job-list">
+            {jobs.map((job) => (
+              <article className="automation-job-row" key={job.id}>
+                <div>
+                  <b>{job.title}</b>
+                  <span>{jobStatusLabel[job.status]} · {new Date(job.createdAt).toLocaleString()}</span>
+                  <p>{job.duplicateCheck.reason}</p>
+                </div>
+                <div className="job-score">
+                  <strong>{Math.round(job.duplicateCheck.similarityScore * 100)}%</strong>
+                  <span>match</span>
+                </div>
+              </article>
+            ))}
+            {jobs.length === 0 && <div className="empty-state">No automation jobs yet. Use Run now on a rule to create the first reviewed draft.</div>}
+          </div>
+        </PanelCard>
+      </div>
+      )}
     </div>
   );
 }

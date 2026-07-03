@@ -98,7 +98,7 @@ jobs:
           --platform=managed
           --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-production:$GITHUB_SHA
           --env-vars-file=api-env.yaml
-          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest
+          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,APIFY_BACKUP_API_TOKEN=APIFY_BACKUP_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest,AUTOMATION_CRON_SECRET=AUTOMATION_CRON_SECRET:latest
           --quiet
 
       - name: Keep API service public
@@ -108,6 +108,37 @@ jobs:
           --region=$REGION
           --no-invoker-iam-check
           --quiet
+
+      - name: Configure production automation scheduler
+        run: |
+          SECRET="$(gcloud secrets versions access latest --secret=AUTOMATION_CRON_SECRET --project=$PROJECT_ID)"
+          ENCODED_SECRET="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1].strip(), safe=""))' "$SECRET")"
+          API_URL=$(gcloud run services describe $API_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          JOB_NAME="contentagent-production-automation-runner"
+          TARGET_URI="$API_URL/api/automation/run-due?secret=$ENCODED_SECRET"
+          if gcloud scheduler jobs describe "$JOB_NAME" --project=$PROJECT_ID --location=$REGION >/dev/null 2>&1; then
+            gcloud scheduler jobs update http "$JOB_NAME" \
+              --project=$PROJECT_ID \
+              --location=$REGION \
+              --schedule="*/5 * * * *" \
+              --time-zone="Asia/Kuala_Lumpur" \
+              --uri="$TARGET_URI" \
+              --http-method=POST \
+              --clear-headers \
+              --attempt-deadline=180s \
+              --quiet >/dev/null
+          else
+            gcloud scheduler jobs create http "$JOB_NAME" \
+              --project=$PROJECT_ID \
+              --location=$REGION \
+              --schedule="*/5 * * * *" \
+              --time-zone="Asia/Kuala_Lumpur" \
+              --uri="$TARGET_URI" \
+              --http-method=POST \
+              --attempt-deadline=180s \
+              --quiet >/dev/null
+          fi
+          echo "Production automation scheduler configured."
 
       - name: Deploy Admin service
         run: |

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { hasPermission } from "@/lib/permissions";
 import { defaultPersonaProfile, id, mutateDb } from "@/lib/store";
-import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, Brief, CompetitorResult, GenerationAssetReference, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
+import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, Brief, CompetitorResult, GenerationAssetReference, PersonaMediaAsset, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext, normalizePersonaProfile } from "@/lib/persona";
 import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl, startKeywordScanRun, startSocialUrlScanRun } from "@/lib/providers/apify";
 import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
@@ -168,6 +168,36 @@ function parseAssetReferences(input: unknown): GenerationAssetReference[] {
       return role && fileName ? { role, fileName, ...(url ? { url } : {}), ...(storageKey ? { storageKey } : {}), ...(contentType ? { contentType } : {}) } : null;
     })
     .filter((item): item is GenerationAssetReference => Boolean(item));
+}
+
+function parsePersonaMediaAssets(input: unknown): PersonaMediaAsset[] {
+  const raw = typeof input === "string" ? (() => {
+    try {
+      return JSON.parse(input);
+    } catch {
+      return [];
+    }
+  })() : input;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .flatMap((item, index) => {
+      if (!item || typeof item !== "object") return [];
+      const record = item as Record<string, unknown>;
+      const role = String(record.role || "").trim();
+      const url = String(record.url || "").trim();
+      const fileName = String(record.fileName || "").trim();
+      if (!["product photo", "avatar/persona", "logo", "audio"].includes(role) || !url || !fileName) return [];
+      return [{
+        id: String(record.id || `pmedia_${Date.now()}_${index}`),
+        role: role as PersonaMediaAsset["role"],
+        label: String(record.label || fileName).trim() || fileName,
+        fileName,
+        url,
+        storageKey: String(record.storageKey || "").trim() || undefined,
+        contentType: String(record.contentType || "").trim() || undefined,
+        createdAt: String(record.createdAt || new Date().toISOString())
+      }];
+    });
 }
 
 function enrichPromptWithAssetReferences(prompt: string, generationType: "video" | "image" | "text", refs: GenerationAssetReference[]) {
@@ -507,7 +537,7 @@ function sourceWatcherScore(candidate: Omit<SourceWatcherCandidate, "score">, mo
 }
 
 function sourceWatcherReferences(watcher: AutomationSourceWatcher): GenerationAssetReference[] {
-  const refs: GenerationAssetReference[] = [];
+  const refs: GenerationAssetReference[] = [...(watcher.referenceAssets || [])];
   if (watcher.referenceUrls.logo) refs.push({ role: "logo", fileName: "source-watcher-logo", url: watcher.referenceUrls.logo });
   if (watcher.referenceUrls.productPhoto) refs.push({ role: "product photo", fileName: "source-watcher-product-photo", url: watcher.referenceUrls.productPhoto });
   if (watcher.referenceUrls.avatar) refs.push({ role: "avatar/persona", fileName: "source-watcher-avatar", url: watcher.referenceUrls.avatar });
@@ -733,6 +763,7 @@ function personaFromBody(workspaceId: string, body: Record<string, unknown>, pre
       facebook: stringField(body, "facebookUrl", fallback.sourceUrls.facebook || ""),
       x: stringField(body, "xUrl", fallback.sourceUrls.x)
     },
+    mediaAssets: hasField(body, "mediaAssets") ? parsePersonaMediaAssets(body.mediaAssets) : fallback.mediaAssets,
     updatedAt: new Date().toISOString()
   });
 }
@@ -2301,6 +2332,7 @@ export async function POST(req: Request) {
       const contentType = (["image", "short-video", "long-video", "text"].includes(String(body.contentType)) ? String(body.contentType) : "image") as AutomationRule["contentType"];
       const aspectRatio = normalizeAutomationAspectRatio(contentType, body.aspectRatio) as AutomationRule["aspectRatio"];
       const model = normalizeAutomationModel(contentType, body.model);
+      const referenceAssets = parseAssetReferences(body.referenceAssets);
       const platformsInput = normalizeStringList(body.platforms).filter((item): item is Platform => allowedPlatforms.includes(item as Platform));
       const rule: AutomationRule = {
         id: id("auto"),
@@ -2329,6 +2361,7 @@ export async function POST(req: Request) {
           similarityThreshold: clampNumber(body.similarityThreshold, duplicateMode === "strict" ? 76 : 82, 50, 98),
           maxRetries: clampNumber(body.maxRetries, duplicateMode === "off" ? 0 : 2, 0, 5)
         },
+        referenceAssets,
         status: "active",
         nextRunAt: nextAutomationRunAt(frequency, String(body.postingTime || "10:00")),
         createdAt: now,
@@ -2350,6 +2383,7 @@ export async function POST(req: Request) {
       const contentType = (["auto", "video", "image", "text"].includes(String(body.contentType)) ? String(body.contentType) : "auto") as AutomationSourceWatcher["contentType"];
       const aspectRatio = normalizeAutomationAspectRatio(contentType, body.aspectRatio) as AutomationSourceWatcher["aspectRatio"];
       const model = normalizeAutomationModel(contentType, body.model);
+      const referenceAssets = parseAssetReferences(body.referenceAssets);
       const watcher: AutomationSourceWatcher = {
         id: id("watch"),
         workspaceId,
@@ -2373,6 +2407,7 @@ export async function POST(req: Request) {
           avatar: String(body.avatarUrl || "").trim() || undefined,
           audio: String(body.audioUrl || "").trim() || undefined
         },
+        referenceAssets,
         duplicateProtection: {
           sourceWindowDays: clampNumber(body.sourceWindowDays, 90, 1, 365),
           topicWindowDays: clampNumber(body.topicWindowDays, 45, 1, 365),

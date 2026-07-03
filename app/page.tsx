@@ -30,7 +30,7 @@ import {
   Wand2
 } from "lucide-react";
 import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
-import type { PersonaProfile } from "@/lib/types";
+import type { PersonaMediaAsset, PersonaProfile } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
 
 type AppData = {
@@ -416,6 +416,7 @@ export default function Home() {
       {directCreateInitial && (
         <ResearchGenerateModal
           initial={directCreateInitial}
+          personaAssets={data.personaProfile.mediaAssets || []}
           run={run}
           onClose={() => setDirectCreateInitial(null)}
           setScreen={setScreen}
@@ -714,10 +715,86 @@ function PersonaChips({ items }: { items?: string[] }) {
   return <div className="persona-chip-row">{values.map((item) => <span className="persona-chip" key={item}>{item}</span>)}</div>;
 }
 
+async function uploadReferenceFile(role: ReferenceRole, file: File): Promise<GenerationAssetReference> {
+  const form = new FormData();
+  form.set("role", role);
+  form.set("file", file);
+  const res = await fetch("/api/uploads", { method: "POST", body: form });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `Upload failed for ${file.name}`);
+  return {
+    role,
+    fileName: String(json.fileName || file.name),
+    url: String(json.url || ""),
+    storageKey: String(json.storageKey || ""),
+    contentType: String(json.contentType || file.type || "")
+  };
+}
+
+function PersonaMediaLibrary({ assets, onChange }: { assets: PersonaMediaAsset[]; onChange: (assets: PersonaMediaAsset[]) => void }) {
+  const [uploadingRole, setUploadingRole] = useState<ReferenceRole | "">("");
+  const addAsset = async (role: ReferenceRole, file?: File | null) => {
+    if (!file?.name) return;
+    setUploadingRole(role);
+    try {
+      const uploaded = await uploadReferenceFile(role, file);
+      const asset: PersonaMediaAsset = {
+        id: `pmedia_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        role,
+        label: uploaded.fileName,
+        fileName: uploaded.fileName,
+        url: uploaded.url || "",
+        storageKey: uploaded.storageKey,
+        contentType: uploaded.contentType,
+        createdAt: new Date().toISOString()
+      };
+      if (role === "logo" || role === "avatar/persona" || role === "audio") onChange([...assets.filter((item) => item.role !== role), asset]);
+      else onChange([...assets, asset]);
+    } finally {
+      setUploadingRole("");
+    }
+  };
+  const updateLabel = (id: string, label: string) => onChange(assets.map((item) => item.id === id ? { ...item, label } : item));
+  const remove = (id: string) => onChange(assets.filter((item) => item.id !== id));
+  const roles: ReferenceRole[] = ["logo", "avatar/persona", "product photo", "audio"];
+  return (
+    <div className="persona-media-library">
+      <div className="media-upload-row">
+        {roles.map((role) => (
+          <label className="upbox compact" key={role}>
+            <input type="file" accept={role === "audio" ? "audio/*" : "image/*"} onChange={(event) => void addAsset(role, event.currentTarget.files?.[0])} />
+            {role === "audio" ? <Mic size={17} /> : role === "logo" ? <Sparkles size={17} /> : role === "avatar/persona" ? <UserRound size={17} /> : <Palette size={17} />}
+            <b>{referenceLabelForRole(role)}</b>
+            <span>{uploadingRole === role ? "Uploading..." : role === "product photo" ? "Can add many" : "One default"}</span>
+          </label>
+        ))}
+      </div>
+      <div className="persona-media-list">
+        {assets.map((asset) => (
+          <div className="persona-media-item" key={asset.id}>
+            {asset.contentType?.startsWith("audio/") || asset.role === "audio" ? <div className="audio-chip"><Mic size={15} />Audio</div> : <img src={asset.url} alt={asset.label || asset.fileName} />}
+            <div>
+              <span>{referenceLabelForRole(asset.role)}</span>
+              <input value={asset.label} onChange={(event) => updateLabel(asset.id, event.target.value)} />
+              <small>{asset.fileName}</small>
+            </div>
+            <button type="button" onClick={() => remove(asset.id)}>Remove</button>
+          </div>
+        ))}
+        {assets.length === 0 && <div className="empty-state compact">No saved persona media yet. Add reusable logo, avatar, product photos, or audio references.</div>}
+      </div>
+    </div>
+  );
+}
+
 function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
   const [showAutofill, setShowAutofill] = useState(false);
   const [autoFilling, setAutoFilling] = useState(false);
   const persona = data.personaProfile;
+  const [mediaAssets, setMediaAssets] = useState<PersonaMediaAsset[]>(persona.mediaAssets || []);
+  useEffect(() => {
+    setMediaAssets(persona.mediaAssets || []);
+  }, [persona.updatedAt, persona.mediaAssets]);
   const completionChecks = [
     persona.displayName,
     persona.role,
@@ -729,6 +806,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   ];
   const completion = Math.round((completionChecks.filter(Boolean).length / completionChecks.length) * 100);
   const save = async (form: FormData) => {
+    form.set("mediaAssets", JSON.stringify(mediaAssets));
     await run("updatePersonaProfile", Object.fromEntries(form.entries()), "Persona saved");
   };
   const autoFill = async (form?: HTMLFormElement | null) => {
@@ -812,6 +890,12 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
                 <label>Content language<select name="contentLanguage" defaultValue={persona.contentLanguage}><option>English only</option><option>English + BM</option><option>English + Mandarin</option><option>Manglish</option><option>Multi-language</option></select></label>
               </div>
               <label>Writing samples<textarea name="writingSamples" defaultValue={listValue(persona.writingSamples)} placeholder="Paste up to 3 samples, separated by a blank line or comma." /></label>
+            </div>
+
+            <div className="persona-advanced">
+              <div className="clbl">Reusable media references</div>
+              <p className="muted">These saved assets can be selected later in Create Content and Automation. Product photos can have multiple entries; logo, avatar, and audio keep one default each.</p>
+              <PersonaMediaLibrary assets={mediaAssets} onChange={setMediaAssets} />
             </div>
 
             <details className="persona-advanced">
@@ -1195,6 +1279,24 @@ const generationModels = {
 
 type AssetReference = { role: "product photo" | "avatar/persona" | "logo" | "audio"; fileName: string; previewUrl: string; file: File };
 type GenerationAssetReference = Pick<AssetReference, "role" | "fileName"> & { url?: string; storageKey?: string; contentType?: string };
+type ReferenceRole = AssetReference["role"];
+
+function personaAssetToReference(asset: PersonaMediaAsset): GenerationAssetReference {
+  return {
+    role: asset.role,
+    fileName: asset.label || asset.fileName,
+    url: asset.url,
+    storageKey: asset.storageKey,
+    contentType: asset.contentType
+  };
+}
+
+function referenceLabelForRole(role: ReferenceRole) {
+  if (role === "product photo") return "Product photo";
+  if (role === "avatar/persona") return "Avatar";
+  if (role === "logo") return "Logo";
+  return "Audio";
+}
 
 function createContentInitialFromDraft(draft: PlanDraft): CreateContentInitial {
   const format = draft.format && contentFormatOptions.includes(draft.format) ? draft.format : "Short video 9:16";
@@ -1525,6 +1627,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
       {generatingBrief && (
         <GenerationModal
           brief={generatingBrief}
+          personaAssets={data.personaProfile.mediaAssets || []}
           onClose={() => setGeneratingBrief(null)}
           onStart={(generation) => {
             flushSync(() => {
@@ -1607,7 +1710,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
   );
 }
 
-function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate", busyLabel = "Sending to Publish", allowAiAssist = false }: { initial: CreateContentInitial; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string; busyLabel?: string; allowAiAssist?: boolean }) {
+function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate", busyLabel = "Sending to Publish", allowAiAssist = false }: { initial: CreateContentInitial; personaAssets?: PersonaMediaAsset[]; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string; busyLabel?: string; allowAiAssist?: boolean }) {
   const [activeInitial, setActiveInitial] = useState<CreateContentInitial>(initial);
   const [formVersion, setFormVersion] = useState(0);
   const [kind, setKind] = useState<GenerationKind>(initial.kind);
@@ -1620,6 +1723,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
   const [aiError, setAiError] = useState("");
   const [aiIdea, setAiIdea] = useState("");
   const [assetRefs, setAssetRefs] = useState<AssetReference[]>([]);
+  const [selectedPersonaAssetIds, setSelectedPersonaAssetIds] = useState<string[]>([]);
   const assetRefsRef = useRef<AssetReference[]>([]);
   const durationOptions = durationOptionsForModel(model);
   const visualAssetsEnabled = kind === "video" || kind === "image";
@@ -1662,6 +1766,9 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
       return file?.name ? [...rest, { role, fileName: file.name, previewUrl: URL.createObjectURL(file), file }] : rest;
     });
   };
+  const togglePersonaAsset = (id: string, checked: boolean) => {
+    setSelectedPersonaAssetIds((current) => checked ? Array.from(new Set([...current, id])) : current.filter((item) => item !== id));
+  };
   const generateAiDraft = async () => {
     const idea = aiIdea.trim();
     if (!idea) {
@@ -1692,12 +1799,13 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
       const selectedPlatform = String(form.get("platform") || platform || defaultPlatformForKind(kind));
       onStart?.({
         title: activeInitial.sourceTitle,
-        description: visualAssetsEnabled && assetRefs.length ? "Uploading references and preparing provider generation." : "Preparing provider generation.",
+        description: visualAssetsEnabled && (assetRefs.length || selectedPersonaAssetIds.length) ? "Preparing selected references and provider generation." : "Preparing provider generation.",
         kind,
         model,
         startedAt: Date.now()
       });
-      const cleanRefs = visualAssetsEnabled ? await uploadAssetReferences(assetRefs) : [];
+      const personaRefs = personaAssets.filter((asset) => selectedPersonaAssetIds.includes(asset.id)).map(personaAssetToReference);
+      const cleanRefs = visualAssetsEnabled ? [...personaRefs, ...await uploadAssetReferences(assetRefs)] : [];
       const promptWithDuration = withSelectedVideoDuration(String(form.get("prompt") || ""), kind, duration);
       const prompt = enrichPromptForSocialConversion(promptWithDuration, kind, cleanRefs);
       await onSubmit({
@@ -1787,12 +1895,7 @@ function CreateContentModule({ initial, onSubmit, onCancel, onUsePlan, onStart, 
       {visualAssetsEnabled && (
         <section className="create-card">
           <div className="clbl">Optional reference assets</div>
-          <div className="upload-pair three">
-            <AssetUploadBox icon={<Palette size={18} />} title="Product photo" helper="Optional visual reference" role="product photo" refs={assetRefs} onChange={updateAssetRef} />
-            <AssetUploadBox icon={<UserRound size={18} />} title="Override avatar" helper="Optional persona reference" role="avatar/persona" refs={assetRefs} onChange={updateAssetRef} />
-            <AssetUploadBox icon={<Sparkles size={18} />} title="Logo" helper="Optional brand mark" role="logo" refs={assetRefs} onChange={updateAssetRef} />
-            {kind === "video" && <AssetUploadBox icon={<Mic size={18} />} title="Audio" helper="Optional audio reference" role="audio" refs={assetRefs} onChange={updateAssetRef} />}
-          </div>
+          <ReferenceAssetPicker personaAssets={personaAssets} selectedIds={selectedPersonaAssetIds} onTogglePersona={togglePersonaAsset} uploadRefs={assetRefs} onUploadChange={updateAssetRef} video={kind === "video"} />
         </section>
       )}
 
@@ -1850,7 +1953,35 @@ function AssetUploadBox({ icon, title, helper, role, refs, onChange }: { icon: R
   );
 }
 
-function GenerationModal({ brief, onClose, onStart, onSubmit }: { brief: Brief; onClose: () => void; onStart?: (generation: PendingGeneration) => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+function ReferenceAssetPicker({ personaAssets, selectedIds, onTogglePersona, uploadRefs, onUploadChange, video }: { personaAssets: PersonaMediaAsset[]; selectedIds: string[]; onTogglePersona: (id: string, checked: boolean) => void; uploadRefs: AssetReference[]; onUploadChange: (role: ReferenceRole, file?: File | null) => void; video: boolean }) {
+  const allowedRoles: ReferenceRole[] = video ? ["product photo", "avatar/persona", "logo", "audio"] : ["product photo", "avatar/persona", "logo"];
+  const filtered = personaAssets.filter((asset) => allowedRoles.includes(asset.role));
+  return (
+    <div className="reference-picker">
+      <div className="clbl">Choose from Persona</div>
+      <div className="persona-reference-grid">
+        {filtered.map((asset) => (
+          <label className={`persona-reference-card ${selectedIds.includes(asset.id) ? "on" : ""}`} key={asset.id}>
+            <input type="checkbox" checked={selectedIds.includes(asset.id)} onChange={(event) => onTogglePersona(asset.id, event.target.checked)} />
+            {asset.contentType?.startsWith("audio/") || asset.role === "audio" ? <div className="audio-chip"><Mic size={15} />Audio</div> : <img src={asset.url} alt={asset.label || asset.fileName} />}
+            <span>{asset.label || asset.fileName}</span>
+            <small>{referenceLabelForRole(asset.role)}</small>
+          </label>
+        ))}
+        {filtered.length === 0 && <div className="empty-state compact">No saved persona assets for this content type yet.</div>}
+      </div>
+      <div className="clbl">Or upload for this generation</div>
+      <div className="upload-pair three">
+        <AssetUploadBox icon={<Palette size={18} />} title="Product photo" helper="Optional visual reference" role="product photo" refs={uploadRefs} onChange={onUploadChange} />
+        <AssetUploadBox icon={<UserRound size={18} />} title="Override avatar" helper="Optional persona reference" role="avatar/persona" refs={uploadRefs} onChange={onUploadChange} />
+        <AssetUploadBox icon={<Sparkles size={18} />} title="Logo" helper="Optional brand mark" role="logo" refs={uploadRefs} onChange={onUploadChange} />
+        {video && <AssetUploadBox icon={<Mic size={18} />} title="Audio" helper="Optional audio reference" role="audio" refs={uploadRefs} onChange={onUploadChange} />}
+      </div>
+    </div>
+  );
+}
+
+function GenerationModal({ brief, personaAssets, onClose, onStart, onSubmit }: { brief: Brief; personaAssets: PersonaMediaAsset[]; onClose: () => void; onStart?: (generation: PendingGeneration) => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
   const kind = planContentKind(brief.format);
   const initial: CreateContentInitial = {
     sourceLabel: "Content plan",
@@ -1875,13 +2006,13 @@ function GenerationModal({ brief, onClose, onStart, onSubmit }: { brief: Brief; 
           </div>
           <button type="button" className="icon-btn" onClick={onClose}>x</button>
         </div>
-        <CreateContentModule initial={initial} onCancel={onClose} onStart={onStart} submitLabel="Create asset" onSubmit={(payload) => onSubmit({ ...payload, id: brief.id })} />
+        <CreateContentModule initial={initial} personaAssets={personaAssets} onCancel={onClose} onStart={onStart} submitLabel="Create asset" onSubmit={(payload) => onSubmit({ ...payload, id: brief.id })} />
       </section>
     </div>
   );
 }
 
-function ResearchGenerateModal({ initial, run, onClose, setScreen, setPendingGeneration }: { initial: CreateContentInitial; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onClose: () => void; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
+function ResearchGenerateModal({ initial, personaAssets, run, onClose, setScreen, setPendingGeneration }: { initial: CreateContentInitial; personaAssets: PersonaMediaAsset[]; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onClose: () => void; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
   const [g01Review, setG01Review] = useState<{ videoPrompt: string; debugJson: string } | null>(null);
   const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -1960,7 +2091,7 @@ function ResearchGenerateModal({ initial, run, onClose, setScreen, setPendingGen
             </div>
           </div>
         ) : (
-          <CreateContentModule initial={initial} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing G01" : "Sending to Publish"} onSubmit={prepareGeneration} />
+          <CreateContentModule initial={initial} personaAssets={personaAssets} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing G01" : "Sending to Publish"} onSubmit={prepareGeneration} />
         )}
       </section>
     </div>
@@ -1993,6 +2124,7 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
       </div>
       <CreateContentModule
         initial={initial}
+        personaAssets={data.personaProfile.mediaAssets || []}
         allowAiAssist
         onStart={(generation) => {
           flushSync(() => {
@@ -2320,6 +2452,10 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
   const [scheduledModel, setScheduledModel] = useState("gpt-image-2");
   const [scheduledPlatforms, setScheduledPlatforms] = useState<Platform[]>(["Facebook"]);
   const [scheduledAspectRatio, setScheduledAspectRatio] = useState("4:5");
+  const [sourceSelectedPersonaAssetIds, setSourceSelectedPersonaAssetIds] = useState<string[]>([]);
+  const [sourceUploadRefs, setSourceUploadRefs] = useState<AssetReference[]>([]);
+  const [scheduledSelectedPersonaAssetIds, setScheduledSelectedPersonaAssetIds] = useState<string[]>([]);
+  const [scheduledUploadRefs, setScheduledUploadRefs] = useState<AssetReference[]>([]);
   const rules = data.automationRules || [];
   const jobs = data.automationJobs || [];
   const sourceWatchers = data.automationSourceWatchers || [];
@@ -2351,6 +2487,28 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
     const allowed = automationDimensionOptions(scheduledContentType, next);
     if (allowed.length && !allowed.some((item) => item.value === scheduledAspectRatio)) setScheduledAspectRatio(allowed[0].value);
   };
+  const toggleSourcePersonaAsset = (id: string, checked: boolean) => setSourceSelectedPersonaAssetIds((current) => checked ? Array.from(new Set([...current, id])) : current.filter((item) => item !== id));
+  const toggleScheduledPersonaAsset = (id: string, checked: boolean) => setScheduledSelectedPersonaAssetIds((current) => checked ? Array.from(new Set([...current, id])) : current.filter((item) => item !== id));
+  const updateSourceUploadRef = (role: ReferenceRole, file?: File | null) => {
+    setSourceUploadRefs((current) => {
+      const existing = current.find((item) => item.role === role);
+      if (existing) URL.revokeObjectURL(existing.previewUrl);
+      const rest = current.filter((item) => item.role !== role);
+      return file?.name ? [...rest, { role, fileName: file.name, previewUrl: URL.createObjectURL(file), file }] : rest;
+    });
+  };
+  const updateScheduledUploadRef = (role: ReferenceRole, file?: File | null) => {
+    setScheduledUploadRefs((current) => {
+      const existing = current.find((item) => item.role === role);
+      if (existing) URL.revokeObjectURL(existing.previewUrl);
+      const rest = current.filter((item) => item.role !== role);
+      return file?.name ? [...rest, { role, fileName: file.name, previewUrl: URL.createObjectURL(file), file }] : rest;
+    });
+  };
+  const buildReferenceAssets = async (selectedIds: string[], uploads: AssetReference[]) => [
+    ...(data.personaProfile.mediaAssets || []).filter((asset) => selectedIds.includes(asset.id)).map(personaAssetToReference),
+    ...await uploadAssetReferences(uploads)
+  ];
   const jobStatusLabel: Record<AutomationJob["status"], string> = {
     pending: "Pending",
     "checking-duplicates": "Checking duplicates",
@@ -2399,9 +2557,10 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
 
       {automationMode === "sources" && sourceExpanded && (
         <PanelCard title="Build Source Watcher">
-          <form className="automation-builder" action={(form) => {
+          <form className="automation-builder" action={async (form) => {
             const payload: Record<string, unknown> = Object.fromEntries(form.entries());
             payload.postingDays = form.getAll("postingDays").map((item) => String(item));
+            payload.referenceAssets = await buildReferenceAssets(sourceSelectedPersonaAssetIds, sourceUploadRefs);
             return run("createSourceWatcher", payload, "Source Watcher saved");
           }}>
             <div className="automation-section-head"><span>Step 1</span><b>Sources to monitor</b></div>
@@ -2443,11 +2602,8 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
               {weekdayOptions.map((day) => <label className="check-card compact" key={day}><input name="postingDays" type="checkbox" value={day} defaultChecked={["Mon", "Wed", "Fri"].includes(day)} />{day}</label>)}
             </div>
             <div className="automation-section-head"><span>Step 3</span><b>User references for recreation</b></div>
+            <ReferenceAssetPicker personaAssets={data.personaProfile.mediaAssets || []} selectedIds={sourceSelectedPersonaAssetIds} onTogglePersona={toggleSourcePersonaAsset} uploadRefs={sourceUploadRefs} onUploadChange={updateSourceUploadRef} video={automationKindFromContentType(sourceContentType) !== "image" && automationKindFromContentType(sourceContentType) !== "text"} />
             <div className="modal-grid">
-              <label>Logo URL<input name="logoUrl" placeholder="https://..." /></label>
-              <label>Product photo URL<input name="productPhotoUrl" placeholder="https://..." /></label>
-              <label>Avatar/person URL<input name="avatarUrl" placeholder="https://..." /></label>
-              <label>Audio reference URL<input name="audioUrl" placeholder="https://..." /></label>
               <label>Source window days<input name="sourceWindowDays" type="number" min="1" defaultValue="90" /></label>
               <label>Topic window days<input name="topicWindowDays" type="number" min="1" defaultValue="45" /></label>
               <label>Similarity threshold<input name="similarityThreshold" type="number" min="50" max="98" defaultValue="82" /></label>
@@ -2460,10 +2616,11 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
 
       {automationMode === "scheduled" && expanded && (
         <PanelCard title="Build automation">
-          <form className="automation-builder" action={(form) => {
+          <form className="automation-builder" action={async (form) => {
             const payload: Record<string, unknown> = Object.fromEntries(form.entries());
             payload.platforms = form.getAll("platforms").map((item) => String(item));
             payload.postingDays = form.getAll("postingDays").map((item) => String(item));
+            payload.referenceAssets = await buildReferenceAssets(scheduledSelectedPersonaAssetIds, scheduledUploadRefs);
             return run("createAutomationRule", payload, "Automation rule saved");
           }}>
             <div className="automation-section-head">
@@ -2530,8 +2687,9 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
 
             <div className="automation-section-head">
               <span>Step 3</span>
-              <b>Duplicate protection</b>
+              <b>References and duplicate protection</b>
             </div>
+            <ReferenceAssetPicker personaAssets={data.personaProfile.mediaAssets || []} selectedIds={scheduledSelectedPersonaAssetIds} onTogglePersona={toggleScheduledPersonaAsset} uploadRefs={scheduledUploadRefs} onUploadChange={updateScheduledUploadRef} video={automationKindFromContentType(scheduledContentType) === "video"} />
             <div className="modal-grid">
               <label>Protection level<select name="duplicateMode" value={dedupeMode} onChange={(event) => setDedupeMode(event.target.value as AutomationRule["duplicateProtection"]["mode"])}>
                 <option value="off">Off</option>

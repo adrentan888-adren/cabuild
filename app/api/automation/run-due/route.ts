@@ -127,7 +127,7 @@ function sourceWatcherDuplicate(watcher: AutomationSourceWatcher, candidate: Sou
 }
 
 function sourceWatcherReferences(watcher: AutomationSourceWatcher): GenerationAssetReference[] {
-  const refs: GenerationAssetReference[] = [];
+  const refs: GenerationAssetReference[] = [...(watcher.referenceAssets || [])];
   if (watcher.referenceUrls.logo) refs.push({ role: "logo", fileName: "source-watcher-logo", url: watcher.referenceUrls.logo });
   if (watcher.referenceUrls.productPhoto) refs.push({ role: "product photo", fileName: "source-watcher-product-photo", url: watcher.referenceUrls.productPhoto });
   if (watcher.referenceUrls.avatar) refs.push({ role: "avatar/persona", fileName: "source-watcher-avatar", url: watcher.referenceUrls.avatar });

@@ -83,7 +83,19 @@ export type PersonaProfile = {
     facebook: string;
     x: string;
   };
+  mediaAssets: PersonaMediaAsset[];
   updatedAt?: string;
+};
+
+export type PersonaMediaAsset = {
+  id: string;
+  role: "product photo" | "avatar/persona" | "logo" | "audio";
+  label: string;
+  fileName: string;
+  url: string;
+  storageKey?: string;
+  contentType?: string;
+  createdAt: string;
 };
 
 export type Competitor = {
@@ -283,6 +295,7 @@ export type AutomationRule = {
     similarityThreshold: number;
     maxRetries: number;
   };
+  referenceAssets?: GenerationAssetReference[];
   status: "active" | "paused" | "failed";
   nextRunAt?: string;
   lastRunAt?: string;
@@ -338,6 +351,7 @@ export type AutomationSourceWatcher = {
     avatar?: string;
     audio?: string;
   };
+  referenceAssets?: GenerationAssetReference[];
   duplicateProtection: {
     sourceWindowDays: number;
     topicWindowDays: number;

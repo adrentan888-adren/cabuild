@@ -1228,6 +1228,62 @@ function durationOptionsForModel(model: string) {
   return [];
 }
 
+const automationModelOptions = {
+  video: [
+    { value: "veo-fast", label: "VEO Fast" },
+    { value: "seedance-2.0", label: "Seedance 2.0" }
+  ],
+  image: [
+    { value: "gpt-image-2", label: "GPT Image 2" },
+    { value: "nanobanana-pro", label: "Nanobanana Pro" }
+  ],
+  text: [
+    { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
+    { value: "claude-opus-4.8", label: "Claude Opus 4.8" }
+  ],
+  auto: [
+    { value: "auto", label: "Auto by selected source" },
+    { value: "veo-fast", label: "VEO Fast for video" },
+    { value: "gpt-image-2", label: "GPT Image 2 for image" },
+    { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash for text" }
+  ]
+} as const;
+
+function automationKindFromContentType(contentType: string): "video" | "image" | "text" | "auto" {
+  if (contentType === "short-video" || contentType === "long-video" || contentType === "video") return "video";
+  if (contentType === "text") return "text";
+  if (contentType === "auto") return "auto";
+  return "image";
+}
+
+function automationDefaultModel(contentType: string) {
+  const kind = automationKindFromContentType(contentType);
+  return automationModelOptions[kind][0].value;
+}
+
+function automationDimensionOptions(contentType: string, selectedPlatforms: Platform[] = []) {
+  const kind = automationKindFromContentType(contentType);
+  const has = (platform: Platform) => selectedPlatforms.includes(platform);
+  if (kind === "text") return [] as { value: string; label: string }[];
+  if (contentType === "long-video") return [{ value: "16:9", label: "16:9 landscape - YouTube / long video" }];
+  if (contentType === "short-video" || contentType === "video") return [{ value: "9:16", label: "9:16 vertical - Reels / TikTok / Shorts" }, { value: "16:9", label: "16:9 landscape - YouTube / Facebook video" }];
+  if (kind === "auto") return [{ value: "9:16", label: "9:16 vertical default" }, { value: "16:9", label: "16:9 landscape fallback" }];
+  const options = [
+    { value: "4:5", label: "4:5 portrait - Instagram / Facebook feed" },
+    { value: "1:1", label: "1:1 square - Instagram / Facebook" },
+    { value: "9:16", label: "9:16 story/reel cover" },
+    { value: "16:9", label: "16:9 landscape - LinkedIn / website / YouTube community" }
+  ];
+  if (selectedPlatforms.length === 0) return options;
+  if (has("LinkedIn") && !has("Instagram") && !has("TikTok")) return [options[3], options[0], options[1]];
+  if (has("Instagram") || has("Facebook")) return options;
+  return options;
+}
+
+function automationDefaultAspectRatio(contentType: string, selectedPlatforms: Platform[] = []) {
+  return automationDimensionOptions(contentType, selectedPlatforms)[0]?.value || "1:1";
+}
+
 function closestDuration(value: number | string | undefined, options: number[]) {
   if (options.length === 0) return "";
   const numeric = Number(value || options[0]);
@@ -2257,6 +2313,13 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
   const [expanded, setExpanded] = useState(data.automationRules.length === 0);
   const [sourceExpanded, setSourceExpanded] = useState((data.automationSourceWatchers || []).length === 0);
   const [dedupeMode, setDedupeMode] = useState<AutomationRule["duplicateProtection"]["mode"]>("standard");
+  const [sourceContentType, setSourceContentType] = useState<AutomationSourceWatcher["contentType"]>("auto");
+  const [sourceModel, setSourceModel] = useState("auto");
+  const [sourceAspectRatio, setSourceAspectRatio] = useState("9:16");
+  const [scheduledContentType, setScheduledContentType] = useState<AutomationRule["contentType"]>("image");
+  const [scheduledModel, setScheduledModel] = useState("gpt-image-2");
+  const [scheduledPlatforms, setScheduledPlatforms] = useState<Platform[]>(["Facebook"]);
+  const [scheduledAspectRatio, setScheduledAspectRatio] = useState("4:5");
   const rules = data.automationRules || [];
   const jobs = data.automationJobs || [];
   const sourceWatchers = data.automationSourceWatchers || [];
@@ -2268,13 +2331,26 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
     { value: "long-video", label: "Long video" },
     { value: "text", label: "Text post" }
   ];
-  const models = [
-    { value: "gpt-image-2", label: "GPT Image 2" },
-    { value: "seedance-2.0", label: "Seedance 2.0" },
-    { value: "veo-fast", label: "VEO Fast" },
-    { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
-    { value: "claude-opus-4.8", label: "Claude Opus 4.8" }
-  ];
+  const sourceModelOptions = automationModelOptions[automationKindFromContentType(sourceContentType)];
+  const sourceDimensionOptions = automationDimensionOptions(sourceContentType);
+  const scheduledModelOptions = automationModelOptions[automationKindFromContentType(scheduledContentType)];
+  const scheduledDimensionOptions = automationDimensionOptions(scheduledContentType, scheduledPlatforms);
+  const changeSourceContentType = (value: AutomationSourceWatcher["contentType"]) => {
+    setSourceContentType(value);
+    setSourceModel(automationDefaultModel(value));
+    setSourceAspectRatio(automationDefaultAspectRatio(value));
+  };
+  const changeScheduledContentType = (value: AutomationRule["contentType"]) => {
+    setScheduledContentType(value);
+    setScheduledModel(automationDefaultModel(value));
+    setScheduledAspectRatio(automationDefaultAspectRatio(value, scheduledPlatforms));
+  };
+  const toggleScheduledPlatform = (platform: Platform, checked: boolean) => {
+    const next = checked ? Array.from(new Set([...scheduledPlatforms, platform])) : scheduledPlatforms.filter((item) => item !== platform);
+    setScheduledPlatforms(next);
+    const allowed = automationDimensionOptions(scheduledContentType, next);
+    if (allowed.length && !allowed.some((item) => item.value === scheduledAspectRatio)) setScheduledAspectRatio(allowed[0].value);
+  };
   const jobStatusLabel: Record<AutomationJob["status"], string> = {
     pending: "Pending",
     "checking-duplicates": "Checking duplicates",
@@ -2341,14 +2417,13 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
             <label>Social media URLs<textarea name="sourceUrls" required placeholder={"https://www.instagram.com/example/\nhttps://www.tiktok.com/@example\nhttps://www.linkedin.com/company/example"} /></label>
             <div className="modal-grid">
               <label>Minimum views<input name="minViews" type="number" min="0" defaultValue="0" /></label>
-              <label>Content type<select name="contentType" defaultValue="auto">{sourceContentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-              <label>Default model<select name="model" defaultValue="veo-fast">{models.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-              <label>Dimension<select name="aspectRatio" defaultValue="9:16">
-                <option value="1:1">1:1</option>
-                <option value="4:5">4:5</option>
-                <option value="9:16">9:16</option>
-                <option value="16:9">16:9</option>
-              </select></label>
+              <label>Content type<select name="contentType" value={sourceContentType} onChange={(event) => changeSourceContentType(event.target.value as AutomationSourceWatcher["contentType"])}>{sourceContentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+              <label>Default model<select name="model" value={sourceModel} onChange={(event) => setSourceModel(event.target.value)}>{sourceModelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+              {sourceDimensionOptions.length > 0 ? (
+                <label>Dimension<select name="aspectRatio" value={sourceAspectRatio} onChange={(event) => setSourceAspectRatio(event.target.value)}>
+                  {sourceDimensionOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select></label>
+              ) : <input type="hidden" name="aspectRatio" value="1:1" />}
             </div>
             <label>Creation instruction<textarea name="instruction" placeholder="Recreate the best performing source content for my persona. Replace original logo/person/audio with my uploaded references where provided." /></label>
             <div className="automation-section-head"><span>Step 2</span><b>Schedule and publishing</b></div>
@@ -2362,7 +2437,7 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
                 <option value="auto-schedule">Generate and schedule</option>
                 <option value="auto-publish">Auto publish through Upload-Post</option>
               </select></label>
-              <label>Video duration<input name="duration" type="number" min="4" max="15" defaultValue="8" /></label>
+              {automationKindFromContentType(sourceContentType) !== "image" && automationKindFromContentType(sourceContentType) !== "text" && <label>Video duration<input name="duration" type="number" min="4" max="15" defaultValue="8" /></label>}
             </div>
             <div className="automation-choice-row">
               {weekdayOptions.map((day) => <label className="check-card compact" key={day}><input name="postingDays" type="checkbox" value={day} defaultChecked={["Mon", "Wed", "Fri"].includes(day)} />{day}</label>)}
@@ -2407,17 +2482,16 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
             </div>
             <label>Main instruction<textarea name="instruction" required placeholder="Create Malay FB ads for loan enquiries with a strong hook, compliance-safe USP, and clear CTA." /></label>
             <div className="automation-choice-row">
-              {platforms.map((platform) => <label className="check-card" key={platform}><input name="platforms" type="checkbox" value={platform} defaultChecked={platform === "Facebook"} />{platform}</label>)}
+              {platforms.map((platform) => <label className="check-card" key={platform}><input name="platforms" type="checkbox" value={platform} checked={scheduledPlatforms.includes(platform)} onChange={(event) => toggleScheduledPlatform(platform, event.target.checked)} />{platform}</label>)}
             </div>
             <div className="modal-grid">
-              <label>Content type<select name="contentType" defaultValue="image">{contentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-              <label>Dimension<select name="aspectRatio" defaultValue="4:5">
-                <option value="1:1">1:1</option>
-                <option value="4:5">4:5</option>
-                <option value="9:16">9:16</option>
-                <option value="16:9">16:9</option>
-              </select></label>
-              <label>Default model<select name="model" defaultValue="gpt-image-2">{models.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+              <label>Content type<select name="contentType" value={scheduledContentType} onChange={(event) => changeScheduledContentType(event.target.value as AutomationRule["contentType"])}>{contentTypes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+              {scheduledDimensionOptions.length > 0 ? (
+                <label>Dimension<select name="aspectRatio" value={scheduledAspectRatio} onChange={(event) => setScheduledAspectRatio(event.target.value)}>
+                  {scheduledDimensionOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select></label>
+              ) : <input type="hidden" name="aspectRatio" value="1:1" />}
+              <label>Default model<select name="model" value={scheduledModel} onChange={(event) => setScheduledModel(event.target.value)}>{scheduledModelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
               <label>Approval mode<select name="approvalMode" defaultValue="draft-only">
                 <option value="draft-only">Draft only</option>
                 <option value="generate-and-wait">Generate asset, wait for approval</option>

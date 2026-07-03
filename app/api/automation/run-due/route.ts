@@ -61,6 +61,12 @@ function isKieImageModel(model: string) {
   return model === "nanobanana-pro" || model === "gpt-image-2";
 }
 
+function modelForResolvedSourceWatcherKind(watcherModel: string, generationType: "video" | "image" | "text") {
+  if (generationType === "video") return ["veo-fast", "seedance-2.0"].includes(watcherModel) ? watcherModel : "veo-fast";
+  if (generationType === "image") return isKieImageModel(watcherModel) ? watcherModel : "gpt-image-2";
+  return ["gemini-3.5-flash", "claude-opus-4.8"].includes(watcherModel) ? watcherModel : "gemini-3.5-flash";
+}
+
 function sourceWatcherKind(candidate: SourceWatcherCandidate, requested: AutomationSourceWatcher["contentType"]): "video" | "image" | "text" {
   if (requested !== "auto") return requested;
   if (candidate.mediaType === "video") return "video";
@@ -359,7 +365,7 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
       return { run, selected: null, asset: null, publishItem: null };
     }
     const generationType = sourceWatcherKind(selected, watcher.contentType);
-    const model = watcher.model || (generationType === "image" ? "gpt-image-2" : generationType === "text" ? "gemini-3.5-flash" : "veo-fast");
+    const model = modelForResolvedSourceWatcherKind(watcher.model, generationType);
     const references = sourceWatcherReferences(watcher);
     const basePrompt = sourceWatcherPrompt({ watcher, candidate: selected, generationType, personaContext });
     const duration = generationType === "video" ? closestVideoDuration(watcher.duration || selected.duration || 8, model) : undefined;

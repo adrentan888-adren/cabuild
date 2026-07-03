@@ -423,6 +423,49 @@ function automationHashtag(keyword: string) {
   return cleaned ? `#${cleaned}` : "";
 }
 
+function automationKindFromContentType(contentType: string): "video" | "image" | "text" | "auto" {
+  if (contentType === "short-video" || contentType === "long-video" || contentType === "video") return "video";
+  if (contentType === "text") return "text";
+  if (contentType === "auto") return "auto";
+  return "image";
+}
+
+function defaultAutomationModel(contentType: string) {
+  const kind = automationKindFromContentType(contentType);
+  if (kind === "video") return "veo-fast";
+  if (kind === "image") return "gpt-image-2";
+  if (kind === "text") return "gemini-3.5-flash";
+  return "auto";
+}
+
+function normalizeAutomationModel(contentType: string, value: unknown) {
+  const model = String(value || "").trim();
+  const kind = automationKindFromContentType(contentType);
+  const valid = kind === "video"
+    ? ["veo-fast", "seedance-2.0"]
+    : kind === "image"
+      ? ["gpt-image-2", "nanobanana-pro"]
+      : kind === "text"
+        ? ["gemini-3.5-flash", "claude-opus-4.8"]
+        : ["auto", "veo-fast", "seedance-2.0", "gpt-image-2", "nanobanana-pro", "gemini-3.5-flash", "claude-opus-4.8"];
+  return valid.includes(model) ? model : defaultAutomationModel(contentType);
+}
+
+function normalizeAutomationAspectRatio(contentType: string, value: unknown) {
+  const ratio = String(value || "").trim();
+  if (contentType === "long-video") return "16:9";
+  if (contentType === "short-video" || contentType === "video") return ratio === "16:9" ? "16:9" : "9:16";
+  if (contentType === "text") return "1:1";
+  if (contentType === "auto") return ratio === "16:9" ? "16:9" : "9:16";
+  return ["1:1", "4:5", "9:16", "16:9"].includes(ratio) ? ratio : "4:5";
+}
+
+function modelForResolvedSourceWatcherKind(watcherModel: string, generationType: "video" | "image" | "text") {
+  if (generationType === "video") return ["veo-fast", "seedance-2.0"].includes(watcherModel) ? watcherModel : "veo-fast";
+  if (generationType === "image") return isKieImageModel(watcherModel) ? watcherModel : "gpt-image-2";
+  return ["gemini-3.5-flash", "claude-opus-4.8"].includes(watcherModel) ? watcherModel : "gemini-3.5-flash";
+}
+
 type SourceWatcherCandidate = {
   id: string;
   platform: Platform;
@@ -2081,7 +2124,7 @@ export async function POST(req: Request) {
       }
       const selected = firstUsable;
       const generationType = sourceWatcherKind(selected, watcher.contentType);
-      const model = watcher.model || (generationType === "image" ? "gpt-image-2" : generationType === "text" ? "gemini-3.5-flash" : "veo-fast");
+      const model = modelForResolvedSourceWatcherKind(watcher.model, generationType);
       const references = sourceWatcherReferences(watcher);
       const basePrompt = sourceWatcherPrompt({ watcher, candidate: selected, generationType, personaContext });
       const prompt = generationType === "video"
@@ -2256,7 +2299,8 @@ export async function POST(req: Request) {
       const frequency = (["daily", "weekly", "custom"].includes(String(body.frequency)) ? String(body.frequency) : "weekly") as AutomationRule["frequency"];
       const duplicateMode = (["off", "light", "standard", "strict"].includes(String(body.duplicateMode)) ? String(body.duplicateMode) : "standard") as AutomationRule["duplicateProtection"]["mode"];
       const contentType = (["image", "short-video", "long-video", "text"].includes(String(body.contentType)) ? String(body.contentType) : "image") as AutomationRule["contentType"];
-      const aspectRatio = (["1:1", "4:5", "9:16", "16:9"].includes(String(body.aspectRatio)) ? String(body.aspectRatio) : "4:5") as AutomationRule["aspectRatio"];
+      const aspectRatio = normalizeAutomationAspectRatio(contentType, body.aspectRatio) as AutomationRule["aspectRatio"];
+      const model = normalizeAutomationModel(contentType, body.model);
       const platformsInput = normalizeStringList(body.platforms).filter((item): item is Platform => allowedPlatforms.includes(item as Platform));
       const rule: AutomationRule = {
         id: id("auto"),
@@ -2267,7 +2311,7 @@ export async function POST(req: Request) {
         platforms: platformsInput.length ? platformsInput : ["Facebook"],
         contentType,
         aspectRatio,
-        model: String(body.model || (contentType === "image" ? "gpt-image-2" : contentType === "text" ? "gemini-3.5-flash" : "seedance-2.0")),
+        model,
         frequency,
         postingDays: normalizeStringList(body.postingDays).length ? normalizeStringList(body.postingDays) : ["Mon", "Wed", "Fri"],
         postingTime: String(body.postingTime || "10:00"),
@@ -2304,7 +2348,8 @@ export async function POST(req: Request) {
       if (sourceUrls.length === 0) throw new Error("Add at least one valid social media source URL.");
       const frequency = (["daily", "weekly", "custom"].includes(String(body.frequency)) ? String(body.frequency) : "daily") as AutomationSourceWatcher["frequency"];
       const contentType = (["auto", "video", "image", "text"].includes(String(body.contentType)) ? String(body.contentType) : "auto") as AutomationSourceWatcher["contentType"];
-      const aspectRatio = (["1:1", "4:5", "9:16", "16:9"].includes(String(body.aspectRatio)) ? String(body.aspectRatio) : "9:16") as AutomationSourceWatcher["aspectRatio"];
+      const aspectRatio = normalizeAutomationAspectRatio(contentType, body.aspectRatio) as AutomationSourceWatcher["aspectRatio"];
+      const model = normalizeAutomationModel(contentType, body.model);
       const watcher: AutomationSourceWatcher = {
         id: id("watch"),
         workspaceId,
@@ -2312,9 +2357,9 @@ export async function POST(req: Request) {
         sourceUrls,
         instruction: String(body.instruction || "Recreate the best source content for my brand and persona.").trim(),
         contentType,
-        model: String(body.model || (contentType === "image" ? "gpt-image-2" : contentType === "text" ? "gemini-3.5-flash" : "veo-fast")),
+        model,
         aspectRatio,
-        duration: contentType === "video" || contentType === "auto" ? closestVideoDuration(body.duration || 8, String(body.model || "veo-fast")) : undefined,
+        duration: contentType === "video" || contentType === "auto" ? closestVideoDuration(body.duration || 8, model === "auto" ? "veo-fast" : model) : undefined,
         minViews: clampNumber(body.minViews, 0, 0, 1000000000),
         rankingMode: (["balanced", "views", "engagement", "recent"].includes(String(body.rankingMode)) ? String(body.rankingMode) : "balanced") as AutomationSourceWatcher["rankingMode"],
         frequency,

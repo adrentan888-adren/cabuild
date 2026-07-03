@@ -6,7 +6,7 @@ import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, Automat
 import { appendPersonaContext, buildPersonaContext, normalizePersonaProfile } from "@/lib/persona";
 import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl, startKeywordScanRun, startSocialUrlScanRun } from "@/lib/providers/apify";
 import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
-import { getConnectedUploadPostAccounts, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
+import { getConnectedUploadPostAccounts, publishPhotoPost, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 
 const allowedPlatforms: Platform[] = ["TikTok", "Instagram", "YouTube", "LinkedIn", "Facebook", "X"];
 
@@ -66,6 +66,92 @@ async function debugLog(workspaceId: string, entry: { action: string; label: str
       db.debugLogs = db.debugLogs.filter((item) => item.workspaceId !== workspaceId || keep.has(item.id));
     }
   });
+}
+
+function publishDescription(item: PublishItem, asset?: Asset) {
+  return [item.caption, ...(item.hashtags || [])].filter(Boolean).join("\n\n") || asset?.prompt || item.prompt || item.title;
+}
+
+async function sendToUploadPost(item: PublishItem, asset?: Asset) {
+  const description = publishDescription(item, asset);
+  if (asset?.assetUrl && (item.generationType === "image" || asset.type === "image")) {
+    return publishPhotoPost({ title: item.title, description, platform: item.platform, photoUrl: asset.assetUrl, scheduledAt: undefined });
+  }
+  if (asset?.assetUrl) {
+    return publishVideoPost({ title: item.title, description, platform: item.platform, videoUrl: asset.assetUrl, scheduledAt: undefined });
+  }
+  return publishTextPost({ title: item.title, description, platform: item.platform, scheduledAt: undefined });
+}
+
+async function autoPublishReadySourceWatcherItems(workspaceId: string, action: string, assetId?: string) {
+  const candidates = await mutateDb((db) => {
+    return db.publishQueue
+      .filter((item) => item.workspaceId === workspaceId)
+      .filter((item) => !assetId || item.assetId === assetId)
+      .filter((item) => item.status === "done")
+      .filter((item) => item.provider !== "upload-post")
+      .map((item) => {
+        const asset = db.assets.find((asset) => asset.id === item.assetId && asset.workspaceId === workspaceId);
+        const watcherId = String((item.generationSettings?.sourceWatcherId || asset?.generationSettings?.sourceWatcherId || "") as string);
+        const watcher = watcherId ? (db.automationSourceWatchers || []).find((watcher) => watcher.id === watcherId && watcher.workspaceId === workspaceId) : undefined;
+        if (!watcher || watcher.approvalMode !== "auto-publish") return null;
+        if ((item.generationType === "video" || item.generationType === "image") && !asset?.assetUrl && !item.assetUrl) return null;
+        return { item, asset };
+      })
+      .filter((entry): entry is { item: PublishItem; asset: Asset | undefined } => Boolean(entry));
+  });
+
+  const results = [];
+  for (const candidate of candidates) {
+    await debugLog(workspaceId, {
+      action,
+      label: `Automation auto-publish sent to Upload-Post: ${candidate.item.title}`,
+      status: "started",
+      provider: "upload-post",
+      prompt: publishDescription(candidate.item, candidate.asset),
+      details: {
+        publishId: candidate.item.id,
+        assetId: candidate.asset?.id,
+        platform: candidate.item.platform,
+        generationType: candidate.item.generationType,
+        hasAssetUrl: Boolean(candidate.asset?.assetUrl || candidate.item.assetUrl)
+      }
+    });
+    try {
+      const upload = await sendToUploadPost(candidate.item, candidate.asset);
+      const updated = await mutateDb((db) => {
+        const item = db.publishQueue.find((item) => item.id === candidate.item.id && item.workspaceId === workspaceId);
+        if (!item) return null;
+        item.status = "published";
+        item.provider = "upload-post";
+        item.providerRequestId = upload.request_id || upload.job_id;
+        item.error = "";
+        db.activity.push({ id: id("act"), workspaceId, message: `Automation auto-published "${item.title}" through Upload-Post.`, createdAt: new Date().toISOString() });
+        return item;
+      });
+      await debugLog(workspaceId, {
+        action,
+        label: `Automation auto-publish accepted: ${candidate.item.title}`,
+        status: "success",
+        provider: "upload-post",
+        details: { requestId: upload.request_id, jobId: upload.job_id, platform: candidate.item.platform }
+      });
+      results.push({ id: candidate.item.id, status: "published", requestId: upload.request_id || upload.job_id, item: updated });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Upload-Post publish failed";
+      await mutateDb((db) => {
+        const item = db.publishQueue.find((item) => item.id === candidate.item.id && item.workspaceId === workspaceId);
+        if (item) {
+          item.status = "failed";
+          item.provider = "upload-post";
+          item.error = message;
+        }
+      });
+      await debugLog(workspaceId, { action, label: "Automation auto-publish failed", status: "failed", provider: "upload-post", error: message });
+      results.push({ id: candidate.item.id, status: "failed", error: message });
+    }
+  }
+  return results;
 }
 
 function parseAssetReferences(input: unknown): GenerationAssetReference[] {
@@ -962,7 +1048,8 @@ export async function POST(req: Request) {
         }
         return asset;
       });
-      return NextResponse.json(updated);
+      const autoPublish = await autoPublishReadySourceWatcherItems(workspaceId, action, updated.id);
+      return NextResponse.json({ ...updated, autoPublish });
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : "Kie poll failed" }, { status: 502 });
     }
@@ -1510,7 +1597,7 @@ export async function POST(req: Request) {
         if (item.status === "generating") throw new Error("This draft is still generating.");
         return { item, asset: db.assets.find((asset) => asset.id === item.assetId && asset.workspaceId === workspaceId) };
       });
-      const description = [snapshot.item.caption, ...(snapshot.item.hashtags || [])].filter(Boolean).join("\n\n") || snapshot.asset?.prompt;
+      const description = publishDescription(snapshot.item, snapshot.asset);
       await debugLog(workspaceId, {
         action,
         label: `Publish payload sent to Upload-Post: ${snapshot.item.title}`,
@@ -1519,18 +1606,7 @@ export async function POST(req: Request) {
         prompt: description,
         details: { publishId: snapshot.item.id, platform: snapshot.item.platform, hasAssetUrl: Boolean(snapshot.asset?.assetUrl) }
       });
-      const result = snapshot.asset?.assetUrl
-        ? await publishVideoPost({
-            title: snapshot.item.title,
-            description,
-            platform: snapshot.item.platform,
-            videoUrl: snapshot.asset.assetUrl
-          })
-        : await publishTextPost({
-            title: snapshot.item.title,
-            description,
-            platform: snapshot.item.platform
-          });
+      const result = await sendToUploadPost(snapshot.item, snapshot.asset);
       const updated = await mutateDb((db) => {
         const item = db.publishQueue.find((queue) => queue.id === body.id && queue.workspaceId === workspaceId);
         if (!item) return snapshot.item;
@@ -2151,13 +2227,13 @@ export async function POST(req: Request) {
     }
     if (watcher.approvalMode === "auto-publish" && result.publishItem && result.publishItem.generationType === "text") {
       try {
-        const upload = await publishTextPost({ title: result.publishItem.title, description: [result.publishItem.caption, ...(result.publishItem.hashtags || [])].join("\n\n"), platform: result.publishItem.platform });
+        const upload = await sendToUploadPost(result.publishItem, result.asset || undefined);
         const updated = await mutateDb((db) => {
           const item = db.publishQueue.find((queue) => queue.id === result.publishItem?.id && queue.workspaceId === workspaceId);
           if (item) {
             item.status = "published";
             item.provider = "upload-post";
-            item.providerRequestId = upload.request_id;
+            item.providerRequestId = upload.request_id || upload.job_id;
           }
           return item;
         });

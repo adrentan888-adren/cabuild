@@ -29,9 +29,9 @@ type SourceWatcherCandidate = {
 };
 
 function authorized(req: NextRequest) {
-  const secret = process.env.AUTOMATION_CRON_SECRET;
+  const secret = process.env.AUTOMATION_CRON_SECRET?.trim();
   if (!secret) return false;
-  return req.headers.get("x-automation-cron-secret") === secret || req.nextUrl.searchParams.get("secret") === secret;
+  return req.headers.get("x-automation-cron-secret")?.trim() === secret || req.nextUrl.searchParams.get("secret")?.trim() === secret;
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {

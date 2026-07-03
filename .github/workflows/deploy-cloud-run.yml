@@ -109,37 +109,6 @@ jobs:
           --no-invoker-iam-check
           --quiet
 
-      - name: Configure production automation scheduler
-        run: |
-          SECRET="$(gcloud secrets versions access latest --secret=AUTOMATION_CRON_SECRET --project=$PROJECT_ID)"
-          ENCODED_SECRET="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1].strip(), safe=""))' "$SECRET")"
-          API_URL=$(gcloud run services describe $API_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
-          JOB_NAME="contentagent-production-automation-runner"
-          TARGET_URI="$API_URL/api/automation/run-due?secret=$ENCODED_SECRET"
-          if gcloud scheduler jobs describe "$JOB_NAME" --project=$PROJECT_ID --location=$REGION >/dev/null 2>&1; then
-            gcloud scheduler jobs update http "$JOB_NAME" \
-              --project=$PROJECT_ID \
-              --location=$REGION \
-              --schedule="*/5 * * * *" \
-              --time-zone="Asia/Kuala_Lumpur" \
-              --uri="$TARGET_URI" \
-              --http-method=POST \
-              --clear-headers \
-              --attempt-deadline=180s \
-              --quiet >/dev/null
-          else
-            gcloud scheduler jobs create http "$JOB_NAME" \
-              --project=$PROJECT_ID \
-              --location=$REGION \
-              --schedule="*/5 * * * *" \
-              --time-zone="Asia/Kuala_Lumpur" \
-              --uri="$TARGET_URI" \
-              --http-method=POST \
-              --attempt-deadline=180s \
-              --quiet >/dev/null
-          fi
-          echo "Production automation scheduler configured."
-
       - name: Deploy Admin service
         run: |
           API_URL=$(gcloud run services describe $API_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
@@ -197,3 +166,35 @@ jobs:
             --region=$REGION \
             --update-env-vars="^|^CORS_ALLOWED_ORIGINS=$FRONTEND_URL,$ADMIN_URL" \
             --quiet
+
+      - name: Configure production automation scheduler
+        continue-on-error: true
+        run: |
+          SECRET="$(gcloud secrets versions access latest --secret=AUTOMATION_CRON_SECRET --project=$PROJECT_ID)"
+          ENCODED_SECRET="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1].strip(), safe=""))' "$SECRET")"
+          API_URL=$(gcloud run services describe $API_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          JOB_NAME="contentagent-production-automation-runner"
+          TARGET_URI="$API_URL/api/automation/run-due?secret=$ENCODED_SECRET"
+          if gcloud scheduler jobs describe "$JOB_NAME" --project=$PROJECT_ID --location=$REGION >/dev/null 2>&1; then
+            gcloud scheduler jobs update http "$JOB_NAME" \
+              --project=$PROJECT_ID \
+              --location=$REGION \
+              --schedule="*/5 * * * *" \
+              --time-zone="Asia/Kuala_Lumpur" \
+              --uri="$TARGET_URI" \
+              --http-method=POST \
+              --clear-headers \
+              --attempt-deadline=180s \
+              --quiet >/dev/null
+          else
+            gcloud scheduler jobs create http "$JOB_NAME" \
+              --project=$PROJECT_ID \
+              --location=$REGION \
+              --schedule="*/5 * * * *" \
+              --time-zone="Asia/Kuala_Lumpur" \
+              --uri="$TARGET_URI" \
+              --http-method=POST \
+              --attempt-deadline=180s \
+              --quiet >/dev/null
+          fi
+          echo "Production automation scheduler configured."

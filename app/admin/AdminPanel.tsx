@@ -516,7 +516,7 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
             {billingData.workspaceBalances.map((workspace) => (
               <div key={workspace.workspaceId}>
                 <b>{workspace.workspaceName}</b>
-                <span>{formatCredits(workspace.available)} available ・ゑｽｷ {formatCredits(workspace.reserved)} reserved ・ゑｽｷ {formatCredits(workspace.lifetimeUsed)} used lifetime</span>
+                <span>{formatCredits(workspace.available)} available | {formatCredits(workspace.reserved)} reserved | {formatCredits(workspace.lifetimeUsed)} used lifetime</span>
               </div>
             ))}
           </div>
@@ -561,7 +561,7 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
           </form>
           {quoteResult && (
             <div className="provider-error inline">
-              Quote: <b>{String(quoteResult.label || "")}</b> ・ゑｽｷ Cost {formatUsd(Number(quoteResult.costUsd || 0))} ・ゑｽｷ Charge {formatUsd(Number(quoteResult.chargeUsd || 0))}
+              Quote: <b>{String(quoteResult.label || "")}</b> | Cost {formatUsd(Number(quoteResult.costUsd || 0))} | Charge {formatUsd(Number(quoteResult.chargeUsd || 0))}
             </div>
           )}
         </PanelCard>
@@ -602,8 +602,8 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
                 <input type="hidden" name="id" value={card.id} />
                 <div>
                   <b>{card.label}</b>
-                  <span>{card.provider} ・ゑｽｷ {card.actionType} ・ゑｽｷ {card.modelOrActorId} ・ゑｽｷ {card.unit}</span>
-                  <small>Base {formatUsd(card.baseCostUsd)} ・ゑｽｷ markup {card.markupMultiplier}x ・ゑｽｷ min {card.minimumChargeCredits} credits</small>
+                  <span>{card.provider} | {card.actionType} | {card.modelOrActorId} | {card.unit}</span>
+                  <small>Base {formatUsd(card.baseCostUsd)} | markup {card.markupMultiplier}x | min {card.minimumChargeCredits} credits</small>
                 </div>
                 <div className="billing-inline-fields">
                   <input name="label" defaultValue={card.label} />

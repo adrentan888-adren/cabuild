@@ -29,7 +29,7 @@ import {
   UserRound,
   Wand2
 } from "lucide-react";
-import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
+import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BillingQuote, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 import type { PersonaMediaAsset, PersonaProfile } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
 
@@ -265,6 +265,76 @@ async function post(action: string, payload: Record<string, unknown> = {}) {
   return res.json();
 }
 
+function useBillingQuote(input: Record<string, unknown> | null) {
+  const key = input ? JSON.stringify(input) : "";
+  const [quote, setQuote] = useState<BillingQuote | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!key) {
+      setQuote(null);
+      setError("");
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    fetch("/api/billing/quote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: key
+    })
+      .then(async (res) => {
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error || "Credit quote unavailable.");
+        return json.quote as BillingQuote;
+      })
+      .then((next) => {
+        if (!cancelled) setQuote(next);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setQuote(null);
+          setError(err instanceof Error ? err.message : "Credit quote unavailable.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
+
+  return { quote, loading, error };
+}
+
+function hasEnoughCredits(balance: number | undefined, quote?: BillingQuote | null) {
+  if (!quote || typeof balance !== "number") return true;
+  return balance >= quote.maxCredits;
+}
+
+function quoteButtonLabel(base: string, quote?: BillingQuote | null, loading?: boolean) {
+  if (loading) return `${base} (...)`;
+  if (!quote) return base;
+  return `${base} (${quote.label})`;
+}
+
+function CreditQuoteHint({ quote, loading, error, balance, note }: { quote?: BillingQuote | null; loading?: boolean; error?: string; balance?: number; note?: string }) {
+  if (loading) return <p className="credit-quote">Checking credit estimate...</p>;
+  if (error) return <p className="credit-quote warn">Credit estimate unavailable: {error}</p>;
+  if (!quote) return null;
+  const enough = hasEnoughCredits(balance, quote);
+  return (
+    <p className={`credit-quote ${enough ? "" : "danger"}`}>
+      {enough ? `Estimated charge: ${quote.label}.` : `Insufficient credits: needs ${quote.maxCredits.toLocaleString()}, balance ${Number(balance || 0).toLocaleString()}.`}
+      {note ? ` ${note}` : ""}
+    </p>
+  );
+}
+
 export default function Home() {
   const router = useRouter();
   const [data, setData] = useState<AppData | null>(null);
@@ -421,6 +491,7 @@ export default function Home() {
           onClose={() => setDirectCreateInitial(null)}
           setScreen={setScreen}
           setPendingGeneration={setPendingGeneration}
+          creditBalance={data.workspace.credits}
         />
       )}
     </div>
@@ -589,6 +660,13 @@ function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: R
     { name: "Industry news shares", score: Math.max(22, averageAuthority - 34), badge: "Drop this" }
   ];
   const needsAudit = connectedAccounts.length > 0 && connectedAudits.length < connectedAccounts.filter((account) => !account.reauthRequired).length;
+  const auditQuote = useBillingQuote(connectedAccounts.length ? {
+    action: "social_audit.connected_accounts",
+    module: "social_audit",
+    provider: "apify",
+    platform: connectedAccounts[0]?.platform || "Instagram",
+    maxResults: Math.max(100, connectedAccounts.length * 100)
+  } : null);
 
   useEffect(() => {
     if (!auditing) {
@@ -629,6 +707,7 @@ function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: R
       </div>
 
       {connectError && <p className="provider-error">{connectError}</p>}
+      {connectedAccounts.length > 0 && <CreditQuoteHint {...auditQuote} balance={data.workspace.credits} note="Social audit scans connected accounts in the background when needed." />}
       {auditing && <div className="scan-progress"><span />Analysing all connected social accounts with Apify<b>{auditElapsed}s</b></div>}
 
       <section className="card">
@@ -792,6 +871,14 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   const [autoFilling, setAutoFilling] = useState(false);
   const persona = data.personaProfile;
   const [mediaAssets, setMediaAssets] = useState<PersonaMediaAsset[]>(persona.mediaAssets || []);
+  const autofillQuote = useBillingQuote(showAutofill ? {
+    action: "persona.autofill",
+    module: "persona",
+    generationType: "text",
+    model: "gpt-5-5",
+    inputTokens: 2500,
+    outputTokens: 1200
+  } : null);
   useEffect(() => {
     setMediaAssets(persona.mediaAssets || []);
   }, [persona.updatedAt, persona.mediaAssets]);
@@ -861,9 +948,10 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
               <label>X / Twitter<input name="xUrl" defaultValue={persona.sourceUrls.x} placeholder="x.com/yourhandle" /></label>
             </div>
             <div className="autofill-actions">
-              <button type="button" className="primary" onClick={(event) => autoFill(event.currentTarget.form)} disabled={autoFilling}>{autoFilling ? <AnimatedDots label="Auto-filling persona" /> : "Auto-fill persona"}</button>
+              <button type="button" className="primary" onClick={(event) => autoFill(event.currentTarget.form)} disabled={autoFilling}>{autoFilling ? <AnimatedDots label="Auto-filling persona" /> : quoteButtonLabel("Auto-fill persona", autofillQuote.quote, autofillQuote.loading)}</button>
               <span>Uses only public crawl results. Review and edit the saved persona after auto-fill.</span>
             </div>
+            <CreditQuoteHint {...autofillQuote} balance={data.workspace.credits} note="This estimates the GPT-5.5 mapping step; crawler usage is quoted separately in later billing enforcement." />
           </section>
         )}
 
@@ -929,6 +1017,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
   const [sortOpen, setSortOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [activeScanId, setActiveScanId] = useState<string | null>(data.researchScans[0]?.id || null);
+  const [urlText, setUrlText] = useState("");
   const [keywordText, setKeywordText] = useState("");
   const [actorSource, setActorSource] = useState("instagram");
   const [contentType, setContentType] = useState("");
@@ -959,6 +1048,20 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
   });
   const totalViews = sortedResults.reduce((sum, item) => sum + item.views, 0);
   const topResult = sortedResults[0];
+  const urlScanQuote = useBillingQuote({
+    action: "research.url_scan",
+    module: "research",
+    provider: "apify",
+    platform: platformFromUrlText(urlText),
+    maxResults: 100
+  });
+  const keywordScanQuote = useBillingQuote({
+    action: "research.keyword_search",
+    module: "research",
+    provider: "apify",
+    platform: actorSource,
+    maxResults: 100
+  });
   useEffect(() => {
     if (!activeScanStatus) {
       setScanElapsed(0);
@@ -1086,7 +1189,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
         </div>
         {searchMode === "url" ? (
           <form onSubmit={(event) => { event.preventDefault(); if (!activeScanStatus) void scanUrl(new FormData(event.currentTarget)); }} className="research-form">
-            <label>Social URL<input name="url" type="url" placeholder="LinkedIn profile/page, TikTok, Instagram, YouTube, Facebook, or X URL" required /></label>
+            <label>Social URL<input name="url" type="url" value={urlText} onChange={(event) => setUrlText(event.target.value)} placeholder="LinkedIn profile/page, TikTok, Instagram, YouTube, Facebook, or X URL" required /></label>
             <label>Minimum views<input name="minViews" type="number" min="0" step="1" defaultValue="0" /></label>
             <button
               type="button"
@@ -1100,7 +1203,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
                 void scanUrl(new FormData(form));
               }}
             >
-              <Radar size={14} />{activeScanStatus === "url" ? "Scanning..." : "Scan"}
+              <Radar size={14} />{activeScanStatus === "url" ? "Scanning..." : quoteButtonLabel("Scan", urlScanQuote.quote, urlScanQuote.loading)}
             </button>
           </form>
         ) : (
@@ -1120,7 +1223,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
                   void scanKeywords(new FormData(form));
                 }}
               >
-                <Search size={14} />{activeScanStatus === "keywords" ? "Scanning..." : "Search"}
+                <Search size={14} />{activeScanStatus === "keywords" ? "Scanning..." : quoteButtonLabel("Search", keywordScanQuote.quote, keywordScanQuote.loading)}
               </button>
             </div>
             <div className="dimension-shell">
@@ -1141,6 +1244,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
             </div>
           </form>
         )}
+        <CreditQuoteHint {...(searchMode === "url" ? urlScanQuote : keywordScanQuote)} balance={data.workspace.credits} note="This is an estimate before the final billing enforcement phase." />
         {activeScanStatus && <div className="scan-progress"><span />{activeScanStatus === "keywords" ? "Searching Apify in the background. You can leave this page and come back later." : "Scanning only the submitted URL/profile with Apify in the background. You can leave this page and come back later."}<b>{scanElapsed}s</b></div>}
         {!activeScanStatus && activeScan && activeScan.status !== "failed" && (
           <div className={`scan-outcome ${activeScan.source}`}>
@@ -1386,6 +1490,56 @@ function automationDefaultAspectRatio(contentType: string, selectedPlatforms: Pl
   return automationDimensionOptions(contentType, selectedPlatforms)[0]?.value || "1:1";
 }
 
+function platformFromUrlText(value: string) {
+  const lower = value.toLowerCase();
+  if (lower.includes("tiktok")) return "TikTok";
+  if (lower.includes("youtube") || lower.includes("youtu.be")) return "YouTube";
+  if (lower.includes("facebook") || lower.includes("fb.com")) return "Facebook";
+  if (lower.includes("linkedin")) return "LinkedIn";
+  if (lower.includes("x.com") || lower.includes("twitter")) return "X";
+  return "Instagram";
+}
+
+function automationRuleQuoteInput(rule: AutomationRule): Record<string, unknown> {
+  const kind = automationKindFromContentType(rule.contentType);
+  const model = rule.model || automationDefaultModel(rule.contentType);
+  return {
+    action: "automation.run_now",
+    module: "automation",
+    generationType: kind,
+    model: model === "auto" ? "gpt-5-5" : model,
+    duration: kind === "video" ? 8 : undefined,
+    resolution: kind === "image" ? "1K" : undefined,
+    inputTokens: kind === "text" ? 2500 : undefined,
+    outputTokens: kind === "text" ? 1500 : undefined
+  };
+}
+
+function sourceWatcherQuoteInput(watcher: AutomationSourceWatcher): Record<string, unknown> {
+  if (watcher.approvalMode === "draft-only") {
+    return {
+      action: "automation.source_watcher_scan",
+      module: "automation",
+      provider: "apify",
+      platform: platformFromUrlText(watcher.sourceUrls[0] || ""),
+      maxResults: 100
+    };
+  }
+  const kind = automationKindFromContentType(watcher.contentType);
+  const normalizedKind = kind === "auto" ? "video" : kind;
+  const model = watcher.model && watcher.model !== "auto" ? watcher.model : normalizedKind === "image" ? "gpt-image-2" : normalizedKind === "text" ? "gpt-5-5" : "veo-fast";
+  return {
+    action: "automation.source_watcher_generate",
+    module: "automation",
+    generationType: normalizedKind,
+    model,
+    duration: normalizedKind === "video" ? watcher.duration || 8 : undefined,
+    resolution: normalizedKind === "image" ? "1K" : undefined,
+    inputTokens: normalizedKind === "text" ? 2500 : undefined,
+    outputTokens: normalizedKind === "text" ? 1500 : undefined
+  };
+}
+
 function closestDuration(value: number | string | undefined, options: number[]) {
   if (options.length === 0) return "";
   const numeric = Number(value || options[0]);
@@ -1629,6 +1783,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
           brief={generatingBrief}
           personaAssets={data.personaProfile.mediaAssets || []}
           onClose={() => setGeneratingBrief(null)}
+          creditBalance={data.workspace.credits}
           onStart={(generation) => {
             flushSync(() => {
               setPendingGeneration(generation);
@@ -1710,7 +1865,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
   );
 }
 
-function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate", busyLabel = "Sending to Publish", allowAiAssist = false }: { initial: CreateContentInitial; personaAssets?: PersonaMediaAsset[]; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string; busyLabel?: string; allowAiAssist?: boolean }) {
+function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate", busyLabel = "Sending to Publish", allowAiAssist = false, creditBalance }: { initial: CreateContentInitial; personaAssets?: PersonaMediaAsset[]; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string; busyLabel?: string; allowAiAssist?: boolean; creditBalance?: number }) {
   const [activeInitial, setActiveInitial] = useState<CreateContentInitial>(initial);
   const [formVersion, setFormVersion] = useState(0);
   const [kind, setKind] = useState<GenerationKind>(initial.kind);
@@ -1727,6 +1882,24 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
   const assetRefsRef = useRef<AssetReference[]>([]);
   const durationOptions = durationOptionsForModel(model);
   const visualAssetsEnabled = kind === "video" || kind === "image";
+  const generationQuote = useBillingQuote({
+    action: "create_content.generate",
+    module: "create_content",
+    generationType: kind,
+    model,
+    duration: kind === "video" ? Number(duration || 8) : undefined,
+    resolution: kind === "image" ? "1K" : undefined,
+    inputTokens: kind === "text" ? 2000 : undefined,
+    outputTokens: kind === "text" ? 1000 : undefined
+  });
+  const aiAssistQuote = useBillingQuote(allowAiAssist ? {
+    action: "create_content.ai_assist",
+    module: "create_content",
+    generationType: "text",
+    model: "gpt-5-5",
+    inputTokens: 2200,
+    outputTokens: 1400
+  } : null);
   const resetFormFromInitial = (next: CreateContentInitial) => {
     const nextModel = next.model || generationModels[next.kind][0][0];
     setActiveInitial(next);
@@ -1836,7 +2009,7 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
           <p>{activeInitial.sourceDescription}</p>
         </div>
         <div className="source-actions">
-          {allowAiAssist && <button type="button" className="primary" onClick={() => setAiPromptOpen(true)} disabled={aiGenerating}><Sparkles size={14} />Fill fields with AI</button>}
+          {allowAiAssist && <button type="button" className="primary" onClick={() => setAiPromptOpen(true)} disabled={aiGenerating}><Sparkles size={14} />{quoteButtonLabel("Fill fields with AI", aiAssistQuote.quote, aiAssistQuote.loading)}</button>}
           {onUsePlan && <button type="button" className="linkish secondary-plan-link" onClick={onUsePlan}>Load from Content Plan</button>}
         </div>
         <p className="step-helper">This step only prepares editable prompt, caption, and hashtags. It will not spend generation credits or create a video/image yet.</p>
@@ -1847,8 +2020,9 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
                 <textarea name="idea" value={aiIdea} onChange={(event) => setAiIdea(event.target.value)} placeholder="Example: Create a 9:16 product demo video for busy SME founders about invoice follow-up automation." autoFocus />
               </label>
               {aiError && <div className="provider-error">{aiError}</div>}
+              <CreditQuoteHint {...aiAssistQuote} balance={creditBalance} note="This only fills editable fields; final content generation is charged separately." />
               <div className="row-actions">
-                <button className="primary" type="button" onClick={() => void generateAiDraft()} disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Filling fields" /> : "Fill fields"}</button>
+                <button className="primary" type="button" onClick={() => void generateAiDraft()} disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Filling fields" /> : quoteButtonLabel("Fill fields", aiAssistQuote.quote, aiAssistQuote.loading)}</button>
                 <button type="button" onClick={() => setAiPromptOpen(false)} disabled={aiGenerating}>Cancel</button>
               </div>
             </div>
@@ -1928,11 +2102,12 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
         <label>Generation prompt<textarea name="prompt" defaultValue={activeInitial.prompt} /></label>
         <label>Caption<textarea name="caption" defaultValue={activeInitial.caption} /></label>
         <label>Hashtags<input name="hashtags" defaultValue={activeInitial.hashtags} /></label>
+        <CreditQuoteHint {...generationQuote} balance={creditBalance} note="Final deduction is added in the next billing phase." />
         <div className="ftrow">
           <div>Selected: <b>{model}</b></div>
           <div className="row-actions">
             {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
-            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? <AnimatedDots label={busyLabel} /> : submitLabel}</button>
+            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? <AnimatedDots label={busyLabel} /> : quoteButtonLabel(submitLabel, generationQuote.quote, generationQuote.loading)}</button>
           </div>
         </div>
       </section>
@@ -1981,7 +2156,7 @@ function ReferenceAssetPicker({ personaAssets, selectedIds, onTogglePersona, upl
   );
 }
 
-function GenerationModal({ brief, personaAssets, onClose, onStart, onSubmit }: { brief: Brief; personaAssets: PersonaMediaAsset[]; onClose: () => void; onStart?: (generation: PendingGeneration) => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+function GenerationModal({ brief, personaAssets, onClose, onStart, onSubmit, creditBalance }: { brief: Brief; personaAssets: PersonaMediaAsset[]; onClose: () => void; onStart?: (generation: PendingGeneration) => void; onSubmit: (payload: Record<string, unknown>) => Promise<void>; creditBalance?: number }) {
   const kind = planContentKind(brief.format);
   const initial: CreateContentInitial = {
     sourceLabel: "Content plan",
@@ -2006,13 +2181,13 @@ function GenerationModal({ brief, personaAssets, onClose, onStart, onSubmit }: {
           </div>
           <button type="button" className="icon-btn" onClick={onClose}>x</button>
         </div>
-        <CreateContentModule initial={initial} personaAssets={personaAssets} onCancel={onClose} onStart={onStart} submitLabel="Create asset" onSubmit={(payload) => onSubmit({ ...payload, id: brief.id })} />
+        <CreateContentModule initial={initial} personaAssets={personaAssets} onCancel={onClose} onStart={onStart} submitLabel="Create asset" creditBalance={creditBalance} onSubmit={(payload) => onSubmit({ ...payload, id: brief.id })} />
       </section>
     </div>
   );
 }
 
-function ResearchGenerateModal({ initial, personaAssets, run, onClose, setScreen, setPendingGeneration }: { initial: CreateContentInitial; personaAssets: PersonaMediaAsset[]; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onClose: () => void; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
+function ResearchGenerateModal({ initial, personaAssets, run, onClose, setScreen, setPendingGeneration, creditBalance }: { initial: CreateContentInitial; personaAssets: PersonaMediaAsset[]; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onClose: () => void; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void; creditBalance?: number }) {
   const [g01Review, setG01Review] = useState<{ videoPrompt: string; debugJson: string } | null>(null);
   const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -2091,7 +2266,7 @@ function ResearchGenerateModal({ initial, personaAssets, run, onClose, setScreen
             </div>
           </div>
         ) : (
-          <CreateContentModule initial={initial} personaAssets={personaAssets} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing G01" : "Sending to Publish"} onSubmit={prepareGeneration} />
+          <CreateContentModule initial={initial} personaAssets={personaAssets} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing G01" : "Sending to Publish"} creditBalance={creditBalance} onSubmit={prepareGeneration} />
         )}
       </section>
     </div>
@@ -2126,6 +2301,7 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
         initial={initial}
         personaAssets={data.personaProfile.mediaAssets || []}
         allowAiAssist
+        creditBalance={data.workspace.credits}
         onStart={(generation) => {
           flushSync(() => {
             setPendingGeneration(generation);
@@ -2726,7 +2902,7 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
                   </div>
                 </div>
                 <div className="rule-actions">
-                  <button type="button" onClick={() => run("runSourceWatcherNow", { id: watcher.id }, "Source Watcher run started")}>Run now</button>
+                  <QuotedRunButton run={run} action="runSourceWatcherNow" payload={{ id: watcher.id }} message="Source Watcher run started" quoteInput={sourceWatcherQuoteInput(watcher)} balance={data.workspace.credits} />
                   <button type="button" onClick={() => run(watcher.status === "active" ? "pauseSourceWatcher" : "resumeSourceWatcher", { id: watcher.id }, watcher.status === "active" ? "Watcher paused" : "Watcher resumed")}>{watcher.status === "active" ? "Pause" : "Resume"}</button>
                   <button type="button" className="danger ghost" onClick={() => run("deleteSourceWatcher", { id: watcher.id }, "Source Watcher deleted")}>Delete</button>
                 </div>
@@ -2772,7 +2948,7 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
                   </div>
                 </div>
                 <div className="rule-actions">
-                  <button type="button" onClick={() => run("runAutomationNow", { id: rule.id }, "Automation draft job created")}>Run now</button>
+                  <QuotedRunButton run={run} action="runAutomationNow" payload={{ id: rule.id }} message="Automation draft job created" quoteInput={automationRuleQuoteInput(rule)} balance={data.workspace.credits} />
                   <button type="button" onClick={() => run(rule.status === "active" ? "pauseAutomationRule" : "resumeAutomationRule", { id: rule.id }, rule.status === "active" ? "Automation paused" : "Automation resumed")}>{rule.status === "active" ? "Pause" : "Resume"}</button>
                   <button type="button" className="danger ghost" onClick={() => run("deleteAutomationRule", { id: rule.id }, "Automation deleted")}>Delete</button>
                 </div>
@@ -2803,6 +2979,23 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
       </div>
       )}
     </div>
+  );
+}
+
+function QuotedRunButton({ run, action, payload, message, quoteInput, balance }: { run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; action: string; payload: Record<string, unknown>; message: string; quoteInput: Record<string, unknown>; balance: number }) {
+  const quoteState = useBillingQuote(quoteInput);
+  const insufficient = !hasEnoughCredits(balance, quoteState.quote);
+  return (
+    <button
+      type="button"
+      className={insufficient ? "credit-risk" : ""}
+      title={quoteState.error || (insufficient ? `Balance ${balance.toLocaleString()} credits. ${quoteState.quote?.label || ""}` : quoteState.quote?.label) || ""}
+      onClick={() => {
+        void run(action, payload, message);
+      }}
+    >
+      {quoteButtonLabel("Run now", quoteState.quote, quoteState.loading)}
+    </button>
   );
 }
 

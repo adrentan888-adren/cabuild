@@ -327,9 +327,10 @@ function CreditQuoteHint({ quote, loading, error, balance, note }: { quote?: Bil
   if (error) return <p className="credit-quote warn">Credit estimate unavailable: {error}</p>;
   if (!quote) return null;
   const enough = hasEnoughCredits(balance, quote);
+  const estimate = `Estimated charge: ${quote.label}${/[.!?]$/.test(quote.label) ? "" : "."}`;
   return (
     <p className={`credit-quote ${enough ? "" : "danger"}`}>
-      {enough ? `Estimated charge: ${quote.label}.` : `Insufficient credits: needs ${quote.maxCredits.toLocaleString()}, balance ${Number(balance || 0).toLocaleString()}.`}
+      {enough ? estimate : `Insufficient credits: needs ${quote.maxCredits.toLocaleString()}, balance ${Number(balance || 0).toLocaleString()}.`}
       {note ? ` ${note}` : ""}
     </p>
   );

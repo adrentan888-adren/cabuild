@@ -51,6 +51,14 @@ type KieResponsesResponse = {
   error?: { message?: string };
 };
 
+export type KieGeneratedTextContent = {
+  title: string;
+  body: string;
+  caption: string;
+  hashtags: string[];
+  raw: string;
+};
+
 const baseUrl = "https://api.kie.ai";
 
 export type KieReferenceAsset = {
@@ -220,6 +228,122 @@ export async function getMarketTask(taskId: string) {
 
 export async function checkKieHealth() {
   return { configured: await hasKie(), baseUrl };
+}
+
+export async function generateTextContentWithKie(prompt: string, options: { model?: string; caption?: string; hashtags?: string[] } = {}): Promise<KieGeneratedTextContent> {
+  const apiToken = await token();
+  if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
+  const model = options.model || "gemini-3.5-flash";
+  const instruction = `You are ContentAgent's senior social copywriter.
+
+Create the final text-based social content from this editable brief.
+
+Return ONLY valid JSON with this exact shape:
+{
+  "title": "short internal title",
+  "body": "final post body ready to publish",
+  "caption": "caption or first post text",
+  "hashtags": ["#tag1", "#tag2", "#tag3"]
+}
+
+Rules:
+- Keep it original and platform-native.
+- Preserve the user's language, offer, CTA, compliance constraints, and persona context.
+- If a caption or hashtags are provided, improve them instead of ignoring them.
+- Do not mention video/image production unless the brief explicitly asks for it.
+
+Editable brief:
+${prompt}
+
+Existing caption:
+${options.caption || ""}
+
+Existing hashtags:
+${(options.hashtags || []).join(" ")}`;
+
+  const raw = model === "gemini-3.5-flash"
+    ? await generateGeminiText(apiToken, instruction)
+    : await generateResponsesText(apiToken, model === "gpt-5-5" ? "gpt-5-5" : model, instruction);
+  return normalizeGeneratedText(raw, options);
+}
+
+async function generateResponsesText(apiToken: string, model: string, instruction: string) {
+  const res = await fetch(`${baseUrl}/codex/v1/responses`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      stream: false,
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: instruction }]
+        }
+      ],
+      reasoning: { effort: "medium" }
+    })
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Kie ${model} text generation failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
+  const parsed = JSON.parse(text) as KieResponsesResponse;
+  if (parsed.error?.message) throw new Error(parsed.error.message);
+  return (parsed.output || [])
+    .flatMap((item) => item.content || [])
+    .map((item) => item.text || "")
+    .join("")
+    .trim() || text;
+}
+
+async function generateGeminiText(apiToken: string, instruction: string) {
+  const res = await fetch(`${baseUrl}/gemini/v1/models/gemini-3-5-flash:streamGenerateContent`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      stream: false,
+      contents: [{ role: "user", parts: [{ text: instruction }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        thinkingConfig: { includeThoughts: false, thinkingLevel: "medium" }
+      }
+    })
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Kie Gemini text generation failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
+  const parsed = JSON.parse(text);
+  return parsed?.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("").trim() || text;
+}
+
+function normalizeGeneratedText(raw: string, options: { caption?: string; hashtags?: string[] }): KieGeneratedTextContent {
+  try {
+    const json = extractJson(raw) as Record<string, unknown>;
+    const body = String(json.body || json.post || json.text || json.caption || "").trim();
+    const caption = String(json.caption || body || options.caption || "").trim();
+    const tags = Array.isArray(json.hashtags)
+      ? json.hashtags.map((tag) => String(tag).trim()).filter(Boolean)
+      : String(json.hashtags || (options.hashtags || []).join(" ")).split(/[,\s]+/).map((tag) => tag.trim()).filter(Boolean);
+    return {
+      title: String(json.title || caption.split(/\n|\.|\?/)[0] || "Generated text post").slice(0, 120),
+      body: body || caption,
+      caption,
+      hashtags: tags.map((tag) => tag.startsWith("#") ? tag : `#${tag}`),
+      raw
+    };
+  } catch {
+    const cleaned = raw.replace(/```(?:json)?/gi, "").trim();
+    return {
+      title: cleaned.split(/\n|\.|\?/)[0].slice(0, 120) || "Generated text post",
+      body: cleaned,
+      caption: cleaned || options.caption || "",
+      hashtags: options.hashtags || [],
+      raw
+    };
+  }
 }
 
 type PlanInput = {

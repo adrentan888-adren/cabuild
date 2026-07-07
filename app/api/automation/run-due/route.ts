@@ -5,6 +5,7 @@ import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
 import { scanSocialUrl } from "@/lib/providers/apify";
 import { generateImage, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { publishPhotoPost, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
+import { encodeUploadKey, saveGeneratedMediaFromUrl } from "@/lib/providers/uploads";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,48 @@ function authorized(req: NextRequest) {
   const secret = process.env.AUTOMATION_CRON_SECRET?.trim();
   if (!secret) return false;
   return req.headers.get("x-automation-cron-secret")?.trim() === secret || req.nextUrl.searchParams.get("secret")?.trim() === secret;
+}
+
+function publicOrigin(req: NextRequest) {
+  if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/+$/, "");
+  const forwardedHost = req.headers.get("x-forwarded-host");
+  const forwardedProto = req.headers.get("x-forwarded-proto") || "https";
+  if (forwardedHost) return `${forwardedProto}://${forwardedHost}`;
+  return new URL(req.url).origin;
+}
+
+function preferredGeneratedContentType(asset: Pick<Asset, "type">) {
+  if (asset.type === "video" || asset.type === "ugc") return "video/mp4";
+  if (asset.type === "text") return "text/plain";
+  return "image/png";
+}
+
+async function persistGeneratedAssetUrl(input: { origin: string; workspaceId: string; asset: Pick<Asset, "id" | "type" | "title">; providerUrl: string }) {
+  try {
+    const stored = await saveGeneratedMediaFromUrl({
+      workspaceId: input.workspaceId,
+      assetId: input.asset.id,
+      sourceUrl: input.providerUrl,
+      preferredContentType: preferredGeneratedContentType(input.asset)
+    });
+    return {
+      assetUrl: `${input.origin}/api/public-uploads/${encodeUploadKey(stored.key)}`,
+      providerUrl: input.providerUrl,
+      storageKey: stored.key,
+      contentType: stored.contentType,
+      size: stored.size,
+      storageError: ""
+    };
+  } catch (error) {
+    return {
+      assetUrl: input.providerUrl,
+      providerUrl: input.providerUrl,
+      storageKey: "",
+      contentType: preferredGeneratedContentType(input.asset),
+      size: 0,
+      storageError: error instanceof Error ? error.message : "Generated media storage failed."
+    };
+  }
 }
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -217,7 +260,7 @@ async function autoPublishItem(workspaceId: string, item: PublishItem, asset?: A
   await log(workspaceId, { action: "automationRunDue", label: `Automation Upload-Post accepted: ${item.title}`, status: "success", provider: "upload-post", details: { requestId: upload.request_id, jobId: upload.job_id } });
 }
 
-async function pollReadyGenerations(limit = 10) {
+async function pollReadyGenerations(origin: string, limit = 10) {
   const jobs = await mutateDb((db) => {
     return db.publishQueue
       .filter((item) => item.status === "generating" && item.workspaceId)
@@ -241,24 +284,48 @@ async function pollReadyGenerations(limit = 10) {
       const success = done.kind === "market" ? done.status.state === "success" && done.status.assetUrl : done.status.successFlag === 1 && done.status.assetUrl;
       const failed = done.kind === "market" ? done.status.state === "fail" : done.status.successFlag === 2 || done.status.successFlag === 3;
       if (success) {
-        const assetUrl = String(done.status.assetUrl);
+        const providerUrl = String(done.status.assetUrl);
+        const persisted = await persistGeneratedAssetUrl({ origin, workspaceId: job.item.workspaceId, asset: job.asset, providerUrl });
         await mutateDb((db) => {
           const asset = db.assets.find((asset) => asset.id === job.asset.id && asset.workspaceId === job.item.workspaceId);
           const item = db.publishQueue.find((item) => item.id === job.item.id && item.workspaceId === job.item.workspaceId);
           if (asset) {
             asset.status = "ready";
             asset.progress = 100;
-            asset.assetUrl = assetUrl;
+            asset.assetUrl = persisted.assetUrl;
             asset.error = "";
+            asset.generationSettings = {
+              ...(asset.generationSettings || {}),
+              providerAssetUrl: persisted.providerUrl,
+              generatedStorageKey: persisted.storageKey,
+              generatedStorageContentType: persisted.contentType,
+              generatedStorageSize: persisted.size,
+              generatedStorageError: persisted.storageError
+            };
           }
           if (item) {
             item.status = "done";
-            item.assetUrl = assetUrl;
+            item.assetUrl = persisted.assetUrl;
             item.error = "";
+            item.generationSettings = {
+              ...(item.generationSettings || {}),
+              providerAssetUrl: persisted.providerUrl,
+              generatedStorageKey: persisted.storageKey,
+              generatedStorageContentType: persisted.contentType,
+              generatedStorageSize: persisted.size,
+              generatedStorageError: persisted.storageError
+            };
           }
         });
-        const current = { ...job.item, status: "done" as const, assetUrl };
-        const asset = { ...job.asset, status: "ready" as const, progress: 100, assetUrl };
+        await log(job.item.workspaceId, {
+          action: "automationRunDue",
+          label: persisted.storageError ? `Generated media storage fallback: ${job.asset.title}` : `Generated media stored: ${job.asset.title}`,
+          status: persisted.storageError ? "failed" : "success",
+          provider: "system",
+          details: { assetId: job.asset.id, title: job.asset.title, ...persisted }
+        });
+        const current = { ...job.item, status: "done" as const, assetUrl: persisted.assetUrl };
+        const asset = { ...job.asset, status: "ready" as const, progress: 100, assetUrl: persisted.assetUrl };
         if (job.watcher.approvalMode === "auto-publish") await autoPublishItem(job.item.workspaceId, current, asset);
         results.push({ id: job.item.id, status: "done" });
       } else if (failed) {
@@ -502,7 +569,7 @@ function platformFromUrl(url: string): Platform {
 export async function POST(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const now = Date.now();
-  const polled = await pollReadyGenerations(12);
+  const polled = await pollReadyGenerations(publicOrigin(req), 12);
   const due = await mutateDb((db) => {
     return (db.automationSourceWatchers || [])
       .filter((watcher) => watcher.status === "active")

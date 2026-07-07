@@ -4,6 +4,7 @@ import crypto from "crypto";
 
 const localUploadDir = path.join(process.cwd(), "data", "uploads");
 const gcsBucket = process.env.UPLOADS_GCS_BUCKET || process.env.DATA_STORE_GCS_BUCKET;
+const maxGeneratedMediaBytes = 250 * 1024 * 1024;
 
 export type StoredUpload = {
   key: string;
@@ -15,6 +16,13 @@ export function uploadKey(workspaceId: string, fileName: string) {
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-").slice(0, 90) || "upload";
   const nonce = crypto.randomBytes(10).toString("hex");
   return `uploads/${workspaceId}/${new Date().toISOString().slice(0, 10)}/${Date.now()}-${nonce}-${safeName}`;
+}
+
+export function generatedMediaKey(workspaceId: string, assetId: string, sourceUrl: string, contentType?: string) {
+  const ext = extensionForGeneratedMedia(sourceUrl, contentType);
+  const safeAssetId = assetId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-").slice(0, 80) || "asset";
+  const nonce = crypto.randomBytes(8).toString("hex");
+  return `generated/${workspaceId}/${new Date().toISOString().slice(0, 10)}/${Date.now()}-${nonce}-${safeAssetId}.${ext}`;
 }
 
 export function encodeUploadKey(key: string) {
@@ -40,8 +48,20 @@ export async function saveUpload(key: string, buffer: Buffer, contentType: strin
   return { key, contentType, size: buffer.length };
 }
 
+export async function saveGeneratedMediaFromUrl(input: { workspaceId: string; assetId: string; sourceUrl: string; preferredContentType?: string }): Promise<StoredUpload> {
+  const res = await fetch(input.sourceUrl, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to fetch generated media: HTTP ${res.status}`);
+  const contentLength = Number(res.headers.get("content-length") || 0);
+  if (contentLength > maxGeneratedMediaBytes) throw new Error(`Generated media is too large to store (${contentLength} bytes).`);
+  const contentType = res.headers.get("content-type")?.split(";")[0] || input.preferredContentType || contentTypeFromName(input.sourceUrl);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (buffer.length > maxGeneratedMediaBytes) throw new Error(`Generated media is too large to store (${buffer.length} bytes).`);
+  const key = generatedMediaKey(input.workspaceId, input.assetId, input.sourceUrl, contentType);
+  return saveUpload(key, buffer, contentType);
+}
+
 export async function readUpload(key: string) {
-  if (!key.startsWith("uploads/")) throw new Error("Invalid upload key.");
+  if (!key.startsWith("uploads/") && !key.startsWith("generated/")) throw new Error("Invalid upload key.");
   if (gcsBucket) {
     try {
       return await readGcsObject(key);
@@ -60,7 +80,32 @@ function contentTypeFromName(name: string) {
   if (lower.endsWith(".webp")) return "image/webp";
   if (lower.endsWith(".gif")) return "image/gif";
   if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".mp3")) return "audio/mpeg";
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".txt")) return "text/plain";
   return "image/png";
+}
+
+function extensionForGeneratedMedia(sourceUrl: string, contentType?: string) {
+  const normalized = String(contentType || "").toLowerCase();
+  if (normalized.includes("video/mp4")) return "mp4";
+  if (normalized.includes("video/webm")) return "webm";
+  if (normalized.includes("video/quicktime")) return "mov";
+  if (normalized.includes("image/jpeg")) return "jpg";
+  if (normalized.includes("image/webp")) return "webp";
+  if (normalized.includes("image/gif")) return "gif";
+  if (normalized.includes("image/png")) return "png";
+  if (normalized.includes("text/plain")) return "txt";
+  try {
+    const ext = path.extname(new URL(sourceUrl).pathname).replace(/^\./, "").toLowerCase();
+    if (/^(mp4|webm|mov|jpg|jpeg|png|webp|gif|txt)$/.test(ext)) return ext === "jpeg" ? "jpg" : ext;
+  } catch {
+    // Fall through to a conservative default.
+  }
+  return normalized.startsWith("video/") ? "mp4" : normalized.startsWith("text/") ? "txt" : "png";
 }
 
 async function writeGcsObject(key: string, buffer: Buffer, contentType: string) {

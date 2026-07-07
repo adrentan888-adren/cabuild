@@ -5,9 +5,10 @@ import { defaultPersonaProfile, id, mutateDb } from "@/lib/store";
 import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, Brief, CompetitorResult, GenerationAssetReference, PersonaMediaAsset, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext, normalizePersonaProfile } from "@/lib/persona";
 import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl, startKeywordScanRun, startSocialUrlScanRun } from "@/lib/providers/apify";
-import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
+import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateTextContentWithKie, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishPhotoPost, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 import { reserveBillingCredits, releaseBillingReservation, settleBillingReservation } from "@/lib/billing";
+import { encodeUploadKey, saveGeneratedMediaFromUrl } from "@/lib/providers/uploads";
 
 const allowedPlatforms: Platform[] = ["TikTok", "Instagram", "YouTube", "LinkedIn", "Facebook", "X"];
 
@@ -43,6 +44,52 @@ function handleFromUrl(url: string) {
 
 function isKieImageModel(model: string) {
   return model === "nanobanana-pro" || model === "gpt-image-2";
+}
+
+function isKieTextModel(model: string) {
+  return model === "gemini-3.5-flash" || model === "gpt-5-5" || model === "claude-opus-4.8";
+}
+
+function publicOrigin(req: Request) {
+  if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/+$/, "");
+  const forwardedHost = req.headers.get("x-forwarded-host");
+  const forwardedProto = req.headers.get("x-forwarded-proto") || "https";
+  if (forwardedHost) return `${forwardedProto}://${forwardedHost}`;
+  return new URL(req.url).origin;
+}
+
+function preferredGeneratedContentType(asset: Pick<Asset, "type">) {
+  if (asset.type === "video" || asset.type === "ugc") return "video/mp4";
+  if (asset.type === "text") return "text/plain";
+  return "image/png";
+}
+
+async function persistGeneratedAssetUrl(input: { origin: string; workspaceId: string; asset: Pick<Asset, "id" | "type" | "title">; providerUrl: string }) {
+  try {
+    const stored = await saveGeneratedMediaFromUrl({
+      workspaceId: input.workspaceId,
+      assetId: input.asset.id,
+      sourceUrl: input.providerUrl,
+      preferredContentType: preferredGeneratedContentType(input.asset)
+    });
+    return {
+      assetUrl: `${input.origin}/api/public-uploads/${encodeUploadKey(stored.key)}`,
+      providerUrl: input.providerUrl,
+      storageKey: stored.key,
+      contentType: stored.contentType,
+      size: stored.size,
+      storageError: ""
+    };
+  } catch (error) {
+    return {
+      assetUrl: input.providerUrl,
+      providerUrl: input.providerUrl,
+      storageKey: "",
+      contentType: preferredGeneratedContentType(input.asset),
+      size: 0,
+      storageError: error instanceof Error ? error.message : "Generated media storage failed."
+    };
+  }
 }
 
 function summarizePayload(body: Record<string, unknown>) {
@@ -1115,6 +1162,7 @@ export async function POST(req: Request) {
   const body = await req.json() as Record<string, unknown>;
   const action = body.action as string;
   const workspaceId = user.workspaceId;
+  const origin = publicOrigin(req);
   await debugLog(workspaceId, {
     action,
     label: `Action requested: ${action}`,
@@ -1159,6 +1207,7 @@ export async function POST(req: Request) {
 
   if (action === "pollAsset") {
     try {
+      const storageEvents: Array<{ assetId: string; title: string; providerUrl: string; assetUrl: string; storageKey: string; contentType: string; size: number; storageError: string }> = [];
       const updated = await mutateDb(async (db) => {
         const asset = db.assets.find((item) => item.id === body.id && item.workspaceId === workspaceId);
         if (!asset?.providerTaskId) throw new Error("Asset has no provider task to poll.");
@@ -1168,14 +1217,32 @@ export async function POST(req: Request) {
         if (isMarketTask) {
           const status = await getMarketTask(asset.providerTaskId);
           if (status.state === "success" && status.assetUrl) {
+            const persisted = await persistGeneratedAssetUrl({ origin, workspaceId, asset, providerUrl: status.assetUrl });
+            storageEvents.push({ assetId: asset.id, title: asset.title, ...persisted });
             asset.status = "ready";
             asset.progress = 100;
-            asset.assetUrl = status.assetUrl;
+            asset.assetUrl = persisted.assetUrl;
             asset.error = "";
+            asset.generationSettings = {
+              ...(asset.generationSettings || {}),
+              providerAssetUrl: persisted.providerUrl,
+              generatedStorageKey: persisted.storageKey,
+              generatedStorageContentType: persisted.contentType,
+              generatedStorageSize: persisted.size,
+              generatedStorageError: persisted.storageError
+            };
             publishItems.forEach((item) => {
               item.status = "done";
-              item.assetUrl = status.assetUrl;
+              item.assetUrl = persisted.assetUrl;
               item.error = "";
+              item.generationSettings = {
+                ...(item.generationSettings || {}),
+                providerAssetUrl: persisted.providerUrl,
+                generatedStorageKey: persisted.storageKey,
+                generatedStorageContentType: persisted.contentType,
+                generatedStorageSize: persisted.size,
+                generatedStorageError: persisted.storageError
+              };
             });
             db.activity.push({ id: id("act"), workspaceId, message: `Kie ${asset.type === "video" || asset.type === "ugc" ? "video" : "image"} ready for "${asset.title}".`, createdAt: new Date().toISOString() });
           } else if (status.state === "fail") {
@@ -1192,14 +1259,32 @@ export async function POST(req: Request) {
         } else {
           const status = await getVeoVideo(asset.providerTaskId);
           if (status.successFlag === 1 && status.assetUrl) {
+            const persisted = await persistGeneratedAssetUrl({ origin, workspaceId, asset, providerUrl: status.assetUrl });
+            storageEvents.push({ assetId: asset.id, title: asset.title, ...persisted });
             asset.status = "ready";
             asset.progress = 100;
-            asset.assetUrl = status.assetUrl;
+            asset.assetUrl = persisted.assetUrl;
             asset.error = "";
+            asset.generationSettings = {
+              ...(asset.generationSettings || {}),
+              providerAssetUrl: persisted.providerUrl,
+              generatedStorageKey: persisted.storageKey,
+              generatedStorageContentType: persisted.contentType,
+              generatedStorageSize: persisted.size,
+              generatedStorageError: persisted.storageError
+            };
             publishItems.forEach((item) => {
               item.status = "done";
-              item.assetUrl = status.assetUrl;
+              item.assetUrl = persisted.assetUrl;
               item.error = "";
+              item.generationSettings = {
+                ...(item.generationSettings || {}),
+                providerAssetUrl: persisted.providerUrl,
+                generatedStorageKey: persisted.storageKey,
+                generatedStorageContentType: persisted.contentType,
+                generatedStorageSize: persisted.size,
+                generatedStorageError: persisted.storageError
+              };
             });
             db.activity.push({ id: id("act"), workspaceId, message: `Kie video ready for "${asset.title}".`, createdAt: new Date().toISOString() });
           } else if (status.successFlag === 2 || status.successFlag === 3) {
@@ -1216,6 +1301,15 @@ export async function POST(req: Request) {
         }
         return asset;
       });
+      for (const event of storageEvents) {
+        await debugLog(workspaceId, {
+          action,
+          label: event.storageError ? `Generated media storage fallback: ${event.title}` : `Generated media stored: ${event.title}`,
+          status: event.storageError ? "failed" : "success",
+          provider: "system",
+          details: event
+        });
+      }
       const autoPublish = await autoPublishReadySourceWatcherItems(workspaceId, action, updated.id);
       return NextResponse.json({ ...updated, autoPublish });
     } catch (error) {
@@ -2186,14 +2280,21 @@ export async function POST(req: Request) {
     const asset = snapshot.asset;
     const settings = (asset.generationSettings || snapshot.publishItem?.generationSettings || {}) as Record<string, unknown>;
     const model = asset.generationModel || String(body.generationModel || "veo-fast");
-    const prompt = enhanceVideoPromptForProvider({
-      prompt: asset.prompt || asset.title,
-      model,
-      duration: Number(settings.duration || snapshot.publishItem?.duration || 8),
-      aspectRatio: String(settings.aspectRatio || "9:16"),
-      references: asset.assetReferences || []
-    });
-    const references = asset.assetReferences || [];
+    const generationType: "video" | "image" | "text" = String(snapshot.publishItem?.generationType || asset.type) === "text"
+      ? "text"
+      : isKieImageModel(model) ? "image" : "video";
+    const references = generationType === "text" ? [] : asset.assetReferences || [];
+    const duration = Number(settings.duration || snapshot.publishItem?.duration || 8);
+    const aspectRatio = String(settings.aspectRatio || "9:16");
+    const prompt = generationType === "video"
+      ? enhanceVideoPromptForProvider({
+        prompt: asset.prompt || asset.title,
+        model,
+        duration,
+        aspectRatio,
+        references
+      })
+      : asset.prompt || asset.title;
     let billing;
     try {
       billing = await reservePaidAction({
@@ -2202,9 +2303,9 @@ export async function POST(req: Request) {
         quoteInput: generationBillingInput(
           "create_content.generate",
           "create_content",
-          isKieImageModel(model) ? "image" : "video",
+          generationType,
           model,
-          Number(settings.duration || snapshot.publishItem?.duration || 8)
+          duration
         ),
         relatedId: asset.id,
         description: `Reserve credits to start ${model} generation for ${asset.title}.`,
@@ -2249,11 +2350,70 @@ export async function POST(req: Request) {
       }
     });
     try {
-      const taskId = isKieImageModel(model)
+      if (generationType === "text") {
+        const generatedText = await generateTextContentWithKie(prompt, {
+          model,
+          caption: snapshot.publishItem?.caption,
+          hashtags: snapshot.publishItem?.hashtags
+        });
+        const bodyText = [generatedText.body || generatedText.caption, generatedText.hashtags.join(" ")].filter(Boolean).join("\n\n");
+        const textAssetUrl = `data:text/plain;charset=utf-8,${encodeURIComponent(bodyText)}`;
+        const providerTaskId = `text_${asset.id}`;
+        const updated = await mutateDb((db) => {
+          const existing = db.assets.find((item) => item.id === asset.id && item.workspaceId === workspaceId);
+          if (!existing) return asset;
+          existing.status = "ready";
+          existing.progress = 100;
+          existing.providerTaskId = providerTaskId;
+          existing.generationModel = model;
+          existing.assetUrl = textAssetUrl;
+          existing.prompt = prompt;
+          existing.generationSettings = {
+            ...(existing.generationSettings || {}),
+            textProviderModel: model,
+            textRawResponse: generatedText.raw
+          };
+          db.publishQueue
+            .filter((item) => item.assetId === existing.id && item.workspaceId === workspaceId)
+            .forEach((item) => {
+              item.status = "done";
+              item.providerRequestId = providerTaskId;
+              item.assetUrl = textAssetUrl;
+              item.caption = generatedText.caption || generatedText.body || item.caption;
+              item.hashtags = generatedText.hashtags.length ? generatedText.hashtags : item.hashtags;
+              item.prompt = prompt;
+              item.generationSettings = {
+                ...(item.generationSettings || {}),
+                textProviderModel: model,
+                textRawResponse: generatedText.raw
+              };
+            });
+          db.activity.push({ id: id("act"), workspaceId, message: `Kie text ready for "${asset.title}".`, createdAt: new Date().toISOString() });
+          return existing;
+        });
+        await settlePaidAction({
+          workspaceId,
+          reservationId: billing.reservationId,
+          relatedId: asset.id,
+          providerTaskId,
+          description: `Charged ${model} text generation for ${asset.title}.`,
+          metadata: { assetId: asset.id, model, providerTaskId, characters: bodyText.length }
+        });
+        await debugLog(workspaceId, {
+          action,
+          label: `Kie text generated: ${asset.title}`,
+          status: "success",
+          provider: "kie",
+          prompt,
+          details: { assetId: asset.id, model, providerTaskId, characters: bodyText.length }
+        });
+        return NextResponse.json(updated);
+      }
+      const taskId = generationType === "image"
         ? await generateImage(prompt, { model, aspectRatio: String(settings.aspectRatio || ""), references })
         : model === "seedance-2.0"
-          ? await generateSeedanceVideo(prompt, { duration: Number(settings.duration || snapshot.publishItem?.duration || 8), aspectRatio: String(settings.aspectRatio || "9:16"), references })
-          : await generateVeoVideo(prompt, { duration: Number(settings.duration || snapshot.publishItem?.duration || 8), aspectRatio: String(settings.aspectRatio || "9:16"), references });
+          ? await generateSeedanceVideo(prompt, { duration, aspectRatio, references })
+          : await generateVeoVideo(prompt, { duration, aspectRatio, references });
       const updated = await mutateDb((db) => {
         const existing = db.assets.find((item) => item.id === asset.id && item.workspaceId === workspaceId);
         if (!existing) return asset;
@@ -3220,7 +3380,8 @@ export async function POST(req: Request) {
       const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? "image" : "text";
       const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
       const isKieImage = generationType === "image" && isKieImageModel(model);
-      const isKieGeneration = isKieVideo || isKieImage;
+      const isKieText = generationType === "text" && isKieTextModel(model);
+      const isKieGeneration = isKieVideo || isKieImage || isKieText;
       brief.duration = duration || brief.duration;
       brief.status = "production";
       brief.updatedAt = now;
@@ -3308,7 +3469,8 @@ export async function POST(req: Request) {
       const sourceMediaType = String(body.sourceMediaType || "") as "video" | "image" | "unknown";
       const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
       const isKieImage = generationType === "image" && isKieImageModel(model);
-      const isKieGeneration = isKieVideo || isKieImage;
+      const isKieText = generationType === "text" && isKieTextModel(model);
+      const isKieGeneration = isKieVideo || isKieImage || isKieText;
       const asset: Asset = {
         id: id("ast"),
         workspaceId,

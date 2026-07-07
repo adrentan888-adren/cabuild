@@ -53,7 +53,10 @@ export async function saveGeneratedMediaFromUrl(input: { workspaceId: string; as
   if (!res.ok) throw new Error(`Failed to fetch generated media: HTTP ${res.status}`);
   const contentLength = Number(res.headers.get("content-length") || 0);
   if (contentLength > maxGeneratedMediaBytes) throw new Error(`Generated media is too large to store (${contentLength} bytes).`);
-  const contentType = res.headers.get("content-type")?.split(";")[0] || input.preferredContentType || contentTypeFromName(input.sourceUrl);
+  const responseContentType = res.headers.get("content-type")?.split(";")[0].toLowerCase();
+  const contentType = !responseContentType || responseContentType === "application/octet-stream"
+    ? input.preferredContentType || contentTypeFromName(input.sourceUrl)
+    : responseContentType;
   const buffer = Buffer.from(await res.arrayBuffer());
   if (buffer.length > maxGeneratedMediaBytes) throw new Error(`Generated media is too large to store (${buffer.length} bytes).`);
   const key = generatedMediaKey(input.workspaceId, input.assetId, input.sourceUrl, contentType);

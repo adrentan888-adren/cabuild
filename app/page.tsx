@@ -330,7 +330,7 @@ function CreditQuoteHint({ quote, loading, error, balance, note }: { quote?: Bil
   const estimate = `Estimated charge: ${quote.label}${/[.!?]$/.test(quote.label) ? "" : "."}`;
   return (
     <p className={`credit-quote ${enough ? "" : "danger"}`}>
-      {enough ? estimate : `Insufficient credits: needs ${quote.maxCredits.toLocaleString()}, balance ${Number(balance || 0).toLocaleString()}.`}
+      {enough ? estimate : `Insufficient credits: needs ${quote.maxCredits.toLocaleString()}, balance ${Number(balance || 0).toLocaleString()}. Add credits before running this action.`}
       {note ? ` ${note}` : ""}
     </p>
   );
@@ -949,7 +949,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
               <label>X / Twitter<input name="xUrl" defaultValue={persona.sourceUrls.x} placeholder="x.com/yourhandle" /></label>
             </div>
             <div className="autofill-actions">
-              <button type="button" className="primary" onClick={(event) => autoFill(event.currentTarget.form)} disabled={autoFilling}>{autoFilling ? <AnimatedDots label="Auto-filling persona" /> : quoteButtonLabel("Auto-fill persona", autofillQuote.quote, autofillQuote.loading)}</button>
+              <button type="button" className="primary" onClick={(event) => autoFill(event.currentTarget.form)} disabled={autoFilling || autofillQuote.loading || !hasEnoughCredits(data.workspace.credits, autofillQuote.quote)}>{autoFilling ? <AnimatedDots label="Auto-filling persona" /> : quoteButtonLabel("Auto-fill persona", autofillQuote.quote, autofillQuote.loading)}</button>
               <span>Uses only public crawl results. Review and edit the saved persona after auto-fill.</span>
             </div>
             <CreditQuoteHint {...autofillQuote} balance={data.workspace.credits} note="This estimates the GPT-5.5 mapping step; crawler usage is quoted separately in later billing enforcement." />
@@ -1195,11 +1195,12 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
             <button
               type="button"
               className="primary"
-              disabled={activeScanStatus !== null}
+              disabled={activeScanStatus !== null || urlScanQuote.loading || !hasEnoughCredits(data.workspace.credits, urlScanQuote.quote)}
               aria-busy={activeScanStatus === "url"}
               onClick={(event) => {
                 const form = event.currentTarget.form;
                 if (!form || activeScanStatus) return;
+                if (!hasEnoughCredits(data.workspace.credits, urlScanQuote.quote)) return;
                 if (!form.reportValidity()) return;
                 void scanUrl(new FormData(form));
               }}
@@ -1215,11 +1216,12 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
               <button
                 type="button"
                 className="primary"
-                disabled={activeScanStatus !== null}
+                disabled={activeScanStatus !== null || keywordScanQuote.loading || !hasEnoughCredits(data.workspace.credits, keywordScanQuote.quote)}
                 aria-busy={activeScanStatus === "keywords"}
                 onClick={(event) => {
                   const form = event.currentTarget.form;
                   if (!form || activeScanStatus) return;
+                  if (!hasEnoughCredits(data.workspace.credits, keywordScanQuote.quote)) return;
                   if (!form.reportValidity()) return;
                   void scanKeywords(new FormData(form));
                 }}
@@ -1245,7 +1247,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
             </div>
           </form>
         )}
-        <CreditQuoteHint {...(searchMode === "url" ? urlScanQuote : keywordScanQuote)} balance={data.workspace.credits} note="This is an estimate before the final billing enforcement phase." />
+        <CreditQuoteHint {...(searchMode === "url" ? urlScanQuote : keywordScanQuote)} balance={data.workspace.credits} note="The backend reserves credits before starting paid provider work." />
         {activeScanStatus && <div className="scan-progress"><span />{activeScanStatus === "keywords" ? "Searching Apify in the background. You can leave this page and come back later." : "Scanning only the submitted URL/profile with Apify in the background. You can leave this page and come back later."}<b>{scanElapsed}s</b></div>}
         {!activeScanStatus && activeScan && activeScan.status !== "failed" && (
           <div className={`scan-outcome ${activeScan.source}`}>
@@ -1949,6 +1951,10 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
       setAiError("Tell me what you want to create first.");
       return;
     }
+    if (!hasEnoughCredits(creditBalance, aiAssistQuote.quote)) {
+      setAiError("Not enough credits to fill fields with AI.");
+      return;
+    }
     setAiError("");
     setAiGenerating(true);
     try {
@@ -1968,6 +1974,7 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
     }
   };
   const submit = async (form: FormData) => {
+    if (!hasEnoughCredits(creditBalance, generationQuote.quote)) return;
     setBusy(true);
     try {
       const selectedPlatform = String(form.get("platform") || platform || defaultPlatformForKind(kind));
@@ -2010,7 +2017,7 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
           <p>{activeInitial.sourceDescription}</p>
         </div>
         <div className="source-actions">
-          {allowAiAssist && <button type="button" className="primary" onClick={() => setAiPromptOpen(true)} disabled={aiGenerating}><Sparkles size={14} />{quoteButtonLabel("Fill fields with AI", aiAssistQuote.quote, aiAssistQuote.loading)}</button>}
+          {allowAiAssist && <button type="button" className="primary" onClick={() => setAiPromptOpen(true)} disabled={aiGenerating || aiAssistQuote.loading || !hasEnoughCredits(creditBalance, aiAssistQuote.quote)}><Sparkles size={14} />{quoteButtonLabel("Fill fields with AI", aiAssistQuote.quote, aiAssistQuote.loading)}</button>}
           {onUsePlan && <button type="button" className="linkish secondary-plan-link" onClick={onUsePlan}>Load from Content Plan</button>}
         </div>
         <p className="step-helper">This step only prepares editable prompt, caption, and hashtags. It will not spend generation credits or create a video/image yet.</p>
@@ -2023,7 +2030,7 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
               {aiError && <div className="provider-error">{aiError}</div>}
               <CreditQuoteHint {...aiAssistQuote} balance={creditBalance} note="This only fills editable fields; final content generation is charged separately." />
               <div className="row-actions">
-                <button className="primary" type="button" onClick={() => void generateAiDraft()} disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Filling fields" /> : quoteButtonLabel("Fill fields", aiAssistQuote.quote, aiAssistQuote.loading)}</button>
+                <button className="primary" type="button" onClick={() => void generateAiDraft()} disabled={aiGenerating || aiAssistQuote.loading || !hasEnoughCredits(creditBalance, aiAssistQuote.quote)}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Filling fields" /> : quoteButtonLabel("Fill fields", aiAssistQuote.quote, aiAssistQuote.loading)}</button>
                 <button type="button" onClick={() => setAiPromptOpen(false)} disabled={aiGenerating}>Cancel</button>
               </div>
             </div>
@@ -2103,12 +2110,12 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
         <label>Generation prompt<textarea name="prompt" defaultValue={activeInitial.prompt} /></label>
         <label>Caption<textarea name="caption" defaultValue={activeInitial.caption} /></label>
         <label>Hashtags<input name="hashtags" defaultValue={activeInitial.hashtags} /></label>
-        <CreditQuoteHint {...generationQuote} balance={creditBalance} note="Final deduction is added in the next billing phase." />
+        <CreditQuoteHint {...generationQuote} balance={creditBalance} note="Credits are reserved before the provider call and settled by the backend." />
         <div className="ftrow">
           <div>Selected: <b>{model}</b></div>
           <div className="row-actions">
             {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
-            <button className="primary" disabled={busy}><Wand2 size={14} />{busy ? <AnimatedDots label={busyLabel} /> : quoteButtonLabel(submitLabel, generationQuote.quote, generationQuote.loading)}</button>
+            <button className="primary" disabled={busy || generationQuote.loading || !hasEnoughCredits(creditBalance, generationQuote.quote)}><Wand2 size={14} />{busy ? <AnimatedDots label={busyLabel} /> : quoteButtonLabel(submitLabel, generationQuote.quote, generationQuote.loading)}</button>
           </div>
         </div>
       </section>
@@ -2990,8 +2997,10 @@ function QuotedRunButton({ run, action, payload, message, quoteInput, balance }:
     <button
       type="button"
       className={insufficient ? "credit-risk" : ""}
+      disabled={quoteState.loading || insufficient}
       title={quoteState.error || (insufficient ? `Balance ${balance.toLocaleString()} credits. ${quoteState.quote?.label || ""}` : quoteState.quote?.label) || ""}
       onClick={() => {
+        if (quoteState.loading || insufficient) return;
         void run(action, payload, message);
       }}
     >

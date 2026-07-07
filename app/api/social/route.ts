@@ -7,6 +7,7 @@ import { appendPersonaContext, buildPersonaContext, normalizePersonaProfile } fr
 import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl, startKeywordScanRun, startSocialUrlScanRun } from "@/lib/providers/apify";
 import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishPhotoPost, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
+import { reserveBillingCredits, releaseBillingReservation, settleBillingReservation } from "@/lib/billing";
 
 const allowedPlatforms: Platform[] = ["TikTok", "Instagram", "YouTube", "LinkedIn", "Facebook", "X"];
 
@@ -66,6 +67,99 @@ async function debugLog(workspaceId: string, entry: { action: string; label: str
       db.debugLogs = db.debugLogs.filter((item) => item.workspaceId !== workspaceId || keep.has(item.id));
     }
   });
+}
+
+function billingErrorResponse(error: unknown) {
+  const message = error instanceof Error ? error.message : "Billing check failed.";
+  const status = /insufficient credits/i.test(message) ? 402 : /no billing rate configured/i.test(message) ? 409 : 400;
+  return NextResponse.json({ error: message }, { status });
+}
+
+async function reservePaidAction(input: {
+  workspaceId: string;
+  userId?: string;
+  quoteInput: Record<string, unknown>;
+  relatedId?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const result = await mutateDb((db) => reserveBillingCredits(db, input));
+  await debugLog(input.workspaceId, {
+    action: String(input.quoteInput.action || "billing.reserve"),
+    label: result.reservation ? `Billing reserved: ${result.quote.label}` : `Billing included: ${result.quote.label}`,
+    status: "success",
+    provider: "system",
+    details: {
+      reservationId: result.reservation?.id,
+      quote: result.quote,
+      relatedId: input.relatedId,
+      metadata: input.metadata
+    }
+  });
+  return { quote: result.quote, reservationId: result.reservation?.id };
+}
+
+async function settlePaidAction(input: {
+  workspaceId: string;
+  reservationId?: string;
+  actualCredits?: number;
+  providerTaskId?: string;
+  relatedId?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  if (!input.reservationId) return;
+  const settled = await mutateDb((db) => settleBillingReservation(db, input));
+  await debugLog(input.workspaceId, {
+    action: settled?.action || "billing.settle",
+    label: `Billing settled: ${input.actualCredits || settled?.credits || 0} credits`,
+    status: "success",
+    provider: "system",
+    details: {
+      reservationId: input.reservationId,
+      providerTaskId: input.providerTaskId,
+      relatedId: input.relatedId,
+      metadata: input.metadata
+    }
+  });
+}
+
+async function releasePaidAction(input: {
+  workspaceId: string;
+  reservationId?: string;
+  providerTaskId?: string;
+  relatedId?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  if (!input.reservationId) return;
+  const released = await mutateDb((db) => releaseBillingReservation(db, input));
+  await debugLog(input.workspaceId, {
+    action: released?.action || "billing.release",
+    label: "Billing reservation released",
+    status: "success",
+    provider: "system",
+    details: {
+      reservationId: input.reservationId,
+      providerTaskId: input.providerTaskId,
+      relatedId: input.relatedId,
+      metadata: input.metadata
+    }
+  });
+}
+
+function generationBillingInput(action: string, moduleName: string, generationType: "video" | "image" | "text", model: string, duration?: number | string, extra: Record<string, unknown> = {}) {
+  return {
+    action,
+    module: moduleName,
+    generationType,
+    model,
+    duration: generationType === "video" ? Number(duration || 8) : undefined,
+    resolution: generationType === "image" ? "1K" : undefined,
+    inputTokens: generationType === "text" ? Number(extra.inputTokens || 2200) : undefined,
+    outputTokens: generationType === "text" ? Number(extra.outputTokens || 1200) : undefined,
+    ...extra
+  };
 }
 
 function publishDescription(item: PublishItem, asset?: Asset) {
@@ -1139,8 +1233,33 @@ export async function POST(req: Request) {
     let normalized: Omit<CompetitorResult, "id" | "workspaceId" | "competitorId" | "platform" | "capturedAt">[];
     let source: "apify" | "fallback" = "apify";
     let error = "";
+    let billing;
+    try {
+      billing = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: {
+          action: "social_audit.url_scan",
+          module: "social_audit",
+          provider: "apify",
+          platform,
+          maxResults: 100
+        },
+        description: `Reserve credits for Social Audit scan: ${url}`,
+        metadata: { url, minViews, platform }
+      });
+    } catch (billingError) {
+      await debugLog(workspaceId, { action, label: "Social Audit blocked by billing", status: "failed", provider: "system", error: billingError instanceof Error ? billingError.message : "Billing check failed" });
+      return billingErrorResponse(billingError);
+    }
     try {
       const apifyItems = await scanSocialUrl(url, minViews);
+      await settlePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        description: `Charged Social Audit scan for ${handleFromUrl(url)}.`,
+        metadata: { url, minViews, platform, returnedResults: apifyItems.length }
+      });
       normalized = apifyItems.map((item) => ({
         url: item.sourceUrl,
         title: item.title,
@@ -1156,6 +1275,12 @@ export async function POST(req: Request) {
     } catch (err) {
       source = "fallback";
       error = err instanceof Error ? err.message : "Apify social audit failed";
+      await releasePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        description: `Released Social Audit reservation because Apify failed: ${handleFromUrl(url)}`,
+        metadata: { url, minViews, platform, error }
+      });
       normalized = mockCompetitorResults({ workspaceId, competitorId: "audit", platform, url, minViews }).map((item) => ({
         url: item.url,
         title: item.title,
@@ -1212,7 +1337,27 @@ export async function POST(req: Request) {
   if (action === "auditConnectedSocials") {
     const accounts = (await getConnectedUploadPostAccounts()).filter((account) => !account.reauthRequired);
     if (accounts.length === 0) return NextResponse.json({ audits: [], connectedAccounts: [] });
+    let billing;
+    try {
+      billing = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: {
+          action: "social_audit.connected_accounts",
+          module: "social_audit",
+          provider: "apify",
+          platform: accounts[0]?.platform || "Instagram",
+          maxResults: Math.max(100, accounts.length * 100)
+        },
+        description: "Reserve credits for connected social audit batch.",
+        metadata: { accountCount: accounts.length, accounts: accounts.map((account) => ({ platform: account.platform, handle: account.handle })) }
+      });
+    } catch (error) {
+      await debugLog(workspaceId, { action, label: "Connected social audit blocked by billing", status: "failed", provider: "system", error: error instanceof Error ? error.message : "Billing check failed" });
+      return billingErrorResponse(error);
+    }
     const audits = [];
+    let apifySuccessCount = 0;
     for (const account of accounts) {
       const platform = account.platform as Platform;
       let normalized: Omit<CompetitorResult, "id" | "workspaceId" | "competitorId" | "platform" | "capturedAt">[];
@@ -1220,6 +1365,7 @@ export async function POST(req: Request) {
       let error = "";
       try {
         const apifyItems = await scanSocialUrl(account.url, 0);
+        apifySuccessCount += 1;
         normalized = apifyItems.map((item) => ({
           url: item.sourceUrl,
           title: item.title,
@@ -1287,6 +1433,21 @@ export async function POST(req: Request) {
       });
       audits.push(audit);
     }
+    if (apifySuccessCount > 0) {
+      await settlePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        description: "Charged connected social audit batch.",
+        metadata: { accountCount: accounts.length, apifySuccessCount }
+      });
+    } else {
+      await releasePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        description: "Released connected social audit batch reservation because all scans used fallback.",
+        metadata: { accountCount: accounts.length }
+      });
+    }
     return NextResponse.json({ audits, connectedAccounts: accounts });
   }
 
@@ -1305,12 +1466,38 @@ export async function POST(req: Request) {
     });
     if (cached) return NextResponse.json(cached);
 
+    let billing;
+    try {
+      billing = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: {
+          action: "research.url_scan",
+          module: "research",
+          provider: "apify",
+          platform,
+          maxResults: 100
+        },
+        description: `Reserve credits for Research URL scan: ${url}`,
+        metadata: { url, minViews, platform }
+      });
+    } catch (error) {
+      await debugLog(workspaceId, { action, label: "Research URL scan blocked by billing", status: "failed", provider: "system", error: error instanceof Error ? error.message : "Billing check failed" });
+      return billingErrorResponse(error);
+    }
+
     let runMeta: Awaited<ReturnType<typeof startSocialUrlScanRun>> | null = null;
     let startError = "";
     try {
       runMeta = await startSocialUrlScanRun(url, minViews);
     } catch (err) {
       startError = err instanceof Error ? err.message : "Apify scan failed to start";
+      await releasePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        description: `Released Research URL scan reservation because Apify failed to start: ${url}`,
+        metadata: { error: startError, url, minViews, platform }
+      });
     }
 
     const scan = await mutateDb((db) => {
@@ -1336,6 +1523,16 @@ export async function POST(req: Request) {
       db.activity.push({ id: id("act"), workspaceId, message: runMeta ? `Research scan started for ${handleFromUrl(url)} using Apify. You can leave Research and come back later.` : `Research scan failed to start for ${handleFromUrl(url)}.`, createdAt: new Date().toISOString() });
       return created;
     });
+    if (runMeta) {
+      await settlePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        relatedId: scan.id,
+        providerTaskId: runMeta.runId,
+        description: `Charged Research URL scan start for ${handleFromUrl(url)}.`,
+        metadata: { scanId: scan.id, runId: runMeta.runId, datasetId: runMeta.datasetId, actorId: runMeta.actorId }
+      });
+    }
     return NextResponse.json(scan);
   }
 
@@ -1479,6 +1676,25 @@ export async function POST(req: Request) {
     if (cached) return NextResponse.json(cached);
 
     const selectedPlatform = platformFromActorSource(dimensions.actorSources[0] || "");
+    let billing;
+    try {
+      billing = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: {
+          action: "research.keyword_search",
+          module: "research",
+          provider: "apify",
+          platform: selectedPlatform,
+          maxResults: 100
+        },
+        description: `Reserve credits for keyword Research: ${query}`,
+        metadata: { query, minViews, dimensions, selectedPlatform }
+      });
+    } catch (error) {
+      await debugLog(workspaceId, { action, label: "Keyword Research blocked by billing", status: "failed", provider: "system", error: error instanceof Error ? error.message : "Billing check failed" });
+      return billingErrorResponse(error);
+    }
     let runMeta: Awaited<ReturnType<typeof startKeywordScanRun>> | null = null;
     let startError = "";
     try {
@@ -1526,9 +1742,22 @@ export async function POST(req: Request) {
           db.activity.push({ id: id("act"), workspaceId, message: `Keyword research completed for "${query}" using fallback search.`, createdAt: new Date().toISOString() });
           return created;
         });
+        await settlePaidAction({
+          workspaceId,
+          reservationId: billing.reservationId,
+          relatedId: scan.id,
+          description: `Charged keyword Research fallback for "${query}".`,
+          metadata: { scanId: scan.id, query, selectedPlatform, fallback: true }
+        });
         return NextResponse.json(scan);
       } catch (err) {
         startError = err instanceof Error ? `${startError}; fallback failed: ${err.message}` : `${startError}; fallback failed`;
+        await releasePaidAction({
+          workspaceId,
+          reservationId: billing.reservationId,
+          description: `Released keyword Research reservation because Apify failed: ${query}`,
+          metadata: { error: startError, query, selectedPlatform }
+        });
       }
     }
 
@@ -1556,6 +1785,16 @@ export async function POST(req: Request) {
       db.activity.push({ id: id("act"), workspaceId, message: runMeta ? `Keyword research started for "${query}" using Apify. You can leave Research and come back later.` : `Keyword research failed to start for "${query}".`, createdAt: new Date().toISOString() });
       return created;
     });
+    if (runMeta) {
+      await settlePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        relatedId: scan.id,
+        providerTaskId: runMeta.runId,
+        description: `Charged keyword Research start for "${query}".`,
+        metadata: { scanId: scan.id, runId: runMeta.runId, datasetId: runMeta.datasetId, actorId: runMeta.actorId, selectedPlatform }
+      });
+    }
     return NextResponse.json(scan);
   }
 
@@ -1575,6 +1814,20 @@ export async function POST(req: Request) {
     const personaContext = await mutateDb((db) => buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId)));
     const planInput = { ...result, niche, personaContext };
     const geminiPrompt = buildContentPlanPrompt(planInput);
+    let billing;
+    try {
+      billing = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: generationBillingInput("research.create_content_plan", "research", "text", "gemini-3.5-flash", undefined, { inputTokens: 2500, outputTokens: 1400 }),
+        relatedId: result.id,
+        description: `Reserve credits for Gemini content plan from research: ${result.title}`,
+        metadata: { resultId: result.id, sourceUrl: result.url, platform: result.platform }
+      });
+    } catch (error) {
+      await debugLog(workspaceId, { action, label: "Research content plan generation blocked by billing", status: "failed", provider: "system", error: error instanceof Error ? error.message : "Billing check failed", details: { resultId: result.id } });
+      return billingErrorResponse(error);
+    }
     await debugLog(workspaceId, {
       action,
       label: `Prompt sent to Gemini for research result: ${result.title}`,
@@ -1593,7 +1846,21 @@ export async function POST(req: Request) {
         provider: "kie",
         details: { model: "gemini-3.5-flash", topic: String(plan.topic || ""), format: String(plan.format || "") }
       });
+      await settlePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        relatedId: result.id,
+        description: `Charged Gemini content plan from research: ${result.title}`,
+        metadata: { resultId: result.id, model: "gemini-3.5-flash" }
+      });
     } catch (error) {
+      await releasePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        relatedId: result.id,
+        description: `Released Gemini content plan reservation after fallback: ${result.title}`,
+        metadata: { resultId: result.id, error: error instanceof Error ? error.message : "Gemini content plan failed" }
+      });
       await debugLog(workspaceId, {
         action,
         label: `Gemini content plan failed; local fallback used for: ${result.title}`,
@@ -1664,6 +1931,7 @@ export async function POST(req: Request) {
   }
 
   if (action === "publishNow") {
+    let publishBilling: Awaited<ReturnType<typeof reservePaidAction>> | null = null;
     try {
       const snapshot = await mutateDb((db) => {
         const item = db.publishQueue.find((queue) => queue.id === body.id && queue.workspaceId === workspaceId);
@@ -1672,6 +1940,14 @@ export async function POST(req: Request) {
         return { item, asset: db.assets.find((asset) => asset.id === item.assetId && asset.workspaceId === workspaceId) };
       });
       const description = publishDescription(snapshot.item, snapshot.asset);
+      publishBilling = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: { action: "publish.now", module: "publish", provider: "upload-post", posts: 1 },
+        relatedId: snapshot.item.id,
+        description: `Billing check for Upload-Post publish: ${snapshot.item.title}`,
+        metadata: { publishId: snapshot.item.id, platform: snapshot.item.platform }
+      });
       await debugLog(workspaceId, {
         action,
         label: `Publish payload sent to Upload-Post: ${snapshot.item.title}`,
@@ -1681,6 +1957,14 @@ export async function POST(req: Request) {
         details: { publishId: snapshot.item.id, platform: snapshot.item.platform, hasAssetUrl: Boolean(snapshot.asset?.assetUrl) }
       });
       const result = await sendToUploadPost(snapshot.item, snapshot.asset);
+      await settlePaidAction({
+        workspaceId,
+        reservationId: publishBilling.reservationId,
+        relatedId: snapshot.item.id,
+        providerTaskId: result.request_id || result.job_id,
+        description: `Settled Upload-Post publish: ${snapshot.item.title}`,
+        metadata: { publishId: snapshot.item.id, platform: snapshot.item.platform }
+      });
       const updated = await mutateDb((db) => {
         const item = db.publishQueue.find((queue) => queue.id === body.id && queue.workspaceId === workspaceId);
         if (!item) return snapshot.item;
@@ -1700,6 +1984,12 @@ export async function POST(req: Request) {
       });
       return NextResponse.json(updated);
     } catch (error) {
+      await releasePaidAction({
+        workspaceId,
+        reservationId: publishBilling?.reservationId,
+        description: "Released Upload-Post publish reservation after failure.",
+        metadata: { error: error instanceof Error ? error.message : "Upload-Post publish failed" }
+      }).catch(() => null);
       const updated = await mutateDb((db) => {
         const item = db.publishQueue.find((queue) => queue.id === body.id && queue.workspaceId === workspaceId);
         if (!item) return null;
@@ -1731,6 +2021,19 @@ export async function POST(req: Request) {
     const niche = workspace?.niche?.trim() || "";
     const personaContext = await mutateDb((db) => buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId)));
     const prompt = buildAiBriefPrompt({ idea, niche, requestedFormat, requestedDuration, requestedModel, personaContext });
+    let billing;
+    try {
+      billing = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: generationBillingInput("create_content.ai_assist", "create_content", "text", "gpt-5-5", undefined, { inputTokens: 2200, outputTokens: 1400 }),
+        description: "Reserve credits for Create Content AI field-fill.",
+        metadata: { idea, requestedFormat: requestedFormat || undefined, requestedDuration, requestedModel: requestedModel || undefined }
+      });
+    } catch (error) {
+      await debugLog(workspaceId, { action, label: "Create Content AI field-fill blocked by billing", status: "failed", provider: "system", error: error instanceof Error ? error.message : "Billing check failed" });
+      return billingErrorResponse(error);
+    }
     await debugLog(workspaceId, {
       action,
       label: "Prompt sent to Kie GPT-5.5 for new content plan",
@@ -1770,8 +2073,20 @@ export async function POST(req: Request) {
         provider: "kie",
         details: { model: "gpt-5-5", format: draft.format, topic: draft.topic }
       });
+      await settlePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        description: "Charged Create Content AI field-fill.",
+        metadata: { model: "gpt-5-5", topic: draft.topic, format: draft.format }
+      });
       return NextResponse.json(draft);
     } catch (error) {
+      await releasePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        description: "Released Create Content AI field-fill reservation after Kie failure.",
+        metadata: { error: error instanceof Error ? error.message : "Kie GPT-5.5 generation failed" }
+      });
       await debugLog(workspaceId, {
         action,
         label: "Kie GPT-5.5 content plan generation failed",
@@ -1793,6 +2108,19 @@ export async function POST(req: Request) {
     }));
     const promptWithPersona = appendPersonaContext(prompt, personaContext);
     const fullInstruction = buildFinalVideoPromptInstruction(promptWithPersona, refineTemplate);
+    let billing;
+    try {
+      billing = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: generationBillingInput("research.refine_video_prompt", "research", "text", "gpt-5-5", undefined, { inputTokens: 2500, outputTokens: 1200 }),
+        description: "Reserve credits for Research final video prompt generation.",
+        metadata: { sourceUrl: String(body.sourceUrl || ""), generationModel: String(body.generationModel || "") }
+      });
+    } catch (error) {
+      await debugLog(workspaceId, { action, label: "Research video prompt refinement blocked by billing", status: "failed", provider: "system", error: error instanceof Error ? error.message : "Billing check failed" });
+      return billingErrorResponse(error);
+    }
     await debugLog(workspaceId, {
       action,
       label: "Prompt sent to Kie GPT-5.5 for final research video prompt",
@@ -1818,8 +2146,20 @@ export async function POST(req: Request) {
         prompt: refined.videoPrompt,
         details: { model: "gpt-5-5", characters: refined.videoPrompt.length, debugJson: refined.debugJson }
       });
+      await settlePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        description: "Charged Research final video prompt generation.",
+        metadata: { model: "gpt-5-5", characters: refined.videoPrompt.length }
+      });
       return NextResponse.json(refined);
     } catch (error) {
+      await releasePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        description: "Released Research video prompt refinement reservation after Kie failure.",
+        metadata: { error: error instanceof Error ? error.message : "Kie GPT-5.5 video prompt failed" }
+      });
       await debugLog(workspaceId, {
         action,
         label: "Kie GPT-5.5 final research video prompt failed",
@@ -1854,6 +2194,46 @@ export async function POST(req: Request) {
       references: asset.assetReferences || []
     });
     const references = asset.assetReferences || [];
+    let billing;
+    try {
+      billing = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: generationBillingInput(
+          "create_content.generate",
+          "create_content",
+          isKieImageModel(model) ? "image" : "video",
+          model,
+          Number(settings.duration || snapshot.publishItem?.duration || 8)
+        ),
+        relatedId: asset.id,
+        description: `Reserve credits to start ${model} generation for ${asset.title}.`,
+        metadata: {
+          assetId: asset.id,
+          publishItemId: snapshot.publishItem?.id,
+          model,
+          duration: settings.duration || snapshot.publishItem?.duration,
+          aspectRatio: settings.aspectRatio
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Billing check failed";
+      await mutateDb((db) => {
+        const existing = db.assets.find((item) => item.id === asset.id && item.workspaceId === workspaceId);
+        if (existing) {
+          existing.status = "failed";
+          existing.error = message;
+        }
+        db.publishQueue
+          .filter((item) => item.assetId === asset.id && item.workspaceId === workspaceId)
+          .forEach((item) => {
+            item.status = "failed";
+            item.error = message;
+          });
+      });
+      await debugLog(workspaceId, { action, label: `Kie generation blocked by billing: ${asset.title}`, status: "failed", provider: "system", error: message, details: { assetId: asset.id, model } });
+      return billingErrorResponse(error);
+    }
     await debugLog(workspaceId, {
       action,
       label: `Prompt sent to Kie ${model}`,
@@ -1890,6 +2270,14 @@ export async function POST(req: Request) {
         db.activity.push({ id: id("act"), workspaceId, message: `Kie task started: ${taskId}`, createdAt: new Date().toISOString() });
         return existing;
       });
+      await settlePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        relatedId: asset.id,
+        providerTaskId: taskId,
+        description: `Charged ${model} generation start for ${asset.title}.`,
+        metadata: { assetId: asset.id, model, taskId }
+      });
       await debugLog(workspaceId, {
         action,
         label: `Kie task started: ${taskId}`,
@@ -1900,6 +2288,13 @@ export async function POST(req: Request) {
       });
       return NextResponse.json(updated);
     } catch (error) {
+      await releasePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        relatedId: asset.id,
+        description: `Released ${model} generation reservation after Kie start failure.`,
+        metadata: { assetId: asset.id, model, error: error instanceof Error ? error.message : "Kie generation failed" }
+      });
       const updated = await mutateDb((db) => {
         const existing = db.assets.find((item) => item.id === asset.id && item.workspaceId === workspaceId);
         if (!existing) return asset;
@@ -1935,6 +2330,19 @@ export async function POST(req: Request) {
       x: String(body.xUrl || existing.sourceUrls.x || "").trim()
     };
     if (!Object.values(sourceUrls).some(Boolean)) return NextResponse.json({ error: "Add at least one profile URL before auto-fill." }, { status: 400 });
+    let billing;
+    try {
+      billing = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: generationBillingInput("persona.autofill", "persona", "text", "gpt-5-5", undefined, { inputTokens: 2500, outputTokens: 1200 }),
+        description: "Reserve credits for Persona auto-fill GPT mapping.",
+        metadata: { sourceUrls }
+      });
+    } catch (error) {
+      await debugLog(workspaceId, { action, label: "Persona auto-fill blocked by billing", status: "failed", provider: "system", error: error instanceof Error ? error.message : "Billing check failed" });
+      return billingErrorResponse(error);
+    }
     await debugLog(workspaceId, {
       action,
       label: "Persona auto-fill crawl started",
@@ -1975,9 +2383,21 @@ export async function POST(req: Request) {
         const providerError = providerErrorFromJson(generated);
         if (providerError) throw new Error(providerError);
         compactGenerated = compactAutofillOutput(generated);
+        await settlePaidAction({
+          workspaceId,
+          reservationId: billing.reservationId,
+          description: "Charged Persona auto-fill GPT mapping.",
+          metadata: { model: "gpt-5-5", crawlFallbackReason, generated: compactGenerated }
+        });
       } catch (error) {
         compactGenerated = fallbackPersonaFromCrawl(existing, crawled);
         usedFallback = true;
+        await releasePaidAction({
+          workspaceId,
+          reservationId: billing.reservationId,
+          description: "Released Persona auto-fill GPT reservation because Kie failed and local fallback was used.",
+          metadata: { error: error instanceof Error ? error.message : "Kie persona auto-fill failed", crawlFallbackReason }
+        });
         await debugLog(workspaceId, {
           action,
           label: "Kie GPT-5.5 persona auto-fill fallback used",
@@ -2013,6 +2433,12 @@ export async function POST(req: Request) {
       });
       return NextResponse.json(profile);
     } catch (error) {
+      await releasePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        description: "Released Persona auto-fill reservation after failure.",
+        metadata: { error: error instanceof Error ? error.message : "Persona auto-fill failed" }
+      }).catch(() => null);
       await debugLog(workspaceId, {
         action,
         label: "Persona auto-fill failed",
@@ -2064,6 +2490,26 @@ export async function POST(req: Request) {
     const watcher = await mutateDb((db) => (db.automationSourceWatchers || []).find((item) => item.id === body.id && item.workspaceId === workspaceId) || null);
     if (!watcher) return NextResponse.json({ error: "Source watcher not found." }, { status: 404 });
     const startedAt = new Date().toISOString();
+    let crawlBilling;
+    try {
+      crawlBilling = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: {
+          action: "automation.source_watcher_scan",
+          module: "automation",
+          provider: "apify",
+          platform: watcher.sourceUrls[0] ? platformFromUrl(watcher.sourceUrls[0]) : "Instagram",
+          maxResults: Math.max(100, watcher.sourceUrls.length * 100)
+        },
+        relatedId: watcher.id,
+        description: `Reserve credits for Source Watcher crawl: ${watcher.name}`,
+        metadata: { watcherId: watcher.id, sourceUrls: watcher.sourceUrls, minViews: watcher.minViews }
+      });
+    } catch (error) {
+      await debugLog(workspaceId, { action, label: "Source Watcher blocked by billing", status: "failed", provider: "system", error: error instanceof Error ? error.message : "Billing check failed", details: { watcherId: watcher.id } });
+      return billingErrorResponse(error);
+    }
     await debugLog(workspaceId, {
       action,
       label: `Source Watcher crawl started: ${watcher.name}`,
@@ -2073,10 +2519,12 @@ export async function POST(req: Request) {
     });
     const candidates: SourceWatcherCandidate[] = [];
     const errors: string[] = [];
+    let apifySuccessCount = 0;
     for (const sourceUrl of watcher.sourceUrls) {
       try {
         const platform = platformFromUrl(sourceUrl);
         const items = await scanSocialUrl(sourceUrl, watcher.minViews);
+        apifySuccessCount += 1;
         for (const item of items) {
           const base = {
             id: id("res"),
@@ -2099,6 +2547,23 @@ export async function POST(req: Request) {
       } catch (error) {
         errors.push(`${sourceUrl}: ${error instanceof Error ? error.message : "crawl failed"}`);
       }
+    }
+    if (apifySuccessCount > 0) {
+      await settlePaidAction({
+        workspaceId,
+        reservationId: crawlBilling.reservationId,
+        relatedId: watcher.id,
+        description: `Charged Source Watcher crawl: ${watcher.name}`,
+        metadata: { watcherId: watcher.id, scannedUrls: watcher.sourceUrls.length, apifySuccessCount, candidateCount: candidates.length }
+      });
+    } else {
+      await releasePaidAction({
+        workspaceId,
+        reservationId: crawlBilling.reservationId,
+        relatedId: watcher.id,
+        description: `Released Source Watcher crawl reservation because Apify did not return any scan: ${watcher.name}`,
+        metadata: { watcherId: watcher.id, errors }
+      });
     }
     const filtered = candidates
       .filter((item) => watcher.contentType === "auto" || sourceWatcherKind(item, watcher.contentType) === watcher.contentType)
@@ -2244,10 +2709,43 @@ export async function POST(req: Request) {
       details: { watcherId: watcher.id, scannedCount: candidates.length, selected: result.selected, errors }
     });
     if (result.asset?.provider === "kie" && result.publishItem) {
+      const model = result.asset.generationModel || watcher.model;
+      const settings = result.asset.generationSettings || {};
+      let generationBilling;
       try {
-        const model = result.asset.generationModel || watcher.model;
+        generationBilling = await reservePaidAction({
+          workspaceId,
+          userId: user.id,
+          quoteInput: generationBillingInput(
+            "automation.source_watcher_generate",
+            "automation",
+            result.publishItem.generationType || (isKieImageModel(model) ? "image" : "video"),
+            model,
+            Number(settings.duration || 8)
+          ),
+          relatedId: result.asset.id,
+          description: `Reserve credits for Source Watcher ${model} generation: ${watcher.name}`,
+          metadata: { watcherId: watcher.id, assetId: result.asset.id, publishItemId: result.publishItem.id, model }
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Billing check failed";
+        await mutateDb((db) => {
+          const asset = db.assets.find((item) => item.id === result.asset?.id && item.workspaceId === workspaceId);
+          if (asset) {
+            asset.status = "failed";
+            asset.error = message;
+          }
+          const pub = db.publishQueue.find((item) => item.id === result.publishItem?.id && item.workspaceId === workspaceId);
+          if (pub) {
+            pub.status = "failed";
+            pub.error = message;
+          }
+        });
+        await debugLog(workspaceId, { action, label: "Source Watcher Kie generation blocked by billing", status: "failed", provider: "system", error: message, details: { watcherId: watcher.id, assetId: result.asset.id, model } });
+        return billingErrorResponse(error);
+      }
+      try {
         const refs = result.asset.assetReferences || [];
-        const settings = result.asset.generationSettings || {};
         const taskId = isKieImageModel(model)
           ? await generateImage(result.asset.prompt || result.asset.title, { model, aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs })
           : model === "seedance-2.0"
@@ -2265,6 +2763,14 @@ export async function POST(req: Request) {
           db.activity.push({ id: id("act"), workspaceId, message: `Source Watcher Kie task started: ${taskId}`, createdAt: new Date().toISOString() });
           return { asset, publishItem: pub };
         });
+        await settlePaidAction({
+          workspaceId,
+          reservationId: generationBilling.reservationId,
+          relatedId: result.asset.id,
+          providerTaskId: taskId,
+          description: `Charged Source Watcher ${model} generation start: ${watcher.name}`,
+          metadata: { watcherId: watcher.id, assetId: result.asset.id, publishItemId: result.publishItem.id, model, taskId }
+        });
         await debugLog(workspaceId, {
           action,
           label: `Source Watcher Kie task started: ${taskId}`,
@@ -2275,6 +2781,13 @@ export async function POST(req: Request) {
         });
         return NextResponse.json({ ...result, ...updated });
       } catch (error) {
+        await releasePaidAction({
+          workspaceId,
+          reservationId: generationBilling.reservationId,
+          relatedId: result.asset.id,
+          description: `Released Source Watcher ${model} generation reservation after Kie failure.`,
+          metadata: { watcherId: watcher.id, assetId: result.asset.id, model, error: error instanceof Error ? error.message : "Kie generation failed" }
+        });
         const failed = await mutateDb((db) => {
           const asset = db.assets.find((item) => item.id === result.asset?.id && item.workspaceId === workspaceId);
           if (asset) {
@@ -2618,8 +3131,6 @@ export async function POST(req: Request) {
         status: "new" as const
       };
       db.briefs.push(brief);
-      const ws = db.workspaces.find((item) => item.id === workspaceId);
-      if (ws) ws.credits = Math.max(0, ws.credits - 1);
       activity(`Generated brief for "${opp.topic}".`);
       return brief;
     }
@@ -2761,8 +3272,6 @@ export async function POST(req: Request) {
         createdAt: now
       };
       db.publishQueue.push(item);
-      const ws = db.workspaces.find((entry) => entry.id === workspaceId);
-      if (ws) ws.credits = Math.max(0, ws.credits - (generationType === "video" ? 8 : generationType === "image" ? 3 : 1));
       activity(isKieGeneration ? `Queued ${model} generation for "${brief.topic}".` : `Generated ${model} draft for "${brief.topic}".`);
       return { asset, publishItem: item };
     }
@@ -2848,8 +3357,6 @@ export async function POST(req: Request) {
         createdAt: now
       };
       db.publishQueue.push(item);
-      const ws = db.workspaces.find((entry) => entry.id === workspaceId);
-      if (ws) ws.credits = Math.max(0, ws.credits - (generationType === "video" ? 8 : generationType === "image" ? 3 : 1));
       activity(isKieGeneration ? `Queued ${model} direct generation.` : `Generated ${model} direct draft.`);
       return { asset, publishItem: item };
     }
@@ -2870,8 +3377,6 @@ export async function POST(req: Request) {
       const prompt = brief.videoPrompt || `${brief.topic}. ${brief.outline.join(". ")} Style: authentic vertical social video for ${brief.platforms.join(", ")}.`;
       const asset: Asset = { id: id("ast"), workspaceId, briefId: brief.id, title: brief.topic, type, status: type === "video" ? "queued" : "ready", progress: type === "video" ? 10 : 100, createdAt: new Date().toISOString(), provider: type === "video" ? "kie" : "local", prompt };
       db.assets.push(asset);
-      const ws = db.workspaces.find((item) => item.id === workspaceId);
-      if (ws) ws.credits = Math.max(0, ws.credits - (type === "video" ? 8 : type === "carousel" ? 3 : 1));
       activity(type === "video" ? "Queued Kie video generation from approved brief." : `Rendered ${type} asset from approved brief.`);
       return asset;
     }
@@ -2899,8 +3404,6 @@ export async function POST(req: Request) {
       const prompt = `${style} UGC vertical social video for ${product}. Selling points: ${sellingPoints}. Natural creator tone, clear captions, product benefit demonstration.`;
       const asset = { id: id("ast"), workspaceId, briefId: "ugc", title: product, type: "ugc" as const, status: "queued" as const, progress: 10, createdAt: new Date().toISOString(), provider: "kie" as const, prompt };
       db.assets.push(asset);
-      const ws = db.workspaces.find((item) => item.id === workspaceId);
-      if (ws) ws.credits = Math.max(0, ws.credits - (body.duration === "60" ? 25 : 15));
       activity(`Queued UGC video generation for ${asset.title}.`);
       return asset;
     }
@@ -2931,8 +3434,36 @@ export async function POST(req: Request) {
     });
   }
   if ((action === "renderAsset" || action === "generateUgc") && generatedAsset?.provider === "kie") {
+    const model = generatedAsset.generationModel || String(body.generationModel || "veo-fast");
+    let billing;
     try {
-      const model = generatedAsset.generationModel || String(body.generationModel || "veo-fast");
+      billing = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: generationBillingInput(
+          action === "generateUgc" ? "create_content.generate_ugc" : "create_content.render_asset",
+          "create_content",
+          isKieImageModel(model) ? "image" : "video",
+          model,
+          Number(body.duration || generatedAsset.generationSettings?.duration || 8)
+        ),
+        relatedId: generatedAsset.id,
+        description: `Reserve credits to start ${model} generation for ${generatedAsset.title}.`,
+        metadata: { assetId: generatedAsset.id, model, action }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Billing check failed";
+      await mutateDb((db) => {
+        const asset = db.assets.find((item) => item.id === generatedAsset.id && item.workspaceId === workspaceId);
+        if (asset) {
+          asset.status = "failed";
+          asset.error = message;
+        }
+      });
+      await debugLog(workspaceId, { action, label: `Immediate Kie generation blocked by billing: ${generatedAsset.title}`, status: "failed", provider: "system", error: message, details: { assetId: generatedAsset.id, model } });
+      return billingErrorResponse(error);
+    }
+    try {
       const references = generatedAsset.assetReferences || parseAssetReferences(body.assetReferences);
       const prompt = enhanceVideoPromptForProvider({
         prompt: generatedAsset.prompt || generatedAsset.title,
@@ -2976,6 +3507,14 @@ export async function POST(req: Request) {
         db.activity.push({ id: id("act"), workspaceId, message: `Kie task started: ${taskId}`, createdAt: new Date().toISOString() });
         return asset;
       });
+      await settlePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        relatedId: generatedAsset.id,
+        providerTaskId: taskId,
+        description: `Charged ${model} generation start for ${generatedAsset.title}.`,
+        metadata: { assetId: generatedAsset.id, model, taskId, action }
+      });
       await debugLog(workspaceId, {
         action,
         label: `Kie task started: ${taskId}`,
@@ -2986,6 +3525,13 @@ export async function POST(req: Request) {
       });
       return NextResponse.json(updated);
     } catch (error) {
+      await releasePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        relatedId: generatedAsset.id,
+        description: `Released ${model} generation reservation after Kie start failure.`,
+        metadata: { assetId: generatedAsset.id, model, error: error instanceof Error ? error.message : "Kie generation failed", action }
+      });
       const updated = await mutateDb((db) => {
         const asset = db.assets.find((item) => item.id === generatedAsset.id && item.workspaceId === workspaceId);
         if (!asset) return data;

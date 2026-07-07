@@ -173,6 +173,177 @@ export function createLedgerId() {
   return `cred_${crypto.randomBytes(6).toString("hex")}`;
 }
 
+export type BillingReservationResult = {
+  quote: BillingQuote;
+  reservation: BillingLedgerEntry | null;
+};
+
+export function reserveBillingCredits(db: Database, input: {
+  userId?: string;
+  workspaceId: string;
+  quoteInput: Record<string, unknown>;
+  relatedId?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}): BillingReservationResult {
+  ensureBillingDefaults(db);
+  const quote = quoteBillingAction(db, { ...input.quoteInput, workspaceId: input.workspaceId });
+  const credits = Math.max(0, Math.ceil(quote.maxCredits || quote.credits || 0));
+  if (credits <= 0) return { quote, reservation: null };
+  const balance = calculateCreditBalance(db, input.workspaceId);
+  if (!db.billingSettings.allowNegativeBalance && balance.available < credits) {
+    throw new Error(`Insufficient credits. Need ${credits.toLocaleString()} credits, available ${balance.available.toLocaleString()}.`);
+  }
+  const reservation: BillingLedgerEntry = {
+    id: createLedgerId(),
+    userId: input.userId,
+    workspaceId: input.workspaceId,
+    type: "reserve",
+    module: quote.module,
+    provider: quote.provider,
+    action: quote.action,
+    credits,
+    usdCost: quote.costUsd,
+    markup: quote.costUsd > 0 ? quote.chargeUsd / quote.costUsd : 0,
+    status: "reserved",
+    relatedId: input.relatedId,
+    description: input.description || `Reserved ${credits.toLocaleString()} credits for ${quote.action}.`,
+    metadata: {
+      ...(input.metadata || {}),
+      quote,
+      reservedCredits: credits
+    },
+    createdAt: new Date().toISOString()
+  };
+  db.billingLedger.push(reservation);
+  updateWorkspaceCreditBalance(db, input.workspaceId);
+  return { quote, reservation };
+}
+
+export function settleBillingReservation(db: Database, input: {
+  reservationId?: string;
+  actualCredits?: number;
+  providerTaskId?: string;
+  relatedId?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  if (!input.reservationId) return null;
+  ensureBillingDefaults(db);
+  const reservation = db.billingLedger.find((entry) => entry.id === input.reservationId && entry.type === "reserve");
+  if (!reservation) throw new Error("Billing reservation not found.");
+  if (reservation.status !== "reserved") return reservation;
+  const reservedCredits = Math.max(0, Math.ceil(Math.abs(reservation.credits || 0)));
+  const requestedActual = Number.isFinite(input.actualCredits) ? Math.max(0, Math.ceil(Number(input.actualCredits))) : reservedCredits;
+  const actualCredits = Math.min(reservedCredits, requestedActual);
+  reservation.status = "released";
+  reservation.providerTaskId = input.providerTaskId || reservation.providerTaskId;
+  reservation.relatedId = input.relatedId || reservation.relatedId;
+  reservation.metadata = {
+    ...(reservation.metadata || {}),
+    ...(input.metadata || {}),
+    settledAt: new Date().toISOString(),
+    actualCredits,
+    requestedActualCredits: requestedActual,
+    releasedCredits: Math.max(0, reservedCredits - actualCredits)
+  };
+  if (actualCredits > 0) {
+    const chargeUsd = Number((reservation.metadata as Record<string, unknown> | undefined)?.quote && typeof (reservation.metadata as Record<string, unknown>).quote === "object"
+      ? ((reservation.metadata as Record<string, unknown>).quote as BillingQuote).chargeUsd
+      : actualCredits / db.billingSettings.creditScale);
+    db.billingLedger.push({
+      id: createLedgerId(),
+      userId: reservation.userId,
+      workspaceId: reservation.workspaceId,
+      type: "usage",
+      module: reservation.module,
+      provider: reservation.provider,
+      action: reservation.action,
+      credits: actualCredits,
+      usdCost: reservation.usdCost,
+      markup: reservation.markup,
+      status: "succeeded",
+      relatedId: input.relatedId || reservation.relatedId,
+      providerTaskId: input.providerTaskId || reservation.providerTaskId,
+      description: input.description || `Charged ${actualCredits.toLocaleString()} credits for ${reservation.action}.`,
+      metadata: {
+        ...(input.metadata || {}),
+        reservationId: reservation.id,
+        reservedCredits,
+        releasedCredits: Math.max(0, reservedCredits - actualCredits),
+        chargeUsd
+      },
+      createdAt: new Date().toISOString()
+    });
+  }
+  if (reservedCredits > actualCredits) appendZeroCreditRelease(db, reservation, {
+    providerTaskId: input.providerTaskId,
+    relatedId: input.relatedId,
+    description: `Released ${(reservedCredits - actualCredits).toLocaleString()} unused reserved credits for ${reservation.action}.`,
+    metadata: { releasedCredits: reservedCredits - actualCredits, reservationId: reservation.id }
+  });
+  updateWorkspaceCreditBalance(db, reservation.workspaceId);
+  return reservation;
+}
+
+export function releaseBillingReservation(db: Database, input: {
+  reservationId?: string;
+  providerTaskId?: string;
+  relatedId?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  if (!input.reservationId) return null;
+  ensureBillingDefaults(db);
+  const reservation = db.billingLedger.find((entry) => entry.id === input.reservationId && entry.type === "reserve");
+  if (!reservation) throw new Error("Billing reservation not found.");
+  if (reservation.status !== "reserved") return reservation;
+  const reservedCredits = Math.max(0, Math.ceil(Math.abs(reservation.credits || 0)));
+  reservation.status = "released";
+  reservation.providerTaskId = input.providerTaskId || reservation.providerTaskId;
+  reservation.relatedId = input.relatedId || reservation.relatedId;
+  reservation.metadata = {
+    ...(reservation.metadata || {}),
+    ...(input.metadata || {}),
+    releasedAt: new Date().toISOString(),
+    releasedCredits: reservedCredits
+  };
+  appendZeroCreditRelease(db, reservation, {
+    providerTaskId: input.providerTaskId,
+    relatedId: input.relatedId,
+    description: input.description || `Released ${reservedCredits.toLocaleString()} reserved credits for ${reservation.action}.`,
+    metadata: { ...(input.metadata || {}), releasedCredits: reservedCredits, reservationId: reservation.id }
+  });
+  updateWorkspaceCreditBalance(db, reservation.workspaceId);
+  return reservation;
+}
+
+export function updateWorkspaceCreditBalance(db: Pick<Database, "billingLedger" | "workspaces">, workspaceId: string) {
+  const workspace = db.workspaces.find((item) => item.id === workspaceId);
+  if (workspace) workspace.credits = calculateCreditBalance(db, workspaceId).available;
+}
+
+function appendZeroCreditRelease(db: Database, reservation: BillingLedgerEntry, input: { providerTaskId?: string; relatedId?: string; description: string; metadata?: Record<string, unknown> }) {
+  db.billingLedger.push({
+    id: createLedgerId(),
+    userId: reservation.userId,
+    workspaceId: reservation.workspaceId,
+    type: "release",
+    module: reservation.module,
+    provider: reservation.provider,
+    action: reservation.action,
+    credits: 0,
+    usdCost: 0,
+    markup: 0,
+    status: "released",
+    relatedId: input.relatedId || reservation.relatedId,
+    providerTaskId: input.providerTaskId || reservation.providerTaskId,
+    description: input.description,
+    metadata: input.metadata,
+    createdAt: new Date().toISOString()
+  });
+}
+
 export function quoteBillingAction(db: Database, input: Record<string, unknown>): BillingQuote {
   const action = String(input.action || "");
   const moduleName = String(input.module || inferModule(action));

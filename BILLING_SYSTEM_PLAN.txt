@@ -1,0 +1,497 @@
+Full Billing Plan
+
+Core Credit Model
+
+Use:
+
+$1 = 1,000 CA credits
+default markup = 2x provider cost
+user_charge_credits = ceil(provider_cost_usd * markup * 1000)
+
+Example:
+
+Provider cost: $0.30
+User charge: $0.60
+Credits deducted: 600 credits
+
+Credit types:
+- subscription_credits: monthly credits from plan, expiry configurable, recommended 90 days
+- topup_credits: one-time purchased credits, recommended no expiry
+- bonus_credits: admin/manual/promo credits, expiry configurable
+- reserved_credits: temporarily held while API call is running
+
+Balance should come from an append-only ledger, not only a mutable number.
+
+
+Dynamic Billing Engine
+
+Do not hardcode prices inside feature code.
+
+Every paid action must use:
+
+quoteActionCost(action, payload)
+reserveCredits(userId, quote)
+settleCredits(reservationId, actualUsage)
+
+Feature code only declares what it wants to do. Billing engine decides the credit cost.
+
+If we add a new video model, change Apify actor, replace Apify, or add a new provider later, we update backend Rate Cards / provider mappings, and all frontend button prices plus backend charges update automatically.
+
+If a paid action has no billing config, production should block it:
+
+No billing rate configured for this action.
+Please contact admin.
+
+
+Current Cost Map
+
+Approximate provider cost as of 2026-07-07.
+
+Action                                           Internal Cost                    User Charge
+VEO Fast 720p video                              ~$0.30/video                    600 credits
+Seedance 2.0 720p                                ~$0.205/sec                     410 credits/sec
+Seedance 2.0 8s                                  ~$1.64                          3,280 credits
+GPT Image 2 1K                                   ~$0.03/image                    60 credits
+GPT Image 2 2K                                   ~$0.05/image                    100 credits
+GPT Image 2 4K                                   ~$0.08/image                    160 credits
+Nano Banana Pro 1/2K                             ~$0.09/image                    180 credits
+Nano Banana Pro 4K                               ~$0.12/image                    240 credits
+GPT-5.5 input                                    ~$1.40 / 1M tokens              3 credits / 1K input tokens
+GPT-5.5 output                                   ~$8.40 / 1M tokens              17 credits / 1K output tokens
+Gemini 3.5 Flash input                           ~$0.45 / 1M tokens              1 credit / 1K input tokens
+Gemini 3.5 Flash output                          ~$2.70 / 1M tokens              6 credits / 1K output tokens
+Claude Opus 4.8 input                            ~$2.00 / 1M tokens              4 credits / 1K input tokens
+Claude Opus 4.8 output                           ~$10.00 / 1M tokens             20 credits / 1K output tokens
+Instagram Apify scrape                           ~$2.30-$2.70 / 1K results       4,600-5,400 credits / 1K
+Instagram hashtag scrape                         ~$2.30-$2.60 / 1K results       4,600-5,200 credits / 1K
+TikTok Apify scrape                              ~$1.70 / 1K results             3,400 credits / 1K
+YouTube Apify scrape                             ~$2.40 / 1K videos              4,800 credits / 1K
+Facebook Apify scrape                            ~$2.59 / 1K results             5,180 credits / 1K
+Upload-Post publishing                           fixed monthly/provider cost     include in plans or small per-post fee
+Brevo verification email                         free up to 300/day              do not charge initially
+
+
+Subscription Plans
+
+Admin editable.
+
+Plan       Price      Bonus      Monthly Credits
+Starter    $20/mo     0%         20,000
+Growth     $50/mo     10%        55,000
+Pro        $100/mo    20%        120,000
+
+Admin can modify:
+- Plan name
+- Monthly price
+- Base credits
+- Bonus %
+- Expiry days
+- Stripe price ID
+- Active/inactive
+- Monthly usage limits
+- Automation allowed or not
+- Max concurrent generations
+
+
+Extra Credit Packages
+
+One-time top-ups, admin editable.
+
+Package        Price      Base Credits      Suggested Bonus      Total Credits
+Mini Top-up     $5        5,000             0%                   5,000
+Small Top-up    $10       10,000            0%                   10,000
+Growth Top-up   $50       50,000            10%                  55,000
+Pro Top-up      $100      100,000           20%                  120,000
+Scale Top-up    $200      200,000           30%                  260,000
+
+Admin can modify:
+- Package name
+- Price
+- Base credits
+- Bonus credits or bonus %
+- Stripe price ID
+- Active/inactive
+- Whether credits expire
+- Max purchases per month
+
+
+Frontend Billing Tab
+
+Add a user-facing Billing tab.
+
+Show:
+- Current credit balance
+- Current subscription plan
+- Subscribe / upgrade / downgrade
+- Buy extra credits
+- Credit usage history
+- Usage by module
+- Usage by provider
+- Payment/invoice history
+- Stripe Customer Portal button
+- Low-credit warning
+- Automation pause warning when balance is low
+
+Usage breakdown modules:
+- Research
+- Social Audit
+- Persona
+- Create Content
+- Automation
+- My Contents / Publish
+- Billing
+
+Usage breakdown providers:
+- Kie
+- Apify
+- Upload-Post
+- Brevo
+- Stripe
+- Local/system
+
+
+Credit Display On Action Buttons
+
+Every paid action button should show estimated credits.
+
+Examples:
+
+Generate (600 credits)
+Search (120 credits)
+Scan URL (300 credits est.)
+Auto-fill Persona (450 credits est.)
+Run Source Watcher Now (1,200 credits max)
+Publish (Included)
+Publish (30 credits)
+
+Button states:
+
+Generate (600 credits)
+Need 600 credits
+Generating... 600 credits reserved
+Done - 600 credits used
+Failed - credits released
+
+Variable-cost actions:
+
+Search (from 120 credits)
+Scan (up to 1,000 credits)
+Generate Video (3,280 credits est.)
+
+When balance is insufficient:
+- disable button
+- show current balance
+- show Buy credits CTA
+
+
+Quote API
+
+Add:
+
+POST /api/billing/quote
+
+Example request:
+
+{
+  "action": "create_content.generate",
+  "module": "create_content",
+  "provider": "kie",
+  "model": "veo-fast",
+  "generationType": "video",
+  "duration": 8,
+  "resolution": "720p",
+  "aspectRatio": "9:16"
+}
+
+Example response:
+
+{
+  "credits": 600,
+  "minCredits": 600,
+  "maxCredits": 600,
+  "costUsd": 0.30,
+  "chargeUsd": 0.60,
+  "isEstimate": false,
+  "label": "600 credits"
+}
+
+Variable-cost response:
+
+{
+  "credits": 540,
+  "minCredits": 100,
+  "maxCredits": 1000,
+  "costUsd": 0.27,
+  "chargeUsd": 0.54,
+  "isEstimate": true,
+  "label": "up to 1,000 credits"
+}
+
+
+Credit Ledger
+
+Append-only ledger fields:
+
+id
+userId
+workspaceId
+type: purchase | subscription_grant | usage | reserve | release | refund | admin_adjustment | bonus
+module
+provider
+action
+credits
+usdCost
+markup
+status
+relatedId
+stripePaymentIntentId
+stripeSubscriptionId
+providerTaskId
+description
+metadata
+createdAt
+expiresAt
+
+Balance calculation:
+
+available = grants + purchases + bonuses + refunds + releases - usage - active_reserves
+
+
+Quote -> Reserve -> Settle Flow
+
+Every paid API action follows this:
+
+1. Quote
+   - estimate provider cost
+   - show credits to user
+
+2. Reserve
+   - reserve maximum possible credits before API call
+
+3. Provider call
+   - call Kie / Apify / Upload-Post / other provider
+
+4. Settle
+   - charge actual cost where available
+   - release unused credits
+   - refund if provider did not charge
+   - follow admin refund policy if provider charged but output failed
+
+5. Log
+   - save prompt, provider, model, task ID, estimated cost, actual cost, final credits
+
+
+Backend Admin Modules
+
+Add these admin tabs:
+
+1. Billing Plans
+   - manage subscription plans
+
+2. Credit Packages
+   - manage one-time top-up packages
+
+3. Rate Cards
+   - provider/model/action costs
+   - markup multiplier
+   - minimum charge
+   - sync status
+   - manual override
+
+4. Provider Mapping
+   - UI model to provider model ID
+   - example: veo-fast -> veo3_fast
+   - example: seedance-2.0 -> bytedance/seedance-2
+
+5. Stripe Settings
+   - publishable key
+   - secret key
+   - webhook secret
+   - Customer Portal config
+
+6. Credit Ledger
+   - all purchases, usage, refunds, reserves, releases
+   - filter by user/module/provider/action
+
+7. User Billing
+   - view user balance
+   - adjust credits
+   - refund credits
+   - cancel subscription
+   - manually grant bonus credits
+
+8. Billing Rules
+   - daily spend limit
+   - monthly spend limit
+   - max concurrent generations
+   - low-balance automation pause
+   - failed-generation refund policy
+
+9. Pricing Change Alerts
+   - show provider price increases/decreases
+   - admin approve/rollback synced rate changes
+
+
+Automatic Price Updates
+
+Add provider sync jobs.
+
+Kie sync:
+- pull Kie pricing endpoint
+- map model rows to internal model IDs
+- update rate cards
+- flag changes for admin review
+
+Apify sync:
+- pull actor metadata/pricing where available
+- if pricing cannot be fetched reliably, mark as manual_required
+- admin can manually set cost per result / per run / per CU
+
+Upload-Post:
+- keep as manual overhead or per-post platform fee
+
+Stripe:
+- store processing fee assumptions for margin reporting
+- do not charge users separately unless we decide to pass fees on
+
+
+Chargeable Actions
+
+All of these must use quote/reserve/settle:
+
+- Research keyword search
+- Research URL scan
+- Social Audit
+- Persona autofill
+- Generate with AI
+- Create Content image generation
+- Create Content video generation
+- Create Content text generation
+- Research result -> Generate Content
+- Automation Source Watcher run
+- Scheduled automation run
+- Upload-Post publish if not included
+- Create again
+
+
+Automation Billing Rules
+
+Automation needs extra protection:
+
+- minimum balance required before enabling automation
+- max credits per automation run
+- daily automation credit cap
+- monthly automation credit cap
+- auto-pause if balance is too low
+- notify user before automation pauses
+- skip run if not enough credits
+- log skipped runs
+
+Example:
+
+This automation can spend up to 3,500 credits per run.
+Monthly cap: 50,000 credits.
+Current balance: 22,000 credits.
+
+
+Stripe Integration
+
+Use Stripe for:
+- Monthly subscriptions
+- One-time top-ups
+- Customer Portal
+- Invoice/payment history
+- Failed-payment handling
+
+Stripe webhook events:
+- checkout.session.completed
+- invoice.paid
+- invoice.payment_failed
+- customer.subscription.updated
+- customer.subscription.deleted
+- payment_intent.succeeded
+- charge.refunded
+
+Webhook must be idempotent:
+- store Stripe event ID
+- never grant credits twice for the same event
+
+
+Recommended Guardrails
+
+Add these from the start:
+
+- Never allow credit balance below zero
+- Backend is source of truth
+- Frontend only displays estimated cost
+- Every provider call must have a billing record
+- Every provider failure must be marked as charged/refunded/released
+- Every admin credit edit must be logged
+- Use actual provider cost when available
+- Store generated media permanently in GCS
+- Kie generated media may expire, so download/store our own copy
+- Low-credit email notification via Brevo
+- Admin gross margin report
+- Admin credit liability report
+- User spend limits
+- Workspace/user rate limits
+- Fraud/risk review for unusually high spend
+- Disable automation on failed payment
+- Grace period for subscription renewal failure
+
+
+Implementation Phases
+
+Phase 1: Billing foundation
+Build ledger, rate cards, provider mappings, quote API, balance calculation, and admin manual credit adjustment. No Stripe yet.
+
+Phase 2: Frontend credit display
+Add credit labels to all paid buttons. Add insufficient balance state, reserved state, and buy-credit CTA.
+
+Phase 3: Metering enforcement
+Backend blocks all paid API calls unless quote exists, balance is enough, and reservation succeeds.
+
+Phase 4: Meter Create Content first
+Apply full billing to image/video/text generation first because this is the highest-cost flow.
+
+Phase 5: Meter Research, Persona, Social Audit
+Add billing to Apify and GPT-assisted flows.
+
+Phase 6: Meter Automation
+Add max-per-run, monthly cap, low-balance pause, run logs, and skipped-run handling.
+
+Phase 7: User Billing tab
+Show balance, usage, plans, top-ups, invoices, and portal button.
+
+Phase 8: Admin Billing UI
+Build Billing Plans, Credit Packages, Rate Cards, Provider Mapping, Stripe Settings, Credit Ledger, User Billing, Billing Rules.
+
+Phase 9: Provider pricing sync
+Start with Kie. Then Apify hybrid sync/manual. Add pricing change alerts.
+
+Phase 10: Stripe test mode
+Implement Checkout, webhooks, subscriptions, top-ups, Customer Portal, and test cards.
+
+Phase 11: Stripe production
+Deploy production keys. Test $20 subscription, $5 top-up, upgrade, cancel, failed payment, duplicate webhook protection.
+
+Phase 12: Reporting and finance audit
+Add revenue, provider cost, gross margin, credit liability, refund, and automation spend reports.
+
+
+Recommended Build Order
+
+I would build it this way:
+
+1. Ledger + rate cards + quote API
+2. Manual admin credit adjustment
+3. Create Content credit charging
+4. Button credit display
+5. User Billing tab
+6. Research/Persona/Social Audit charging
+7. Automation charging
+8. Admin billing management
+9. Stripe test mode
+10. Stripe production
+
+This keeps the risk controlled and avoids touching billing, Stripe, automation, and all paid providers at once.

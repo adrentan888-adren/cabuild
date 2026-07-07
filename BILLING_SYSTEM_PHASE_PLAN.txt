@@ -1,0 +1,932 @@
+ContentAgent Billing System - Phase-by-Phase Plan
+
+Core commercial rule for all phases:
+
+$1 = 1,000 CA credits
+default markup = 2x provider cost
+user_charge_credits = ceil(provider_cost_usd * markup * 1000)
+
+Example:
+Provider cost: $0.30
+User charge: $0.60
+Credits deducted: 600 credits
+
+The backend must always be the source of truth. The frontend only displays estimated credit cost.
+
+
+============================================================
+PHASE 1 - BILLING FOUNDATION
+============================================================
+
+Goal:
+Create the base billing system without Stripe and without charging live API calls yet.
+
+Build:
+
+1. Credit ledger
+
+Create an append-only ledger. Do not rely only on a mutable workspace.credits number.
+
+Ledger fields:
+- id
+- userId
+- workspaceId
+- type: purchase | subscription_grant | usage | reserve | release | refund | admin_adjustment | bonus
+- module
+- provider
+- action
+- credits
+- usdCost
+- markup
+- status
+- relatedId
+- stripePaymentIntentId
+- stripeSubscriptionId
+- providerTaskId
+- description
+- metadata
+- createdAt
+- expiresAt
+
+Credit types:
+- subscription_credits: monthly credits from plan, expiry configurable, recommended 90 days
+- topup_credits: one-time purchased credits, recommended no expiry
+- bonus_credits: admin/manual/promo credits, expiry configurable
+- reserved_credits: temporarily held while API call is running
+
+Balance calculation:
+
+available = grants + purchases + bonuses + refunds + releases - usage - active_reserves
+
+
+2. Rate cards
+
+Create backend-managed rate cards.
+
+Rate card fields:
+- id
+- provider: kie | apify | upload-post | brevo | stripe | local | custom
+- actionType: video_generation | image_generation | text_generation | scrape | persona_crawl | publish | automation_run
+- modelOrActorId
+- unit: per_action | per_second | per_image | per_1k_tokens | per_1k_results | per_post
+- baseCostUsd
+- markupMultiplier
+- minimumChargeCredits
+- roundingMode: ceil
+- active
+- lastSyncedAt
+- source: manual | provider_sync
+- metadata
+
+
+3. Provider mapping
+
+Create a mapping layer so UI labels are not tied directly to provider IDs.
+
+Examples:
+- veo-fast -> veo3_fast
+- seedance-2.0 -> bytedance/seedance-2
+- gpt-image-2 -> gpt-image-2-text-to-image or gpt-image-2-image-to-image
+- nanobanana-pro -> nano-banana-pro
+
+
+4. Quote API
+
+Add:
+
+POST /api/billing/quote
+
+Example request:
+
+{
+  "action": "create_content.generate",
+  "module": "create_content",
+  "provider": "kie",
+  "model": "veo-fast",
+  "generationType": "video",
+  "duration": 8,
+  "resolution": "720p",
+  "aspectRatio": "9:16"
+}
+
+Example response:
+
+{
+  "credits": 600,
+  "minCredits": 600,
+  "maxCredits": 600,
+  "costUsd": 0.30,
+  "chargeUsd": 0.60,
+  "isEstimate": false,
+  "label": "600 credits"
+}
+
+Variable-cost response:
+
+{
+  "credits": 540,
+  "minCredits": 100,
+  "maxCredits": 1000,
+  "costUsd": 0.27,
+  "chargeUsd": 0.54,
+  "isEstimate": true,
+  "label": "up to 1,000 credits"
+}
+
+
+5. Manual admin credit adjustment
+
+Admin must be able to:
+- add credits
+- remove credits
+- refund credits
+- grant bonus credits
+- add expiry date
+- add note/reason
+
+Every admin adjustment must create a ledger entry.
+
+
+Initial rate card values:
+
+Action                                           Internal Cost                    User Charge
+VEO Fast 720p video                              ~$0.30/video                    600 credits
+Seedance 2.0 720p                                ~$0.205/sec                     410 credits/sec
+Seedance 2.0 8s                                  ~$1.64                          3,280 credits
+GPT Image 2 1K                                   ~$0.03/image                    60 credits
+GPT Image 2 2K                                   ~$0.05/image                    100 credits
+GPT Image 2 4K                                   ~$0.08/image                    160 credits
+Nano Banana Pro 1/2K                             ~$0.09/image                    180 credits
+Nano Banana Pro 4K                               ~$0.12/image                    240 credits
+GPT-5.5 input                                    ~$1.40 / 1M tokens              3 credits / 1K input tokens
+GPT-5.5 output                                   ~$8.40 / 1M tokens              17 credits / 1K output tokens
+Gemini 3.5 Flash input                           ~$0.45 / 1M tokens              1 credit / 1K input tokens
+Gemini 3.5 Flash output                          ~$2.70 / 1M tokens              6 credits / 1K output tokens
+Claude Opus 4.8 input                            ~$2.00 / 1M tokens              4 credits / 1K input tokens
+Claude Opus 4.8 output                           ~$10.00 / 1M tokens             20 credits / 1K output tokens
+Instagram Apify scrape                           ~$2.30-$2.70 / 1K results       4,600-5,400 credits / 1K
+Instagram hashtag scrape                         ~$2.30-$2.60 / 1K results       4,600-5,200 credits / 1K
+TikTok Apify scrape                              ~$1.70 / 1K results             3,400 credits / 1K
+YouTube Apify scrape                             ~$2.40 / 1K videos              4,800 credits / 1K
+Facebook Apify scrape                            ~$2.59 / 1K results             5,180 credits / 1K
+Upload-Post publishing                           fixed monthly/provider cost     include in plans or small per-post fee
+Brevo verification email                         free up to 300/day              do not charge initially
+
+
+Phase 1 test checklist:
+- Admin can grant credits manually.
+- User balance calculation is correct.
+- Ledger entries cannot be edited/deleted.
+- Quote API returns correct estimate for VEO.
+- Quote API returns correct estimate for Seedance duration.
+- Quote API returns correct estimate for image generation.
+- Quote API returns estimate range for Apify.
+- No paid API call is charged yet.
+
+
+============================================================
+PHASE 2 - FRONTEND CREDIT DISPLAY
+============================================================
+
+Goal:
+Show users the expected credit consumption before they click any paid action.
+
+Build:
+
+1. Credit labels on action buttons
+
+Every paid action button should show estimated credits.
+
+Examples:
+- Generate (600 credits)
+- Search (120 credits)
+- Scan URL (300 credits est.)
+- Auto-fill Persona (450 credits est.)
+- Run Source Watcher Now (1,200 credits max)
+- Publish (Included)
+- Publish (30 credits)
+
+
+2. Button states
+
+Before action:
+- Generate (600 credits)
+
+Insufficient balance:
+- Need 600 credits
+
+While running:
+- Generating... 600 credits reserved
+
+After success:
+- Done - 600 credits used
+
+After failed provider call:
+- Failed - credits released
+
+
+3. Variable-cost action display
+
+For actions where final cost depends on provider output:
+- Search (from 120 credits)
+- Scan (up to 1,000 credits)
+- Generate Video (3,280 credits est.)
+
+Show helper text:
+
+Final charge depends on returned results. Unused reserved credits are released.
+
+
+4. Quote refresh rules
+
+Frontend must refresh quote whenever user changes:
+- model
+- duration
+- resolution
+- content type
+- selected platform
+- result limit
+- provider
+- attachments
+- automation schedule
+- approval mode
+
+
+5. Insufficient balance UX
+
+If user balance is too low:
+- disable the paid action button
+- show current balance
+- show Buy credits CTA
+
+
+Affected buttons:
+- Search
+- Scan
+- Run audit
+- Auto-fill Persona
+- Fill fields with AI
+- Generate
+- Run Source Watcher Now
+- Save Automation if it starts paid work
+- Publish
+- Create again
+
+
+Phase 2 test checklist:
+- Create Content Generate button shows credit cost.
+- Changing model updates credit cost.
+- Changing duration updates Seedance cost.
+- Image generation shows model-specific cost.
+- Research scan shows estimate/max.
+- Insufficient balance disables paid action.
+- UI does not decide final price; it only displays backend quote.
+
+
+============================================================
+PHASE 3 - METERING ENFORCEMENT
+============================================================
+
+Goal:
+Prevent free or accidental paid provider calls.
+
+Build:
+
+1. Quote -> Reserve -> Settle flow
+
+Every paid API action follows this:
+
+Step 1: Quote
+- estimate provider cost
+- show credits to user
+
+Step 2: Reserve
+- reserve maximum possible credits before API call
+
+Step 3: Provider call
+- call Kie / Apify / Upload-Post / other provider
+
+Step 4: Settle
+- charge actual cost where available
+- release unused credits
+- refund if provider did not charge
+- follow admin refund policy if provider charged but output failed
+
+Step 5: Log
+- save prompt, provider, model, task ID, estimated cost, actual cost, final credits
+
+
+2. Backend enforcement
+
+Backend blocks all paid API calls unless:
+- billing action is configured
+- quote exists
+- user has enough available credits
+- reservation succeeds
+
+If missing billing config:
+
+No billing rate configured for this action.
+Please contact admin.
+
+
+3. No negative balance
+
+Never allow credit balance below zero.
+
+
+Phase 3 test checklist:
+- Paid call cannot run without rate card.
+- Paid call cannot run with insufficient balance.
+- Reservation is created before provider call.
+- Failed pre-provider call releases reservation.
+- Successful provider call settles charge.
+- Failed provider call records charged/refunded/released status.
+
+
+============================================================
+PHASE 4 - METER CREATE CONTENT FIRST
+============================================================
+
+Goal:
+Apply real billing to the highest-cost feature first: Create Content.
+
+Chargeable Create Content actions:
+- image generation
+- video generation
+- text generation
+- Fill fields with AI
+- Create again
+- Research result -> Generate Content
+
+
+1. Video generation billing
+
+Supported video models:
+- VEO Fast
+- Seedance 2.0
+
+VEO Fast example:
+- fixed estimated charge for 720p video
+- currently approx 600 credits
+
+Seedance example:
+- charge by duration
+- 720p approx 410 credits/sec
+- 8s approx 3,280 credits
+
+
+2. Image generation billing
+
+Supported image models:
+- GPT Image 2
+- Nano Banana Pro
+
+Example charges:
+- GPT Image 2 1K: 60 credits
+- GPT Image 2 2K: 100 credits
+- GPT Image 2 4K: 160 credits
+- Nano Banana Pro 1/2K: 180 credits
+- Nano Banana Pro 4K: 240 credits
+
+
+3. Text generation billing
+
+Supported text models:
+- Gemini 3.5 Flash
+- GPT-5.5
+- Claude Opus 4.8
+
+Use estimated token cost first.
+If Kie returns actual usage later, settle actual usage.
+
+
+4. Generated media retention
+
+Store generated media permanently in our GCS bucket.
+Do not rely only on Kie URLs because generated media may expire.
+
+
+Phase 4 test checklist:
+- VEO generation reserves and settles credits.
+- Seedance generation uses duration-based quote.
+- GPT Image 2 charges correct credits.
+- Nano Banana Pro charges correct credits.
+- Text generation charges token estimate.
+- Failed generation releases or refunds correctly.
+- Generated media is copied to GCS.
+
+
+============================================================
+PHASE 5 - METER RESEARCH, PERSONA, SOCIAL AUDIT
+============================================================
+
+Goal:
+Apply billing to Apify and AI-assisted analysis flows.
+
+Chargeable actions:
+- Research keyword search
+- Research URL scan
+- Social Audit
+- Persona autofill
+- Generate with AI
+
+
+1. Research billing
+
+Research can use Apify actors.
+Costs depend on:
+- platform
+- actor
+- result limit
+- returned results
+- pricing model
+
+Use reserve max first, then settle based on actual result count or actor run cost where available.
+
+
+2. Persona autofill billing
+
+Persona autofill may use:
+- Apify crawl
+- GPT-5.5 summarization/extraction
+
+Quote should include both:
+- estimated crawl cost
+- estimated GPT-5.5 token cost
+
+
+3. Social audit billing
+
+Social audit may use:
+- Upload-Post connected accounts
+- Apify scans of social URLs
+- local scoring
+
+Charge only provider-cost actions.
+Do not charge local scoring separately unless we later decide to add a platform fee.
+
+
+Phase 5 test checklist:
+- Research keyword search reserves estimate.
+- Research URL scan reserves estimate.
+- Apify failed run refunds or releases correctly.
+- Persona autofill charges crawl + AI estimate.
+- Social audit charges only paid provider work.
+- History/cache avoids charging user again for reused scan results.
+
+
+============================================================
+PHASE 6 - METER AUTOMATION
+============================================================
+
+Goal:
+Make automation financially safe.
+
+Chargeable automation actions:
+- Source Watcher run
+- Scheduled content run
+- Apify crawl inside automation
+- AI prompt generation inside automation
+- Kie image/video/text generation inside automation
+- Upload-Post publish if not included
+
+
+Automation billing rules:
+- minimum balance required before enabling automation
+- max credits per automation run
+- daily automation credit cap
+- monthly automation credit cap
+- auto-pause if balance is too low
+- notify user before automation pauses
+- skip run if not enough credits
+- log skipped runs
+
+Example UI:
+
+This automation can spend up to 3,500 credits per run.
+Monthly cap: 50,000 credits.
+Current balance: 22,000 credits.
+
+
+Approval modes:
+- Create draft only: charge crawl + AI draft only
+- Generate asset, wait for approval: charge crawl + AI + Kie generation
+- Generate and schedule: charge crawl + AI + Kie generation + scheduling
+- Auto publish through Upload-Post: charge all provider work, publish fee if applicable
+
+
+Phase 6 test checklist:
+- Automation cannot start if balance is below minimum.
+- Automation run respects max credits per run.
+- Monthly cap prevents runaway cost.
+- Low balance auto-pauses automation.
+- Skipped automation runs are logged.
+- Automation charges per provider action.
+- Upload-Post publish is charged or included according to billing rule.
+
+
+============================================================
+PHASE 7 - USER BILLING TAB
+============================================================
+
+Goal:
+Give frontend users a clear billing and credit dashboard.
+
+Add a Billing tab showing:
+- current credit balance
+- current subscription plan
+- subscribe / upgrade / downgrade
+- buy extra credits
+- credit usage history
+- usage by module
+- usage by provider
+- payment/invoice history
+- Stripe Customer Portal button
+- low-credit warning
+- automation pause warning when balance is low
+
+
+Usage breakdown modules:
+- Research
+- Social Audit
+- Persona
+- Create Content
+- Automation
+- My Contents / Publish
+- Billing
+
+Usage breakdown providers:
+- Kie
+- Apify
+- Upload-Post
+- Brevo
+- Stripe
+- Local/system
+
+
+Phase 7 test checklist:
+- User can see available credits.
+- User can see subscription credits vs top-up credits.
+- User can see usage history.
+- User can filter usage by module.
+- User can filter usage by provider.
+- User sees low-credit warning.
+- Buy credits CTA is visible.
+
+
+============================================================
+PHASE 8 - ADMIN BILLING UI
+============================================================
+
+Goal:
+Allow backend admins to manage pricing, plans, packages, users, and rules.
+
+Admin tabs:
+
+1. Billing Plans
+- manage subscription plans
+
+2. Credit Packages
+- manage one-time top-up packages
+
+3. Rate Cards
+- provider/model/action costs
+- markup multiplier
+- minimum charge
+- sync status
+- manual override
+
+4. Provider Mapping
+- UI model to provider model ID
+- example: veo-fast -> veo3_fast
+- example: seedance-2.0 -> bytedance/seedance-2
+
+5. Stripe Settings
+- publishable key
+- secret key
+- webhook secret
+- Customer Portal config
+
+6. Credit Ledger
+- all purchases, usage, refunds, reserves, releases
+- filter by user/module/provider/action
+
+7. User Billing
+- view user balance
+- adjust credits
+- refund credits
+- cancel subscription
+- manually grant bonus credits
+
+8. Billing Rules
+- daily spend limit
+- monthly spend limit
+- max concurrent generations
+- low-balance automation pause
+- failed-generation refund policy
+
+9. Pricing Change Alerts
+- show provider price increases/decreases
+- admin approve/rollback synced rate changes
+
+
+Subscription plans:
+
+Plan       Price      Bonus      Monthly Credits
+Starter    $20/mo     0%         20,000
+Growth     $50/mo     10%        55,000
+Pro        $100/mo    20%        120,000
+
+Admin can modify:
+- Plan name
+- Monthly price
+- Base credits
+- Bonus %
+- Expiry days
+- Stripe price ID
+- Active/inactive
+- Monthly usage limits
+- Automation allowed or not
+- Max concurrent generations
+
+
+Extra credit packages:
+
+Package        Price      Base Credits      Suggested Bonus      Total Credits
+Mini Top-up     $5        5,000             0%                   5,000
+Small Top-up    $10       10,000            0%                   10,000
+Growth Top-up   $50       50,000            10%                  55,000
+Pro Top-up      $100      100,000           20%                  120,000
+Scale Top-up    $200      200,000           30%                  260,000
+
+Admin can modify:
+- Package name
+- Price
+- Base credits
+- Bonus credits or bonus %
+- Stripe price ID
+- Active/inactive
+- Whether credits expire
+- Max purchases per month
+
+
+Phase 8 test checklist:
+- Admin can edit plan credits.
+- Admin can edit top-up package credits.
+- Admin can edit rate card costs.
+- Admin can update markup multiplier.
+- Admin can manually adjust user credits.
+- Admin can view ledger.
+- Admin can configure billing rules.
+- Admin changes are logged.
+
+
+============================================================
+PHASE 9 - PROVIDER PRICING SYNC
+============================================================
+
+Goal:
+Keep credit consumption updated automatically when providers/models change.
+
+
+1. Kie pricing sync
+
+Kie sync should:
+- pull Kie pricing endpoint
+- map model rows to internal model IDs
+- update rate cards
+- flag changed prices for admin review
+- store lastSyncedAt
+
+Admin should see:
+- old cost
+- new cost
+- percentage change
+- affected actions
+- approve / rollback
+
+
+2. Apify pricing sync
+
+Apify sync should:
+- pull actor metadata/pricing where available
+- store actor pricing model
+- if pricing cannot be fetched reliably, mark as manual_required
+- admin can manually set cost per result / per run / per CU
+
+
+3. Upload-Post pricing
+
+Keep as:
+- manual monthly overhead
+- or per-post platform fee
+
+Recommendation:
+Include basic publishing in paid plans.
+Charge extra only for high-volume automation or special cases.
+
+
+4. Stripe fee config
+
+Store processing fee assumptions for margin reporting.
+Do not charge users separately unless we decide to pass fees on.
+
+
+Phase 9 test checklist:
+- Kie sync updates known model prices.
+- Kie sync flags price changes.
+- Admin can approve/rollback price changes.
+- Apify manual_required state works.
+- New provider model can be added without touching feature code.
+- Frontend button labels update from rate card.
+
+
+============================================================
+PHASE 10 - STRIPE TEST MODE
+============================================================
+
+Goal:
+Connect payments safely using Stripe test mode.
+
+Use Stripe for:
+- monthly subscriptions
+- one-time top-ups
+- Customer Portal
+- invoice/payment history
+- failed-payment handling
+
+
+Stripe webhook events:
+- checkout.session.completed
+- invoice.paid
+- invoice.payment_failed
+- customer.subscription.updated
+- customer.subscription.deleted
+- payment_intent.succeeded
+- charge.refunded
+
+
+Webhook idempotency:
+- store Stripe event ID
+- never grant credits twice for the same event
+
+
+Test mode flows:
+- subscribe to $20 plan
+- subscribe to $50 plan
+- subscribe to $100 plan
+- buy $5 top-up
+- buy $10 top-up
+- buy $50 top-up
+- buy $100 top-up
+- buy $200 top-up
+- upgrade plan
+- downgrade plan
+- cancel plan
+- failed payment
+- duplicate webhook
+- refund
+
+
+Phase 10 test checklist:
+- Stripe Checkout opens correctly.
+- Successful subscription grants credits.
+- Successful top-up grants credits.
+- Duplicate webhook does not double-grant credits.
+- Failed payment does not grant credits.
+- Cancellation updates subscription state.
+- Refund creates refund ledger entry.
+- Customer Portal opens correctly.
+
+
+============================================================
+PHASE 11 - STRIPE PRODUCTION
+============================================================
+
+Goal:
+Enable real payments.
+
+Steps:
+
+1. Add production Stripe keys in backend
+- publishable key
+- secret key
+- webhook secret
+
+2. Configure production webhook endpoint
+
+3. Create production Stripe products/prices
+- Starter $20/mo
+- Growth $50/mo
+- Pro $100/mo
+- $5 top-up
+- $10 top-up
+- $50 top-up
+- $100 top-up
+- $200 top-up
+
+4. Map Stripe price IDs to backend plans/packages
+
+5. Production smoke test
+- buy $5 top-up
+- subscribe to $20 plan
+- verify credits granted
+- verify invoice history
+- verify webhook event stored
+- verify duplicate webhook protection
+
+
+Phase 11 test checklist:
+- Production Stripe checkout works.
+- Production webhook receives event.
+- Credits are granted correctly.
+- Invoices appear.
+- Customer Portal works.
+- Failed payment does not grant credits.
+- Logs contain no raw secret keys.
+
+
+============================================================
+PHASE 12 - REPORTING AND FINANCE AUDIT
+============================================================
+
+Goal:
+Give admin visibility into revenue, cost, margin, and credit liability.
+
+Reports:
+- revenue by day/month
+- provider cost by day/month
+- gross margin by provider
+- gross margin by module
+- credit liability
+- subscription revenue
+- top-up revenue
+- refunds
+- failed payments
+- automation spend
+- high-spend users
+- provider failure cost
+
+
+Important metrics:
+- total credits sold
+- total credits consumed
+- total credits expired
+- total active liability
+- average cost per generation
+- average revenue per generation
+- failed generation refund amount
+- automation cost by user
+
+
+Phase 12 test checklist:
+- Admin can see revenue report.
+- Admin can see provider cost report.
+- Admin can see margin report.
+- Admin can see credit liability.
+- Admin can export ledger CSV.
+- Admin can audit one user from purchase to usage to balance.
+
+
+============================================================
+GLOBAL GUARDRAILS FOR ALL PHASES
+============================================================
+
+Add these from the start:
+
+- Never allow credit balance below zero.
+- Backend is source of truth.
+- Frontend only displays estimated cost.
+- Every provider call must have a billing record.
+- Every provider failure must be marked as charged/refunded/released.
+- Every admin credit edit must be logged.
+- Use actual provider cost when available.
+- Store generated media permanently in GCS.
+- Kie generated media may expire, so download/store our own copy.
+- Send low-credit email notification via Brevo.
+- Add admin gross margin report.
+- Add admin credit liability report.
+- Add user spend limits.
+- Add workspace/user rate limits.
+- Add fraud/risk review for unusually high spend.
+- Disable automation on failed payment.
+- Add grace period for subscription renewal failure.
+
+
+============================================================
+RECOMMENDED BUILD ORDER
+============================================================
+
+1. Ledger + rate cards + quote API
+2. Manual admin credit adjustment
+3. Create Content credit charging
+4. Button credit display
+5. User Billing tab
+6. Research/Persona/Social Audit charging
+7. Automation charging
+8. Admin billing management
+9. Stripe test mode
+10. Stripe production
+
+This keeps the risk controlled and avoids touching billing, Stripe, automation, and all paid providers at once.

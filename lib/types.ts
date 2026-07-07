@@ -17,6 +17,8 @@ export type PermissionKey =
   | "prompts.edit"
   | "apiKeys.view"
   | "apiKeys.edit"
+  | "billing.view"
+  | "billing.manage"
   | "system.view"
   | "logs.view"
   | "settings.view"
@@ -421,6 +423,135 @@ export type DebugLog = {
   createdAt: string;
 };
 
+export type BillingProvider = "kie" | "apify" | "upload-post" | "brevo" | "stripe" | "local" | "custom";
+
+export type BillingLedgerType =
+  | "purchase"
+  | "subscription_grant"
+  | "usage"
+  | "reserve"
+  | "release"
+  | "refund"
+  | "admin_adjustment"
+  | "bonus";
+
+export type BillingLedgerStatus = "pending" | "succeeded" | "failed" | "refunded" | "reserved" | "released";
+
+export type BillingRateUnit = "per_action" | "per_second" | "per_image" | "per_1k_tokens" | "per_1k_results" | "per_post";
+
+export type BillingRateCard = {
+  id: string;
+  provider: BillingProvider;
+  actionType: "video_generation" | "image_generation" | "text_generation" | "scrape" | "persona_crawl" | "publish" | "automation_run" | "ai_assist";
+  modelOrActorId: string;
+  label: string;
+  unit: BillingRateUnit;
+  baseCostUsd: number;
+  markupMultiplier: number;
+  minimumChargeCredits: number;
+  roundingMode: "ceil";
+  active: boolean;
+  source: "manual" | "provider_sync";
+  lastSyncedAt?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type BillingProviderMapping = {
+  id: string;
+  uiKey: string;
+  provider: BillingProvider;
+  providerModelOrActorId: string;
+  actionType: BillingRateCard["actionType"];
+  label: string;
+  active: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type BillingPlan = {
+  id: string;
+  name: string;
+  priceUsd: number;
+  baseCredits: number;
+  bonusPercent: number;
+  totalCredits: number;
+  expiryDays: number;
+  stripePriceId?: string;
+  active: boolean;
+  monthlyUsageLimitCredits?: number;
+  automationAllowed?: boolean;
+  maxConcurrentGenerations?: number;
+};
+
+export type BillingCreditPackage = {
+  id: string;
+  name: string;
+  priceUsd: number;
+  baseCredits: number;
+  bonusPercent: number;
+  bonusCredits: number;
+  totalCredits: number;
+  stripePriceId?: string;
+  active: boolean;
+  expiresAfterDays?: number;
+  maxPurchasesPerMonth?: number;
+};
+
+export type BillingSettings = {
+  creditScale: number;
+  defaultMarkupMultiplier: number;
+  currency: "USD";
+  lowCreditThreshold: number;
+  automationMinimumBalance: number;
+  automationDefaultRunCap: number;
+  allowNegativeBalance: false;
+};
+
+export type BillingLedgerEntry = {
+  id: string;
+  userId?: string;
+  workspaceId: string;
+  type: BillingLedgerType;
+  module: string;
+  provider: BillingProvider;
+  action: string;
+  credits: number;
+  usdCost: number;
+  markup: number;
+  status: BillingLedgerStatus;
+  relatedId?: string;
+  stripePaymentIntentId?: string;
+  stripeSubscriptionId?: string;
+  providerTaskId?: string;
+  description: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  expiresAt?: string;
+};
+
+export type BillingQuote = {
+  action: string;
+  module: string;
+  provider: BillingProvider;
+  modelOrActorId: string;
+  credits: number;
+  minCredits: number;
+  maxCredits: number;
+  costUsd: number;
+  chargeUsd: number;
+  unit: BillingRateUnit;
+  unitCount: number;
+  isEstimate: boolean;
+  label: string;
+  rateCardId: string;
+  breakdown: {
+    label: string;
+    credits: number;
+    costUsd: number;
+    unit: BillingRateUnit;
+    unitCount: number;
+  }[];
+};
+
 export type PromptTemplates = {
   researchVideoRecreate: string;
   researchImageRecreate: string;
@@ -448,6 +579,12 @@ export type Database = {
   apiKeyOverrides: ApiKeyOverride[];
   activity: Activity[];
   debugLogs: DebugLog[];
+  billingSettings: BillingSettings;
+  billingRateCards: BillingRateCard[];
+  billingProviderMappings: BillingProviderMapping[];
+  billingPlans: BillingPlan[];
+  billingCreditPackages: BillingCreditPackage[];
+  billingLedger: BillingLedgerEntry[];
   promptTemplates: PromptTemplates;
   rolePermissions: RolePermissions;
 };

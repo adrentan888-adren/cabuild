@@ -1,0 +1,365 @@
+import crypto from "crypto";
+import type {
+  BillingCreditPackage,
+  BillingLedgerEntry,
+  BillingPlan,
+  BillingProvider,
+  BillingProviderMapping,
+  BillingQuote,
+  BillingRateCard,
+  BillingRateUnit,
+  BillingSettings,
+  Database
+} from "./types";
+
+export const defaultBillingSettings: BillingSettings = {
+  creditScale: 1000,
+  defaultMarkupMultiplier: 2,
+  currency: "USD",
+  lowCreditThreshold: 1000,
+  automationMinimumBalance: 3500,
+  automationDefaultRunCap: 3500,
+  allowNegativeBalance: false
+};
+
+export const defaultBillingPlans: BillingPlan[] = [
+  { id: "plan_starter_20", name: "Starter", priceUsd: 20, baseCredits: 20000, bonusPercent: 0, totalCredits: 20000, expiryDays: 90, active: true, automationAllowed: false, maxConcurrentGenerations: 1 },
+  { id: "plan_growth_50", name: "Growth", priceUsd: 50, baseCredits: 50000, bonusPercent: 10, totalCredits: 55000, expiryDays: 90, active: true, automationAllowed: true, maxConcurrentGenerations: 2 },
+  { id: "plan_pro_100", name: "Pro", priceUsd: 100, baseCredits: 100000, bonusPercent: 20, totalCredits: 120000, expiryDays: 90, active: true, automationAllowed: true, maxConcurrentGenerations: 4 }
+];
+
+export const defaultBillingCreditPackages: BillingCreditPackage[] = [
+  { id: "pkg_mini_5", name: "Mini Top-up", priceUsd: 5, baseCredits: 5000, bonusPercent: 0, bonusCredits: 0, totalCredits: 5000, active: true },
+  { id: "pkg_small_10", name: "Small Top-up", priceUsd: 10, baseCredits: 10000, bonusPercent: 0, bonusCredits: 0, totalCredits: 10000, active: true },
+  { id: "pkg_growth_50", name: "Growth Top-up", priceUsd: 50, baseCredits: 50000, bonusPercent: 10, bonusCredits: 5000, totalCredits: 55000, active: true },
+  { id: "pkg_pro_100", name: "Pro Top-up", priceUsd: 100, baseCredits: 100000, bonusPercent: 20, bonusCredits: 20000, totalCredits: 120000, active: true },
+  { id: "pkg_scale_200", name: "Scale Top-up", priceUsd: 200, baseCredits: 200000, bonusPercent: 30, bonusCredits: 60000, totalCredits: 260000, active: true }
+];
+
+const defaultBillingProviderMappingSeeds: Omit<BillingProviderMapping, "active">[] = [
+  { id: "map_veo_fast", uiKey: "veo-fast", provider: "kie", providerModelOrActorId: "veo3_fast", actionType: "video_generation", label: "VEO Fast" },
+  { id: "map_seedance_2", uiKey: "seedance-2.0", provider: "kie", providerModelOrActorId: "bytedance/seedance-2", actionType: "video_generation", label: "Seedance 2.0" },
+  { id: "map_gpt_image_2", uiKey: "gpt-image-2", provider: "kie", providerModelOrActorId: "gpt-image-2", actionType: "image_generation", label: "GPT Image 2" },
+  { id: "map_nanobanana_pro", uiKey: "nanobanana-pro", provider: "kie", providerModelOrActorId: "nano-banana-pro", actionType: "image_generation", label: "Nano Banana Pro" },
+  { id: "map_gpt_55", uiKey: "gpt-5-5", provider: "kie", providerModelOrActorId: "gpt-5.5", actionType: "text_generation", label: "GPT-5.5" },
+  { id: "map_gemini_flash", uiKey: "gemini-3.5-flash", provider: "kie", providerModelOrActorId: "gemini-3.5-flash", actionType: "text_generation", label: "Gemini 3.5 Flash" },
+  { id: "map_claude_opus_48", uiKey: "claude-opus-4.8", provider: "kie", providerModelOrActorId: "claude-opus-4.8", actionType: "text_generation", label: "Claude Opus 4.8" },
+  { id: "map_instagram_scrape", uiKey: "instagram-scrape", provider: "apify", providerModelOrActorId: "apify/instagram-scraper", actionType: "scrape", label: "Instagram scrape" },
+  { id: "map_instagram_hashtag", uiKey: "instagram-hashtag", provider: "apify", providerModelOrActorId: "apify/instagram-hashtag-scraper", actionType: "scrape", label: "Instagram hashtag scrape" },
+  { id: "map_tiktok_scrape", uiKey: "tiktok-scrape", provider: "apify", providerModelOrActorId: "clockworks/tiktok-scraper", actionType: "scrape", label: "TikTok scrape" },
+  { id: "map_youtube_scrape", uiKey: "youtube-scrape", provider: "apify", providerModelOrActorId: "streamers/youtube-scraper", actionType: "scrape", label: "YouTube scrape" },
+  { id: "map_facebook_scrape", uiKey: "facebook-scrape", provider: "apify", providerModelOrActorId: "scrapeforge/facebook-search-posts", actionType: "scrape", label: "Facebook scrape" },
+  { id: "map_upload_post", uiKey: "upload-post-publish", provider: "upload-post", providerModelOrActorId: "upload-post", actionType: "publish", label: "Upload-Post publish" }
+];
+
+export const defaultBillingProviderMappings: BillingProviderMapping[] = defaultBillingProviderMappingSeeds.map((mapping) => ({ ...mapping, active: true }));
+
+export const defaultBillingRateCards: BillingRateCard[] = [
+  rate("rate_kie_veo_fast_720p", "kie", "video_generation", "veo3_fast", "VEO Fast 720p video", "per_action", 0.30, 2, 1, { resolution: "720p" }),
+  rate("rate_kie_seedance_2_720p", "kie", "video_generation", "bytedance/seedance-2", "Seedance 2.0 720p", "per_second", 0.205, 2, 1, { resolution: "720p" }),
+  rate("rate_kie_gpt_image_2_1k", "kie", "image_generation", "gpt-image-2:1k", "GPT Image 2 1K", "per_image", 0.03, 2, 1, { model: "gpt-image-2", resolution: "1K" }),
+  rate("rate_kie_gpt_image_2_2k", "kie", "image_generation", "gpt-image-2:2k", "GPT Image 2 2K", "per_image", 0.05, 2, 1, { model: "gpt-image-2", resolution: "2K" }),
+  rate("rate_kie_gpt_image_2_4k", "kie", "image_generation", "gpt-image-2:4k", "GPT Image 2 4K", "per_image", 0.08, 2, 1, { model: "gpt-image-2", resolution: "4K" }),
+  rate("rate_kie_nano_banana_pro_1_2k", "kie", "image_generation", "nano-banana-pro:1-2k", "Nano Banana Pro 1/2K", "per_image", 0.09, 2, 1, { model: "nano-banana-pro", resolution: "1/2K" }),
+  rate("rate_kie_nano_banana_pro_4k", "kie", "image_generation", "nano-banana-pro:4k", "Nano Banana Pro 4K", "per_image", 0.12, 2, 1, { model: "nano-banana-pro", resolution: "4K" }),
+  rate("rate_kie_gpt_55_input", "kie", "text_generation", "gpt-5.5:input", "GPT-5.5 input", "per_1k_tokens", 0.0014, 2, 1, { model: "gpt-5.5", tokenRole: "input" }),
+  rate("rate_kie_gpt_55_output", "kie", "text_generation", "gpt-5.5:output", "GPT-5.5 output", "per_1k_tokens", 0.0084, 2, 1, { model: "gpt-5.5", tokenRole: "output" }),
+  rate("rate_kie_gemini_flash_input", "kie", "text_generation", "gemini-3.5-flash:input", "Gemini 3.5 Flash input", "per_1k_tokens", 0.00045, 2, 1, { model: "gemini-3.5-flash", tokenRole: "input" }),
+  rate("rate_kie_gemini_flash_output", "kie", "text_generation", "gemini-3.5-flash:output", "Gemini 3.5 Flash output", "per_1k_tokens", 0.0027, 2, 1, { model: "gemini-3.5-flash", tokenRole: "output" }),
+  rate("rate_kie_claude_opus_48_input", "kie", "text_generation", "claude-opus-4.8:input", "Claude Opus 4.8 input", "per_1k_tokens", 0.002, 2, 1, { model: "claude-opus-4.8", tokenRole: "input" }),
+  rate("rate_kie_claude_opus_48_output", "kie", "text_generation", "claude-opus-4.8:output", "Claude Opus 4.8 output", "per_1k_tokens", 0.010, 2, 1, { model: "claude-opus-4.8", tokenRole: "output" }),
+  rate("rate_apify_instagram", "apify", "scrape", "apify/instagram-scraper", "Instagram scraper", "per_1k_results", 2.70, 2, 1),
+  rate("rate_apify_instagram_hashtag", "apify", "scrape", "apify/instagram-hashtag-scraper", "Instagram hashtag scraper", "per_1k_results", 2.60, 2, 1),
+  rate("rate_apify_tiktok", "apify", "scrape", "clockworks/tiktok-scraper", "TikTok scraper", "per_1k_results", 1.70, 2, 1),
+  rate("rate_apify_youtube", "apify", "scrape", "streamers/youtube-scraper", "YouTube scraper", "per_1k_results", 2.40, 2, 1),
+  rate("rate_apify_facebook", "apify", "scrape", "scrapeforge/facebook-search-posts", "Facebook search posts", "per_1k_results", 2.59, 2, 1),
+  rate("rate_upload_post_publish", "upload-post", "publish", "upload-post", "Upload-Post publish included", "per_post", 0, 2, 0, { included: true }),
+  rate("rate_brevo_verification", "brevo", "publish", "brevo-verification-email", "Brevo verification email included", "per_action", 0, 2, 0, { included: true })
+];
+
+function rate(
+  id: string,
+  provider: BillingProvider,
+  actionType: BillingRateCard["actionType"],
+  modelOrActorId: string,
+  label: string,
+  unit: BillingRateUnit,
+  baseCostUsd: number,
+  markupMultiplier: number,
+  minimumChargeCredits: number,
+  metadata?: Record<string, unknown>
+): BillingRateCard {
+  return { id, provider, actionType, modelOrActorId, label, unit, baseCostUsd, markupMultiplier, minimumChargeCredits, roundingMode: "ceil", active: true, source: "manual", metadata };
+}
+
+export function ensureBillingDefaults(db: Database) {
+  db.billingSettings = { ...defaultBillingSettings, ...(db.billingSettings || {}) };
+  db.billingRateCards = mergeById(defaultBillingRateCards, db.billingRateCards || []);
+  db.billingProviderMappings = mergeById(defaultBillingProviderMappings, db.billingProviderMappings || []);
+  db.billingPlans = mergeById(defaultBillingPlans, db.billingPlans || []).map(recalculatePlanCredits);
+  db.billingCreditPackages = mergeById(defaultBillingCreditPackages, db.billingCreditPackages || []).map(recalculatePackageCredits);
+  db.billingLedger ||= [];
+  for (const workspace of db.workspaces || []) {
+    const openingId = `cred_opening_${workspace.id}`;
+    if (workspace.credits > 0 && !db.billingLedger.some((entry) => entry.id === openingId)) {
+      db.billingLedger.unshift({
+        id: openingId,
+        workspaceId: workspace.id,
+        type: "bonus",
+        module: "billing",
+        provider: "local",
+        action: "opening_balance",
+        credits: workspace.credits,
+        usdCost: 0,
+        markup: 0,
+        status: "succeeded",
+        description: "Opening balance imported from workspace credits.",
+        createdAt: new Date().toISOString(),
+        metadata: { importedFromWorkspaceCredits: true }
+      });
+    }
+    workspace.credits = calculateCreditBalance(db, workspace.id).available;
+  }
+}
+
+function mergeById<T extends { id: string }>(defaults: T[], existing: T[]) {
+  const map = new Map(defaults.map((item) => [item.id, item]));
+  for (const item of existing) map.set(item.id, { ...(map.get(item.id) || {}), ...item });
+  return Array.from(map.values());
+}
+
+export function recalculatePlanCredits(plan: BillingPlan): BillingPlan {
+  const bonus = Math.ceil(plan.baseCredits * (plan.bonusPercent || 0) / 100);
+  return { ...plan, totalCredits: plan.baseCredits + bonus };
+}
+
+export function recalculatePackageCredits(pkg: BillingCreditPackage): BillingCreditPackage {
+  const bonusCredits = Number.isFinite(pkg.bonusCredits) && pkg.bonusCredits > 0
+    ? Math.ceil(pkg.bonusCredits)
+    : Math.ceil(pkg.baseCredits * (pkg.bonusPercent || 0) / 100);
+  return { ...pkg, bonusCredits, totalCredits: pkg.baseCredits + bonusCredits };
+}
+
+export function calculateCreditBalance(db: Pick<Database, "billingLedger">, workspaceId: string) {
+  const now = Date.now();
+  let available = 0;
+  let reserved = 0;
+  let lifetimeGranted = 0;
+  let lifetimeUsed = 0;
+  for (const entry of db.billingLedger || []) {
+    if (entry.workspaceId !== workspaceId) continue;
+    const expired = entry.expiresAt ? new Date(entry.expiresAt).getTime() < now : false;
+    if (expired && ["purchase", "subscription_grant", "bonus", "admin_adjustment"].includes(entry.type)) continue;
+    const credits = Math.round(entry.credits || 0);
+    if (entry.type === "reserve" && entry.status === "reserved") {
+      reserved += Math.abs(credits);
+      continue;
+    }
+    if (["failed", "refunded"].includes(entry.status)) continue;
+    if (entry.type === "usage") {
+      available -= Math.abs(credits);
+      lifetimeUsed += Math.abs(credits);
+    } else if (entry.type === "reserve") {
+      continue;
+    } else {
+      available += credits;
+      if (credits > 0) lifetimeGranted += credits;
+    }
+  }
+  return { available: Math.max(0, available - reserved), reserved, lifetimeGranted, lifetimeUsed };
+}
+
+export function createLedgerId() {
+  return `cred_${crypto.randomBytes(6).toString("hex")}`;
+}
+
+export function quoteBillingAction(db: Database, input: Record<string, unknown>): BillingQuote {
+  const action = String(input.action || "");
+  const moduleName = String(input.module || inferModule(action));
+  const generationType = String(input.generationType || "");
+  const model = String(input.model || input.modelOrActorId || defaultModelForAction(action, generationType));
+  const actorId = String(input.actorId || input.modelOrActorId || "");
+  if (action.includes("scrape") || action.includes("scan") || action.includes("search") || input.provider === "apify") {
+    return quoteScrape(db, { action, moduleName, actorId, platform: String(input.platform || ""), maxResults: Number(input.maxResults || input.resultLimit || 100) });
+  }
+  if (action.includes("publish") || input.provider === "upload-post") {
+    return quoteSingleRate(db, { action, moduleName, provider: "upload-post", actionType: "publish", modelOrActorId: "upload-post", unitCount: Number(input.posts || 1), estimate: false });
+  }
+  if (generationType === "image" || action.includes("image")) return quoteImage(db, action, moduleName, model, String(input.resolution || "1K"));
+  if (generationType === "video" || action.includes("video")) return quoteVideo(db, action, moduleName, model, Number(input.duration || 8));
+  if (generationType === "text" || action.includes("ai") || action.includes("text") || action.includes("persona")) {
+    return quoteText(db, action, moduleName, model, Number(input.inputTokens || 2000), Number(input.outputTokens || 1000));
+  }
+  return quoteText(db, action || "billing.unknown", moduleName, model || "gemini-3.5-flash", Number(input.inputTokens || 1000), Number(input.outputTokens || 500));
+}
+
+function inferModule(action: string) {
+  if (action.startsWith("research")) return "research";
+  if (action.startsWith("persona")) return "persona";
+  if (action.startsWith("social_audit")) return "social_audit";
+  if (action.startsWith("automation")) return "automation";
+  if (action.startsWith("publish")) return "publish";
+  return "create_content";
+}
+
+function defaultModelForAction(action: string, generationType: string) {
+  if (generationType === "image") return "gpt-image-2";
+  if (generationType === "video") return "veo-fast";
+  if (generationType === "text") return "gemini-3.5-flash";
+  if (action.includes("persona") || action.includes("prompt") || action.includes("ai")) return "gpt-5-5";
+  return "gemini-3.5-flash";
+}
+
+function quoteVideo(db: Database, action: string, moduleName: string, model: string, duration: number) {
+  const mapped = mapUiModel(db, model);
+  const isSeedance = mapped.providerModelOrActorId.includes("seedance");
+  return quoteSingleRate(db, {
+    action,
+    moduleName,
+    provider: "kie",
+    actionType: "video_generation",
+    modelOrActorId: mapped.providerModelOrActorId,
+    unitCount: isSeedance ? Math.max(1, Math.round(duration || 8)) : 1,
+    estimate: false
+  });
+}
+
+function quoteImage(db: Database, action: string, moduleName: string, model: string, resolution: string) {
+  const mapped = mapUiModel(db, model);
+  const normalizedResolution = resolution.toLowerCase().replace(/\s+/g, "");
+  const suffix = normalizedResolution === "4k" ? "4k" : normalizedResolution === "2k" ? "2k" : mapped.providerModelOrActorId.includes("nano") ? "1-2k" : "1k";
+  return quoteSingleRate(db, {
+    action,
+    moduleName,
+    provider: "kie",
+    actionType: "image_generation",
+    modelOrActorId: `${mapped.providerModelOrActorId}:${suffix}`,
+    unitCount: 1,
+    estimate: false
+  });
+}
+
+function quoteText(db: Database, action: string, moduleName: string, model: string, inputTokens: number, outputTokens: number): BillingQuote {
+  const mapped = mapUiModel(db, model);
+  const inputRate = findRate(db, "kie", "text_generation", `${mapped.providerModelOrActorId}:input`);
+  const outputRate = findRate(db, "kie", "text_generation", `${mapped.providerModelOrActorId}:output`);
+  const inputUnits = Math.max(1, Math.ceil(inputTokens / 1000));
+  const outputUnits = Math.max(1, Math.ceil(outputTokens / 1000));
+  const inputLine = quoteLine(db, inputRate, inputUnits);
+  const outputLine = quoteLine(db, outputRate, outputUnits);
+  const credits = inputLine.credits + outputLine.credits;
+  const costUsd = roundUsd(inputLine.costUsd + outputLine.costUsd);
+  const chargeUsd = roundUsd(credits / db.billingSettings.creditScale);
+  return {
+    action,
+    module: moduleName,
+    provider: "kie",
+    modelOrActorId: mapped.providerModelOrActorId,
+    credits,
+    minCredits: credits,
+    maxCredits: credits,
+    costUsd,
+    chargeUsd,
+    unit: "per_1k_tokens",
+    unitCount: inputUnits + outputUnits,
+    isEstimate: true,
+    label: `${credits.toLocaleString()} credits est.`,
+    rateCardId: `${inputRate.id},${outputRate.id}`,
+    breakdown: [
+      { label: inputRate.label, credits: inputLine.credits, costUsd: inputLine.costUsd, unit: inputRate.unit, unitCount: inputUnits },
+      { label: outputRate.label, credits: outputLine.credits, costUsd: outputLine.costUsd, unit: outputRate.unit, unitCount: outputUnits }
+    ]
+  };
+}
+
+function quoteScrape(db: Database, input: { action: string; moduleName: string; actorId: string; platform: string; maxResults: number }) {
+  const actorId = input.actorId || actorForPlatform(input.platform);
+  const maxResults = Math.max(1, input.maxResults || 100);
+  const units = Math.max(1, Math.ceil(maxResults / 1000));
+  const quote = quoteSingleRate(db, {
+    action: input.action || "research.scan",
+    moduleName: input.moduleName,
+    provider: "apify",
+    actionType: "scrape",
+    modelOrActorId: actorId,
+    unitCount: units,
+    estimate: true
+  });
+  return { ...quote, minCredits: Math.max(quote.breakdown[0]?.credits || quote.credits, Math.ceil(quote.credits * 0.1)), maxCredits: quote.credits, label: `up to ${quote.credits.toLocaleString()} credits` };
+}
+
+function actorForPlatform(platform: string) {
+  const normalized = platform.toLowerCase();
+  if (normalized.includes("instagram")) return "apify/instagram-scraper";
+  if (normalized.includes("tiktok")) return "clockworks/tiktok-scraper";
+  if (normalized.includes("youtube")) return "streamers/youtube-scraper";
+  if (normalized.includes("facebook")) return "scrapeforge/facebook-search-posts";
+  return "apify/instagram-scraper";
+}
+
+function quoteSingleRate(db: Database, input: { action: string; moduleName: string; provider: BillingProvider; actionType: BillingRateCard["actionType"]; modelOrActorId: string; unitCount: number; estimate: boolean }): BillingQuote {
+  const rateCard = findRate(db, input.provider, input.actionType, input.modelOrActorId);
+  const line = quoteLine(db, rateCard, Math.max(1, input.unitCount || 1));
+  return {
+    action: input.action || `${input.moduleName}.${input.actionType}`,
+    module: input.moduleName,
+    provider: input.provider,
+    modelOrActorId: rateCard.modelOrActorId,
+    credits: line.credits,
+    minCredits: line.credits,
+    maxCredits: line.credits,
+    costUsd: line.costUsd,
+    chargeUsd: roundUsd(line.credits / db.billingSettings.creditScale),
+    unit: rateCard.unit,
+    unitCount: Math.max(1, input.unitCount || 1),
+    isEstimate: input.estimate,
+    label: line.credits === 0 ? "Included" : `${line.credits.toLocaleString()} credits${input.estimate ? " est." : ""}`,
+    rateCardId: rateCard.id,
+    breakdown: [{ label: rateCard.label, credits: line.credits, costUsd: line.costUsd, unit: rateCard.unit, unitCount: Math.max(1, input.unitCount || 1) }]
+  };
+}
+
+function mapUiModel(db: Database, model: string) {
+  return db.billingProviderMappings.find((mapping) => mapping.active && (mapping.uiKey === model || mapping.providerModelOrActorId === model))
+    || defaultBillingProviderMappings.find((mapping) => mapping.uiKey === model)
+    || defaultBillingProviderMappings.find((mapping) => mapping.uiKey === "gemini-3.5-flash")!;
+}
+
+function findRate(db: Database, provider: BillingProvider, actionType: BillingRateCard["actionType"], modelOrActorId: string) {
+  const active = (db.billingRateCards || []).filter((card) => card.active && card.provider === provider && card.actionType === actionType);
+  return active.find((card) => card.modelOrActorId === modelOrActorId)
+    || active.find((card) => modelOrActorId.startsWith(card.modelOrActorId) || card.modelOrActorId.startsWith(modelOrActorId))
+    || defaultBillingRateCards.find((card) => card.provider === provider && card.actionType === actionType && card.modelOrActorId === modelOrActorId)
+    || (() => { throw new Error(`No billing rate configured for ${provider}:${actionType}:${modelOrActorId}.`); })();
+}
+
+function quoteLine(db: Database, rateCard: BillingRateCard, unitCount: number) {
+  const costUsd = roundUsd(rateCard.baseCostUsd * unitCount);
+  const credits = Math.max(rateCard.minimumChargeCredits, Math.ceil(costUsd * (rateCard.markupMultiplier || db.billingSettings.defaultMarkupMultiplier) * db.billingSettings.creditScale));
+  return { costUsd, credits };
+}
+
+function roundUsd(value: number) {
+  return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
+}
+
+export function adminAdjustmentEntry(input: { workspaceId: string; userId?: string; credits: number; description: string; actorUserId: string; expiresAt?: string }): BillingLedgerEntry {
+  const credits = Math.round(Number(input.credits || 0));
+  return {
+    id: createLedgerId(),
+    userId: input.userId,
+    workspaceId: input.workspaceId,
+    type: "admin_adjustment",
+    module: "billing",
+    provider: "local",
+    action: "admin_adjustment",
+    credits,
+    usdCost: 0,
+    markup: 0,
+    status: "succeeded",
+    description: input.description || (credits >= 0 ? "Admin credit grant" : "Admin credit removal"),
+    metadata: { actorUserId: input.actorUserId },
+    createdAt: new Date().toISOString(),
+    expiresAt: input.expiresAt || undefined
+  };
+}

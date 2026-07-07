@@ -16,6 +16,8 @@ export const permissionCatalog: { key: PermissionKey; label: string; group: stri
   { key: "prompts.edit", label: "Edit prompts", group: "Prompts", description: "Save backend prompt template changes." },
   { key: "apiKeys.view", label: "View API key status", group: "API keys", description: "View provider configuration status without raw secrets." },
   { key: "apiKeys.edit", label: "Edit API keys", group: "API keys", description: "Replace provider API keys used by the app runtime." },
+  { key: "billing.view", label: "View billing", group: "Billing", description: "View credit balances, billing plans, rate cards, and credit ledger." },
+  { key: "billing.manage", label: "Manage billing", group: "Billing", description: "Adjust credits and manage billing configuration." },
   { key: "system.view", label: "View system", group: "System", description: "View cloud/backend system information." },
   { key: "logs.view", label: "View logs", group: "Debug", description: "View operational and debug logs." },
   { key: "settings.view", label: "View settings", group: "Settings", description: "View workspace/application settings." },

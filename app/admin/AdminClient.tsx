@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut, RefreshCcw } from "lucide-react";
 import AdminPanel from "./AdminPanel";
-import type { AdminAppData, AdminUserData, IntegrationData } from "./AdminPanel";
+import type { AdminAppData, AdminBillingData, AdminUserData, IntegrationData } from "./AdminPanel";
 
 async function post(action: string, payload: Record<string, unknown> = {}) {
   const res = await fetch("/api/social", {
@@ -20,6 +20,7 @@ export default function AdminClient() {
   const router = useRouter();
   const [data, setData] = useState<AdminAppData | null>(null);
   const [adminData, setAdminData] = useState<AdminUserData | null>(null);
+  const [billingData, setBillingData] = useState<AdminBillingData | null>(null);
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
@@ -40,6 +41,10 @@ export default function AdminClient() {
       .then((users) => (users.ok ? users.json() : null))
       .then(setAdminData)
       .catch(() => setAdminData(null));
+    fetch("/api/admin/billing", { cache: "no-store" })
+      .then((billing) => (billing.ok ? billing.json() : null))
+      .then(setBillingData)
+      .catch(() => setBillingData(null));
   }
 
   useEffect(() => {
@@ -81,6 +86,27 @@ export default function AdminClient() {
     }
   }
 
+  async function runBilling(method: "POST" | "PATCH", payload: Record<string, unknown>, message = "Updated") {
+    try {
+      const res = await fetch("/api/admin/billing", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Billing request failed");
+      const json = await res.json();
+      await refresh();
+      setToast(message);
+      return json;
+    } catch (error) {
+      await refresh();
+      setToast(error instanceof Error ? error.message : "Billing request failed");
+      return null;
+    } finally {
+      setTimeout(() => setToast(""), 2200);
+    }
+  }
+
   if (loading) return <div className="loading">Loading backend controls...</div>;
   if (!data) return <div className="loading">Redirecting to sign in...</div>;
 
@@ -96,7 +122,7 @@ export default function AdminClient() {
         </div>
       </header>
       <main className="admin-main">
-        <AdminPanel data={data} run={run} runAdmin={runAdmin} integrations={integrations} adminData={adminData} />
+        <AdminPanel data={data} run={run} runAdmin={runAdmin} runBilling={runBilling} integrations={integrations} adminData={adminData} billingData={billingData} />
       </main>
     </div>
   );

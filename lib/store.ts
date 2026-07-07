@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
+import { defaultBillingCreditPackages, defaultBillingPlans, defaultBillingProviderMappings, defaultBillingRateCards, defaultBillingSettings, ensureBillingDefaults } from "./billing";
 import { normalizePersonaProfile } from "./persona";
 import { mutatePostgresDb, postgresEnabled, readPostgresDb, writePostgresDb } from "./postgresStore";
 import type { Database, PermissionKey, PersonaProfile, Platform, PromptTemplates, RolePermissions, UserRole } from "./types";
@@ -70,6 +71,8 @@ const allPermissionKeys: PermissionKey[] = [
   "prompts.edit",
   "apiKeys.view",
   "apiKeys.edit",
+  "billing.view",
+  "billing.manage",
   "system.view",
   "logs.view",
   "settings.view",
@@ -92,6 +95,8 @@ export const defaultRolePermissions: RolePermissions = {
     "prompts.edit",
     "apiKeys.view",
     "apiKeys.edit",
+    "billing.view",
+    "billing.manage",
     "system.view",
     "logs.view",
     "settings.view",
@@ -103,6 +108,7 @@ export const defaultRolePermissions: RolePermissions = {
     "permissions.view",
     "prompts.view",
     "apiKeys.view",
+    "billing.view",
     "system.view",
     "logs.view",
     "settings.view"
@@ -117,7 +123,7 @@ export function seeded(): Database {
   const workspaceId = "ws_demo";
   const userId = "usr_demo";
   const platforms: Platform[] = ["TikTok", "Instagram", "LinkedIn", "Facebook"];
-  return {
+  const db: Database = {
     users: [
       {
         id: userId,
@@ -225,9 +231,17 @@ export function seeded(): Database {
       { id: id("act"), workspaceId, message: "Detected TikTok automation topic crossing high-priority threshold.", createdAt: new Date().toISOString() }
     ],
     debugLogs: [],
+    billingSettings: { ...defaultBillingSettings },
+    billingRateCards: defaultBillingRateCards.map((item) => ({ ...item })),
+    billingProviderMappings: defaultBillingProviderMappings.map((item) => ({ ...item })),
+    billingPlans: defaultBillingPlans.map((item) => ({ ...item })),
+    billingCreditPackages: defaultBillingCreditPackages.map((item) => ({ ...item })),
+    billingLedger: [],
     promptTemplates: defaultPromptTemplates,
     rolePermissions: defaultRolePermissions
   };
+  ensureBillingDefaults(db);
+  return db;
 }
 
 export function normalizeDb(db: Database): Database {
@@ -247,6 +261,7 @@ export function normalizeDb(db: Database): Database {
   db.automationSourceWatchers ||= [];
   db.automationSourceRuns ||= [];
   db.apiKeyOverrides ||= [];
+  ensureBillingDefaults(db);
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
   const existingPermissions = (db as Database & { rolePermissions?: Partial<RolePermissions> }).rolePermissions || {};
   db.rolePermissions = allRoles.reduce((acc, role) => {

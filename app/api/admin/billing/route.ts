@@ -131,7 +131,8 @@ export async function PATCH(req: Request) {
         defaultMarkupMultiplier: positiveNumber(body.defaultMarkupMultiplier, db.billingSettings.defaultMarkupMultiplier),
         lowCreditThreshold: positiveInteger(body.lowCreditThreshold, db.billingSettings.lowCreditThreshold),
         automationMinimumBalance: positiveInteger(body.automationMinimumBalance, db.billingSettings.automationMinimumBalance),
-        automationDefaultRunCap: positiveInteger(body.automationDefaultRunCap, db.billingSettings.automationDefaultRunCap)
+        automationDefaultRunCap: positiveInteger(body.automationDefaultRunCap, db.billingSettings.automationDefaultRunCap),
+        automationDefaultMonthlyCap: positiveInteger(body.automationDefaultMonthlyCap, db.billingSettings.automationDefaultMonthlyCap)
       };
       return { ok: true };
     }

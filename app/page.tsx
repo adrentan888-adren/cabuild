@@ -29,7 +29,7 @@ import {
   UserRound,
   Wand2
 } from "lucide-react";
-import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BillingQuote, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
+import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BillingQuote, BillingSettings, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 import type { PersonaMediaAsset, PersonaProfile } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
 
@@ -57,6 +57,7 @@ type AppData = {
   automationJobs: AutomationJob[];
   automationSourceWatchers: AutomationSourceWatcher[];
   automationSourceRuns: AutomationSourceRun[];
+  billingSettings: BillingSettings;
   promptTemplates: PromptTemplates;
   researchScans: {
     id: string;
@@ -2644,6 +2645,8 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
   const jobs = data.automationJobs || [];
   const sourceWatchers = data.automationSourceWatchers || [];
   const sourceRuns = data.automationSourceRuns || [];
+  const defaultRunCap = data.billingSettings?.automationDefaultRunCap || 12000;
+  const defaultMonthlyCap = data.billingSettings?.automationDefaultMonthlyCap || 240000;
   const weekdayOptions = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const contentTypes: { value: AutomationRule["contentType"]; label: string }[] = [
     { value: "image", label: "Image" },
@@ -2781,6 +2784,9 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
                 <option value="auto-publish">Auto publish through Upload-Post</option>
               </select></label>
               {automationKindFromContentType(sourceContentType) !== "image" && automationKindFromContentType(sourceContentType) !== "text" && <label>Video duration<input name="duration" type="number" min="4" max="15" defaultValue="8" /></label>}
+              <label>Max credits per run<input name="maxCreditsPerRun" type="number" min="1" defaultValue={defaultRunCap} /></label>
+              <label>Monthly credit cap<input name="monthlyCreditCap" type="number" min="0" defaultValue={defaultMonthlyCap} /></label>
+              <label className="checkline form-check"><input name="lowBalanceAutoPause" type="checkbox" value="true" defaultChecked />Auto-pause when balance is low</label>
             </div>
             <div className="automation-choice-row">
               {weekdayOptions.map((day) => <label className="check-card compact" key={day}><input name="postingDays" type="checkbox" value={day} defaultChecked={["Mon", "Wed", "Fri"].includes(day)} />{day}</label>)}
@@ -2854,6 +2860,9 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
               <label>Posting time<input name="postingTime" type="time" defaultValue="10:00" /></label>
               <label>Timezone<input name="timezone" defaultValue="Asia/Kuala_Lumpur" /></label>
               <label>Quantity per run<input name="quantityPerRun" type="number" min="1" max="5" defaultValue="1" /></label>
+              <label>Max credits per run<input name="maxCreditsPerRun" type="number" min="1" defaultValue={defaultRunCap} /></label>
+              <label>Monthly credit cap<input name="monthlyCreditCap" type="number" min="0" defaultValue={defaultMonthlyCap} /></label>
+              <label className="checkline form-check"><input name="lowBalanceAutoPause" type="checkbox" value="true" defaultChecked />Auto-pause when balance is low</label>
             </div>
             <div className="automation-choice-row">
               {weekdayOptions.map((day) => <label className="check-card compact" key={day}><input name="postingDays" type="checkbox" value={day} defaultChecked={["Mon", "Wed", "Fri"].includes(day)} />{day}</label>)}
@@ -2907,7 +2916,10 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
                     <span>{watcher.contentType} · {watcher.aspectRatio}</span>
                     <span>{watcher.frequency} at {watcher.postingTime}</span>
                     <span>{watcher.approvalMode}</span>
+                    <span>Cap/run: {(watcher.maxCreditsPerRun || defaultRunCap).toLocaleString()}</span>
+                    <span>Monthly cap: {(watcher.monthlyCreditCap || defaultMonthlyCap).toLocaleString()}</span>
                   </div>
+                  {watcher.lastError && <p className="provider-error compact">{watcher.lastError}</p>}
                 </div>
                 <div className="rule-actions">
                   <QuotedRunButton run={run} action="runSourceWatcherNow" payload={{ id: watcher.id }} message="Source Watcher run started" quoteInput={sourceWatcherQuoteInput(watcher)} balance={data.workspace.credits} />
@@ -2926,7 +2938,7 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
                 <div>
                   <b>{item.selectedTitle || item.status}</b>
                   <span>{item.status} · {new Date(item.startedAt).toLocaleString()} · {item.scannedCount} scanned</span>
-                  <p>{item.selectionReason || item.error || "Run recorded."}</p>
+                  <p>{item.selectionReason || item.billingSkippedReason || item.error || "Run recorded."}</p>
                 </div>
                 <div className="job-score">
                   <strong>{item.selectedScore ? Math.round(item.selectedScore) : 0}</strong>
@@ -2953,7 +2965,10 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
                     <span>{rule.contentType} · {rule.aspectRatio}</span>
                     <span>{rule.frequency} at {rule.postingTime}</span>
                     <span>Dedupe: {rule.duplicateProtection.mode}</span>
+                    <span>Cap/run: {(rule.maxCreditsPerRun || defaultRunCap).toLocaleString()}</span>
+                    <span>Monthly cap: {(rule.monthlyCreditCap || defaultMonthlyCap).toLocaleString()}</span>
                   </div>
+                  {rule.lastError && <p className="provider-error compact">{rule.lastError}</p>}
                 </div>
                 <div className="rule-actions">
                   <QuotedRunButton run={run} action="runAutomationNow" payload={{ id: rule.id }} message="Automation draft job created" quoteInput={automationRuleQuoteInput(rule)} balance={data.workspace.credits} />

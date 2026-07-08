@@ -300,10 +300,14 @@ export type AutomationRule = {
     maxRetries: number;
   };
   referenceAssets?: GenerationAssetReference[];
+  maxCreditsPerRun?: number;
+  monthlyCreditCap?: number;
+  lowBalanceAutoPause?: boolean;
   status: "active" | "paused" | "failed";
   nextRunAt?: string;
   lastRunAt?: string;
   lastError?: string;
+  lastSkippedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -361,10 +365,14 @@ export type AutomationSourceWatcher = {
     topicWindowDays: number;
     similarityThreshold: number;
   };
+  maxCreditsPerRun?: number;
+  monthlyCreditCap?: number;
+  lowBalanceAutoPause?: boolean;
   status: "active" | "paused" | "failed";
   nextRunAt?: string;
   lastRunAt?: string;
   lastError?: string;
+  lastSkippedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -373,7 +381,7 @@ export type AutomationSourceRun = {
   id: string;
   workspaceId: string;
   watcherId: string;
-  status: "running" | "completed" | "no-match" | "failed";
+  status: "running" | "completed" | "no-match" | "failed" | "skipped";
   sourceUrls: string[];
   scannedCount: number;
   selectedResultId?: string;
@@ -386,6 +394,11 @@ export type AutomationSourceRun = {
   startedAt: string;
   completedAt?: string;
   error?: string;
+  billingSkippedReason?: string;
+  billingRunCapCredits?: number;
+  billingMonthlyCapCredits?: number;
+  billingBalanceAtRun?: number;
+  billingEstimatedCredits?: number;
 };
 
 export type ApiKeyProvider = "kie" | "apify" | "apifyBackup" | "uploadPost";
@@ -505,6 +518,7 @@ export type BillingSettings = {
   lowCreditThreshold: number;
   automationMinimumBalance: number;
   automationDefaultRunCap: number;
+  automationDefaultMonthlyCap: number;
   allowNegativeBalance: false;
 };
 

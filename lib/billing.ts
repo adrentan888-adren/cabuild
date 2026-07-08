@@ -18,7 +18,8 @@ export const defaultBillingSettings: BillingSettings = {
   currency: "USD",
   lowCreditThreshold: 1000,
   automationMinimumBalance: 3500,
-  automationDefaultRunCap: 3500,
+  automationDefaultRunCap: 12000,
+  automationDefaultMonthlyCap: 240000,
   allowNegativeBalance: false
 };
 
@@ -95,7 +96,14 @@ function rate(
 }
 
 export function ensureBillingDefaults(db: Database) {
-  db.billingSettings = { ...defaultBillingSettings, ...(db.billingSettings || {}) };
+  const previousSettings = db.billingSettings || {};
+  db.billingSettings = { ...defaultBillingSettings, ...previousSettings };
+  if (!Object.prototype.hasOwnProperty.call(previousSettings, "automationDefaultMonthlyCap")) {
+    db.billingSettings.automationDefaultMonthlyCap = defaultBillingSettings.automationDefaultMonthlyCap;
+    if (!previousSettings.automationDefaultRunCap || previousSettings.automationDefaultRunCap <= 3500) {
+      db.billingSettings.automationDefaultRunCap = defaultBillingSettings.automationDefaultRunCap;
+    }
+  }
   db.billingRateCards = mergeById(defaultBillingRateCards, db.billingRateCards || []);
   db.billingProviderMappings = mergeById(defaultBillingProviderMappings, db.billingProviderMappings || []);
   db.billingPlans = mergeById(defaultBillingPlans, db.billingPlans || []).map(recalculatePlanCredits);
@@ -122,6 +130,69 @@ export function ensureBillingDefaults(db: Database) {
     }
     workspace.credits = calculateCreditBalance(db, workspace.id).available;
   }
+}
+
+function currentMonthStartIso() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+}
+
+export function automationMonthlyUsageCredits(db: Pick<Database, "billingLedger">, input: { workspaceId: string; automationId?: string }) {
+  const start = currentMonthStartIso();
+  const automationId = input.automationId || "";
+  return (db.billingLedger || [])
+    .filter((entry) => entry.workspaceId === input.workspaceId)
+    .filter((entry) => entry.type === "usage" && entry.status === "succeeded")
+    .filter((entry) => entry.module === "automation")
+    .filter((entry) => !entry.createdAt || entry.createdAt >= start)
+    .filter((entry) => {
+      if (!automationId) return true;
+      const metadata = entry.metadata || {};
+      return metadata.automationId === automationId || metadata.watcherId === automationId || metadata.ruleId === automationId;
+    })
+    .reduce((sum, entry) => sum + Math.abs(Math.ceil(entry.credits || 0)), 0);
+}
+
+export function automationBillingPolicy(db: Database, input: { workspaceId: string; automationId?: string; maxCreditsPerRun?: number; monthlyCreditCap?: number }) {
+  ensureBillingDefaults(db);
+  const balance = calculateCreditBalance(db, input.workspaceId);
+  const maxCreditsPerRun = Math.max(1, Math.ceil(Number(input.maxCreditsPerRun || db.billingSettings.automationDefaultRunCap || defaultBillingSettings.automationDefaultRunCap)));
+  const monthlyCreditCap = Math.max(0, Math.ceil(Number(input.monthlyCreditCap || db.billingSettings.automationDefaultMonthlyCap || defaultBillingSettings.automationDefaultMonthlyCap)));
+  const monthlyUsed = automationMonthlyUsageCredits(db, { workspaceId: input.workspaceId, automationId: input.automationId });
+  return {
+    minimumBalance: Math.max(0, Math.ceil(Number(db.billingSettings.automationMinimumBalance || 0))),
+    maxCreditsPerRun,
+    monthlyCreditCap,
+    monthlyUsed,
+    monthlyRemaining: monthlyCreditCap > 0 ? Math.max(0, monthlyCreditCap - monthlyUsed) : Number.POSITIVE_INFINITY,
+    balanceAvailable: balance.available,
+    balanceReserved: balance.reserved
+  };
+}
+
+export function assertAutomationCanSpend(db: Database, input: {
+  workspaceId: string;
+  automationId?: string;
+  maxCreditsPerRun?: number;
+  monthlyCreditCap?: number;
+  estimatedCredits?: number;
+  runReservedCredits?: number;
+  actionLabel?: string;
+}) {
+  const policy = automationBillingPolicy(db, input);
+  const estimatedCredits = Math.max(0, Math.ceil(Number(input.estimatedCredits || 0)));
+  const runReservedCredits = Math.max(0, Math.ceil(Number(input.runReservedCredits || 0)));
+  const actionLabel = input.actionLabel || "Automation run";
+  if (policy.balanceAvailable < policy.minimumBalance) {
+    throw new Error(`${actionLabel} blocked: available balance ${policy.balanceAvailable.toLocaleString()} is below the automation minimum ${policy.minimumBalance.toLocaleString()} credits.`);
+  }
+  if (estimatedCredits > 0 && runReservedCredits + estimatedCredits > policy.maxCreditsPerRun) {
+    throw new Error(`${actionLabel} blocked: estimated ${estimatedCredits.toLocaleString()} credits would exceed the per-run cap ${policy.maxCreditsPerRun.toLocaleString()} credits.`);
+  }
+  if (estimatedCredits > 0 && policy.monthlyCreditCap > 0 && policy.monthlyUsed + runReservedCredits + estimatedCredits > policy.monthlyCreditCap) {
+    throw new Error(`${actionLabel} blocked: monthly automation cap ${policy.monthlyCreditCap.toLocaleString()} credits would be exceeded. Used ${policy.monthlyUsed.toLocaleString()} credits this month.`);
+  }
+  return policy;
 }
 
 function mergeById<T extends { id: string }>(defaults: T[], existing: T[]) {

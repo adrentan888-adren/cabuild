@@ -448,7 +448,8 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
       defaultMarkupMultiplier: form.get("defaultMarkupMultiplier"),
       lowCreditThreshold: form.get("lowCreditThreshold"),
       automationMinimumBalance: form.get("automationMinimumBalance"),
-      automationDefaultRunCap: form.get("automationDefaultRunCap")
+      automationDefaultRunCap: form.get("automationDefaultRunCap"),
+      automationDefaultMonthlyCap: form.get("automationDefaultMonthlyCap")
     }, "Billing settings saved");
   }
   async function quote(form: FormData) {
@@ -627,6 +628,7 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
             <label>Low credit threshold<input name="lowCreditThreshold" type="number" step="1" defaultValue={billingData.settings.lowCreditThreshold} /></label>
             <label>Automation minimum balance<input name="automationMinimumBalance" type="number" step="1" defaultValue={billingData.settings.automationMinimumBalance} /></label>
             <label>Automation default run cap<input name="automationDefaultRunCap" type="number" step="1" defaultValue={billingData.settings.automationDefaultRunCap} /></label>
+            <label>Automation monthly cap<input name="automationDefaultMonthlyCap" type="number" step="1" defaultValue={billingData.settings.automationDefaultMonthlyCap} /></label>
             <button className="primary"><Save size={14} />Save settings</button>
           </form>
         </PanelCard>

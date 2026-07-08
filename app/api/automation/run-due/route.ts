@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { id, mutateDb } from "@/lib/store";
+import { assertAutomationCanSpend, automationBillingPolicy, quoteBillingAction, reserveBillingCredits, releaseBillingReservation, settleBillingReservation } from "@/lib/billing";
 import type { Asset, AutomationSourceRun, AutomationSourceWatcher, CompetitorResult, Database, GenerationAssetReference, Platform, PublishItem } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
 import { scanSocialUrl } from "@/lib/providers/apify";
@@ -245,9 +246,198 @@ async function log(workspaceId: string, entry: { action: string; label: string; 
   });
 }
 
-async function autoPublishItem(workspaceId: string, item: PublishItem, asset?: Asset) {
+type AutomationBillingRunState = {
+  runId: string;
+  reservedCredits: number;
+};
+
+function apifyActorForBilling(platform: Platform) {
+  if (platform === "Instagram") return process.env.APIFY_INSTAGRAM_ACTOR_ID || "apify/instagram-scraper";
+  if (platform === "TikTok") return process.env.APIFY_TIKTOK_ACTOR_ID || "clockworks/tiktok-scraper";
+  if (platform === "YouTube") return process.env.APIFY_YOUTUBE_ACTOR_ID || "streamers/youtube-scraper";
+  if (platform === "Facebook") return process.env.APIFY_FACEBOOK_ACTOR_ID || "scrapeforge/facebook-search-posts";
+  if (platform === "LinkedIn") return process.env.APIFY_LINKEDIN_ACTOR_ID || "apify/google-search-scraper";
+  return "apify/google-search-scraper";
+}
+
+function generationBillingInput(action: string, generationType: "video" | "image" | "text", model: string, duration?: number | string) {
+  return {
+    action,
+    module: "automation",
+    generationType,
+    model,
+    duration: generationType === "video" ? Number(duration || 8) : undefined,
+    resolution: generationType === "image" ? "1K" : undefined,
+    inputTokens: generationType === "text" ? 2200 : undefined,
+    outputTokens: generationType === "text" ? 1200 : undefined
+  };
+}
+
+async function actualCreditsForProviderResults(quoteInput: Record<string, unknown>, returnedResults: number) {
+  return mutateDb((db) => {
+    const quote = quoteBillingAction(db, {
+      ...quoteInput,
+      maxResults: Math.max(1, Math.ceil(returnedResults || 0)),
+      resultLimit: Math.max(1, Math.ceil(returnedResults || 0))
+    });
+    return Math.max(0, Math.ceil(Number(quote.credits || quote.maxCredits || 0)));
+  });
+}
+
+async function reserveAutomationAction(input: {
+  watcher: AutomationSourceWatcher;
+  runState?: AutomationBillingRunState;
+  quoteInput: Record<string, unknown>;
+  relatedId?: string;
+  description: string;
+  metadata?: Record<string, unknown>;
+  actionLabel: string;
+}) {
+  const reserved = await mutateDb((db) => {
+    const quote = quoteBillingAction(db, { ...input.quoteInput, workspaceId: input.watcher.workspaceId });
+    const estimatedCredits = Math.max(0, Math.ceil(Number(quote.maxCredits || quote.credits || 0)));
+    const policy = estimatedCredits > 0
+      ? assertAutomationCanSpend(db, {
+        workspaceId: input.watcher.workspaceId,
+        automationId: input.watcher.id,
+        maxCreditsPerRun: input.watcher.maxCreditsPerRun,
+        monthlyCreditCap: input.watcher.monthlyCreditCap,
+        estimatedCredits,
+        runReservedCredits: input.runState?.reservedCredits || 0,
+        actionLabel: input.actionLabel
+      })
+      : automationBillingPolicy(db, {
+        workspaceId: input.watcher.workspaceId,
+        automationId: input.watcher.id,
+        maxCreditsPerRun: input.watcher.maxCreditsPerRun,
+        monthlyCreditCap: input.watcher.monthlyCreditCap
+      });
+    const result = reserveBillingCredits(db, {
+      workspaceId: input.watcher.workspaceId,
+      quoteInput: input.quoteInput,
+      relatedId: input.relatedId,
+      description: input.description,
+      metadata: {
+        ...(input.metadata || {}),
+        watcherId: input.watcher.id,
+        automationId: input.watcher.id,
+        automationRunId: input.runState?.runId,
+        policy
+      }
+    });
+    return { quote: result.quote, reservationId: result.reservation?.id, estimatedCredits, policy };
+  });
+  if (input.runState) input.runState.reservedCredits += reserved.estimatedCredits;
+  await log(input.watcher.workspaceId, {
+    action: String(input.quoteInput.action || "automation.billing_reserve"),
+    label: reserved.reservationId ? `Billing reserved: ${reserved.quote.label}` : `Billing included: ${reserved.quote.label}`,
+    status: "success",
+    provider: "system",
+    details: { reservationId: reserved.reservationId, quote: reserved.quote, relatedId: input.relatedId, metadata: input.metadata, policy: reserved.policy }
+  });
+  return reserved;
+}
+
+async function settleAutomationAction(input: {
+  workspaceId: string;
+  reservationId?: string;
+  actualCredits?: number;
+  providerTaskId?: string;
+  relatedId?: string;
+  description: string;
+  metadata?: Record<string, unknown>;
+}) {
+  if (!input.reservationId) return;
+  const settled = await mutateDb((db) => settleBillingReservation(db, input));
+  await log(input.workspaceId, {
+    action: settled?.action || "automation.billing_settle",
+    label: `Billing settled: ${input.actualCredits || settled?.credits || 0} credits`,
+    status: "success",
+    provider: "system",
+    details: { reservationId: input.reservationId, providerTaskId: input.providerTaskId, relatedId: input.relatedId, metadata: input.metadata }
+  });
+}
+
+async function releaseAutomationAction(input: {
+  workspaceId: string;
+  reservationId?: string;
+  providerTaskId?: string;
+  relatedId?: string;
+  description: string;
+  metadata?: Record<string, unknown>;
+}) {
+  if (!input.reservationId) return;
+  const released = await mutateDb((db) => releaseBillingReservation(db, input));
+  await log(input.workspaceId, {
+    action: released?.action || "automation.billing_release",
+    label: "Billing reservation released",
+    status: "success",
+    provider: "system",
+    details: { reservationId: input.reservationId, providerTaskId: input.providerTaskId, relatedId: input.relatedId, metadata: input.metadata }
+  });
+}
+
+async function markWatcherSkipped(watcher: AutomationSourceWatcher, reason: string, details?: { estimatedCredits?: number; policy?: Record<string, unknown> }) {
+  const now = new Date().toISOString();
+  const run = await mutateDb((db) => {
+    db.automationSourceRuns ||= [];
+    const current = (db.automationSourceWatchers || []).find((item) => item.id === watcher.id && item.workspaceId === watcher.workspaceId);
+    const balanceAvailable = typeof details?.policy?.balanceAvailable === "number" ? Number(details.policy.balanceAvailable) : undefined;
+    const skipped: AutomationSourceRun = {
+      id: id("srun"),
+      workspaceId: watcher.workspaceId,
+      watcherId: watcher.id,
+      status: "skipped",
+      sourceUrls: watcher.sourceUrls,
+      scannedCount: 0,
+      startedAt: now,
+      completedAt: now,
+      error: reason,
+      billingSkippedReason: reason,
+      billingEstimatedCredits: details?.estimatedCredits,
+      billingRunCapCredits: typeof details?.policy?.maxCreditsPerRun === "number" ? Number(details.policy.maxCreditsPerRun) : watcher.maxCreditsPerRun,
+      billingMonthlyCapCredits: typeof details?.policy?.monthlyCreditCap === "number" ? Number(details.policy.monthlyCreditCap) : watcher.monthlyCreditCap,
+      billingBalanceAtRun: balanceAvailable
+    };
+    db.automationSourceRuns.push(skipped);
+    if (current) {
+      const lowBalance = /below the automation minimum|insufficient credits/i.test(reason);
+      if (lowBalance && current.lowBalanceAutoPause !== false) current.status = "paused";
+      current.lastRunAt = now;
+      current.lastSkippedAt = now;
+      current.lastError = reason;
+      current.nextRunAt = nextAutomationRunAt(current.frequency, current.postingTime);
+      current.updatedAt = now;
+    }
+    db.activity.push({ id: id("act"), workspaceId: watcher.workspaceId, message: `Automation skipped "${watcher.name}": ${reason}`, createdAt: now });
+    return skipped;
+  });
+  await log(watcher.workspaceId, {
+    action: "automationRunDue",
+    label: `Source Watcher skipped: ${watcher.name}`,
+    status: "failed",
+    provider: "system",
+    error: reason,
+    details: { watcherId: watcher.id, ...details }
+  });
+  return { run, selected: null, asset: null, publishItem: null };
+}
+
+async function autoPublishItem(workspaceId: string, item: PublishItem, asset?: Asset, watcher?: AutomationSourceWatcher) {
   await log(workspaceId, { action: "automationRunDue", label: `Automation publishing to Upload-Post: ${item.title}`, status: "started", provider: "upload-post", prompt: publishDescription(item, asset), details: { publishId: item.id, platform: item.platform, generationType: item.generationType } });
-  const upload = await sendToUploadPost(item, asset);
+  let publishBilling: Awaited<ReturnType<typeof reserveAutomationAction>> | null = null;
+  try {
+    if (watcher) {
+      publishBilling = await reserveAutomationAction({
+        watcher,
+        quoteInput: { action: "automation.source_watcher_publish", module: "automation", provider: "upload-post", posts: 1 },
+        relatedId: item.id,
+        description: `Reserve Upload-Post publish for automation item: ${item.title}`,
+        metadata: { publishItemId: item.id, assetId: asset?.id },
+        actionLabel: "Automation publish"
+      });
+    }
+    const upload = await sendToUploadPost(item, asset);
   await mutateDb((db) => {
     const current = db.publishQueue.find((queue) => queue.id === item.id && queue.workspaceId === workspaceId);
     if (!current) return;
@@ -257,7 +447,25 @@ async function autoPublishItem(workspaceId: string, item: PublishItem, asset?: A
     current.error = "";
     db.activity.push({ id: id("act"), workspaceId, message: `Automation auto-published "${current.title}" through Upload-Post.`, createdAt: new Date().toISOString() });
   });
+    await settleAutomationAction({
+      workspaceId,
+      reservationId: publishBilling?.reservationId,
+      relatedId: item.id,
+      providerTaskId: upload.request_id || upload.job_id,
+      description: `Charged Upload-Post publish for automation item: ${item.title}`,
+      metadata: { publishItemId: item.id, assetId: asset?.id, requestId: upload.request_id, jobId: upload.job_id }
+    });
   await log(workspaceId, { action: "automationRunDue", label: `Automation Upload-Post accepted: ${item.title}`, status: "success", provider: "upload-post", details: { requestId: upload.request_id, jobId: upload.job_id } });
+  } catch (error) {
+    await releaseAutomationAction({
+      workspaceId,
+      reservationId: publishBilling?.reservationId,
+      relatedId: item.id,
+      description: `Released Upload-Post publish reservation for automation item: ${item.title}`,
+      metadata: { publishItemId: item.id, assetId: asset?.id, error: error instanceof Error ? error.message : "Upload-Post publish failed" }
+    });
+    throw error;
+  }
 }
 
 async function pollReadyGenerations(origin: string, limit = 10) {
@@ -326,7 +534,7 @@ async function pollReadyGenerations(origin: string, limit = 10) {
         });
         const current = { ...job.item, status: "done" as const, assetUrl: persisted.assetUrl };
         const asset = { ...job.asset, status: "ready" as const, progress: 100, assetUrl: persisted.assetUrl };
-        if (job.watcher.approvalMode === "auto-publish") await autoPublishItem(job.item.workspaceId, current, asset);
+        if (job.watcher.approvalMode === "auto-publish") await autoPublishItem(job.item.workspaceId, current, asset, job.watcher);
         results.push({ id: job.item.id, status: "done" });
       } else if (failed) {
         const error = String(done.status.error || "Kie generation failed.");
@@ -356,6 +564,30 @@ async function pollReadyGenerations(origin: string, limit = 10) {
 async function runWatcher(watcher: AutomationSourceWatcher) {
   const startedAt = new Date().toISOString();
   const errors: string[] = [];
+  const runState: AutomationBillingRunState = { runId: id("srun"), reservedCredits: 0 };
+  const crawlPlatform = platformFromUrl(watcher.sourceUrls[0] || "");
+  const crawlQuoteInput = {
+    action: "automation.source_watcher_scan",
+    module: "automation",
+    provider: "apify",
+    platform: crawlPlatform,
+    actorId: apifyActorForBilling(crawlPlatform),
+    maxResults: Math.max(100, watcher.sourceUrls.length * 100)
+  };
+  let crawlBilling: Awaited<ReturnType<typeof reserveAutomationAction>> | null = null;
+  try {
+    crawlBilling = await reserveAutomationAction({
+      watcher,
+      runState,
+      quoteInput: crawlQuoteInput,
+      relatedId: watcher.id,
+      description: `Reserve credits for scheduled Source Watcher crawl: ${watcher.name}`,
+      metadata: { sourceUrls: watcher.sourceUrls, minViews: watcher.minViews },
+      actionLabel: "Scheduled Source Watcher crawl"
+    });
+  } catch (error) {
+    return markWatcherSkipped(watcher, error instanceof Error ? error.message : "Automation billing check failed");
+  }
   const personaContext = await mutateDb((db) => {
     const persona = (db.personaProfiles || []).find((item) => item.workspaceId === watcher.workspaceId);
     return buildPersonaContext(persona);
@@ -389,6 +621,26 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
     }
   }));
   const candidates = crawled.flat().sort((a, b) => b.score - a.score);
+  let crawlActualCredits = 0;
+  if (candidates.length > 0) {
+    crawlActualCredits = await actualCreditsForProviderResults(crawlQuoteInput, candidates.length);
+    await settleAutomationAction({
+      workspaceId: watcher.workspaceId,
+      reservationId: crawlBilling?.reservationId,
+      actualCredits: crawlActualCredits,
+      relatedId: watcher.id,
+      description: `Charged scheduled Source Watcher crawl: ${watcher.name}`,
+      metadata: { watcherId: watcher.id, automationId: watcher.id, automationRunId: runState.runId, returnedResults: candidates.length, actualCredits: crawlActualCredits, errors }
+    });
+  } else {
+    await releaseAutomationAction({
+      workspaceId: watcher.workspaceId,
+      reservationId: crawlBilling?.reservationId,
+      relatedId: watcher.id,
+      description: `Released scheduled Source Watcher crawl reservation with no returned results: ${watcher.name}`,
+      metadata: { watcherId: watcher.id, automationId: watcher.id, automationRunId: runState.runId, errors }
+    });
+  }
   const filtered = candidates.filter((item) => item.views >= watcher.minViews).filter((item) => watcher.contentType === "auto" || sourceWatcherKind(item, watcher.contentType) === watcher.contentType);
 
   const result = await mutateDb(async (db) => {
@@ -397,7 +649,7 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
     db.assets ||= [];
     db.publishQueue ||= [];
     db.debugLogs ||= [];
-    const run: AutomationSourceRun = { id: id("srun"), workspaceId: watcher.workspaceId, watcherId: watcher.id, status: "running", sourceUrls: watcher.sourceUrls, scannedCount: candidates.length, startedAt };
+    const run: AutomationSourceRun = { id: runState.runId, workspaceId: watcher.workspaceId, watcherId: watcher.id, status: "running", sourceUrls: watcher.sourceUrls, scannedCount: candidates.length, startedAt, billingEstimatedCredits: runState.reservedCredits, billingRunCapCredits: watcher.maxCreditsPerRun, billingMonthlyCapCredits: watcher.monthlyCreditCap };
     const storedResults: CompetitorResult[] = candidates.slice(0, 40).map((candidate) => ({
       id: candidate.id,
       workspaceId: watcher.workspaceId,
@@ -513,10 +765,21 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
 
   if (!result.asset || !result.publishItem) return result;
   if (result.asset.provider === "kie") {
+    let generationBilling: Awaited<ReturnType<typeof reserveAutomationAction>> | null = null;
     try {
       const settings = result.asset.generationSettings || {};
       const model = result.asset.generationModel || watcher.model;
       const refs = result.asset.assetReferences || [];
+      const generationType = (result.publishItem.generationType || (isKieImageModel(model) ? "image" : "video")) as "video" | "image" | "text";
+      generationBilling = await reserveAutomationAction({
+        watcher,
+        runState,
+        quoteInput: generationBillingInput("automation.source_watcher_generate", generationType, model, Number(settings.duration || 8)),
+        relatedId: result.asset.id,
+        description: `Reserve credits for scheduled Source Watcher ${model} generation: ${watcher.name}`,
+        metadata: { assetId: result.asset.id, publishItemId: result.publishItem.id, model, generationType, crawlActualCredits },
+        actionLabel: "Scheduled Source Watcher generation"
+      });
       const taskId = isKieImageModel(model)
         ? await generateImage(result.asset.prompt || result.asset.title, { model, aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs })
         : model === "seedance-2.0"
@@ -532,9 +795,24 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
         }
         if (pub) pub.providerRequestId = taskId;
       });
+      await settleAutomationAction({
+        workspaceId: watcher.workspaceId,
+        reservationId: generationBilling.reservationId,
+        relatedId: result.asset.id,
+        providerTaskId: taskId,
+        description: `Charged scheduled Source Watcher ${model} generation start: ${watcher.name}`,
+        metadata: { watcherId: watcher.id, automationId: watcher.id, automationRunId: runState.runId, assetId: result.asset.id, publishItemId: result.publishItem.id, model, taskId, crawlActualCredits }
+      });
       await log(watcher.workspaceId, { action: "automationRunDue", label: `Source Watcher Kie task started: ${taskId}`, status: "success", provider: "kie", prompt: result.asset.prompt, details: { model, taskId, watcherId: watcher.id } });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Kie generation failed";
+      await releaseAutomationAction({
+        workspaceId: watcher.workspaceId,
+        reservationId: generationBilling?.reservationId,
+        relatedId: result.asset.id,
+        description: `Released scheduled Source Watcher generation reservation: ${watcher.name}`,
+        metadata: { watcherId: watcher.id, automationId: watcher.id, automationRunId: runState.runId, assetId: result.asset.id, error: message }
+      });
       await mutateDb((db) => {
         const asset = db.assets.find((item) => item.id === result.asset?.id && item.workspaceId === watcher.workspaceId);
         const pub = db.publishQueue.find((item) => item.id === result.publishItem?.id && item.workspaceId === watcher.workspaceId);
@@ -546,11 +824,19 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
           pub.status = "failed";
           pub.error = message;
         }
+        const current = db.automationSourceWatchers.find((item) => item.id === watcher.id && item.workspaceId === watcher.workspaceId);
+        if (current) {
+          const lowBalance = /below the automation minimum|insufficient credits/i.test(message);
+          if (lowBalance && current.lowBalanceAutoPause !== false) current.status = "paused";
+          current.lastError = message;
+          current.lastSkippedAt = new Date().toISOString();
+          current.updatedAt = current.lastSkippedAt;
+        }
       });
       await log(watcher.workspaceId, { action: "automationRunDue", label: "Source Watcher Kie generation failed", status: "failed", provider: "kie", error: message });
     }
   } else if (watcher.approvalMode === "auto-publish") {
-    await autoPublishItem(watcher.workspaceId, result.publishItem, result.asset);
+    await autoPublishItem(watcher.workspaceId, result.publishItem, result.asset, watcher);
   }
   return result;
 }

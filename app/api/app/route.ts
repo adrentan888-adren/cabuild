@@ -54,6 +54,7 @@ export async function GET() {
     automationJobs: (db.automationJobs || []).filter((item) => item.workspaceId === workspace.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 50),
     automationSourceWatchers: (db.automationSourceWatchers || []).filter((item) => item.workspaceId === workspace.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     automationSourceRuns: (db.automationSourceRuns || []).filter((item) => item.workspaceId === workspace.id).sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()).slice(0, 50),
+    billingSettings: db.billingSettings,
     activity: db.activity.filter((item) => item.workspaceId === workspace.id).slice(-10).reverse(),
     debugLogs: (db.debugLogs || []).filter((item) => item.workspaceId === workspace.id).slice(-200).reverse(),
     promptTemplates: db.promptTemplates

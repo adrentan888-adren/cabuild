@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { hasPermission } from "@/lib/permissions";
-import { defaultPersonaProfile, id, mutateDb } from "@/lib/store";
+import { defaultPersonaProfile, id, mutateDb, readDb } from "@/lib/store";
 import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, Brief, CompetitorResult, GenerationAssetReference, PersonaMediaAsset, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext, normalizePersonaProfile } from "@/lib/persona";
 import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl, startKeywordScanRun, startSocialUrlScanRun } from "@/lib/providers/apify";
 import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateTextContentWithKie, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishPhotoPost, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
-import { reserveBillingCredits, releaseBillingReservation, settleBillingReservation } from "@/lib/billing";
+import { quoteBillingAction, reserveBillingCredits, releaseBillingReservation, settleBillingReservation } from "@/lib/billing";
 import { encodeUploadKey, saveGeneratedMediaFromUrl } from "@/lib/providers/uploads";
 
 const allowedPlatforms: Platform[] = ["TikTok", "Instagram", "YouTube", "LinkedIn", "Facebook", "X"];
@@ -207,6 +207,56 @@ function generationBillingInput(action: string, moduleName: string, generationTy
     outputTokens: generationType === "text" ? Number(extra.outputTokens || 1200) : undefined,
     ...extra
   };
+}
+
+function apifyActorForBilling(platform: Platform | string, mode: "url" | "keyword" | "fallback" | "persona" = "url") {
+  if (mode === "persona" || mode === "fallback") return process.env.APIFY_KEYWORD_ACTOR_ID || process.env.APIFY_ACTOR_ID || "apify/google-search-scraper";
+  const normalized = String(platform || "").toLowerCase();
+  if (mode === "keyword" && normalized.includes("instagram")) return process.env.APIFY_INSTAGRAM_KEYWORD_ACTOR_ID || "apify/instagram-hashtag-scraper";
+  if (process.env.APIFY_SOCIAL_ACTOR_ID && mode === "url") return process.env.APIFY_SOCIAL_ACTOR_ID;
+  if (normalized.includes("instagram")) return process.env.APIFY_INSTAGRAM_ACTOR_ID || "apify/instagram-scraper";
+  if (normalized.includes("tiktok")) return process.env.APIFY_TIKTOK_ACTOR_ID || "clockworks/tiktok-scraper";
+  if (normalized.includes("youtube")) return process.env.APIFY_YOUTUBE_ACTOR_ID || "streamers/youtube-scraper";
+  if (normalized.includes("facebook")) return process.env.APIFY_FACEBOOK_ACTOR_ID || "scrapeforge/facebook-search-posts";
+  if (normalized.includes("linkedin")) return process.env.APIFY_LINKEDIN_ACTOR_ID || "apify/google-search-scraper";
+  return "apify/google-search-scraper";
+}
+
+async function actualCreditsForProviderResults(quoteInput: Record<string, unknown>, returnedResults: number) {
+  const db = await readDb();
+  const quote = quoteBillingAction(db, {
+    ...quoteInput,
+    maxResults: Math.max(1, Math.ceil(returnedResults || 0)),
+    resultLimit: Math.max(1, Math.ceil(returnedResults || 0))
+  });
+  return Math.max(0, Math.ceil(quote.credits || quote.maxCredits || 0));
+}
+
+async function settlePaidActionForResults(input: {
+  workspaceId: string;
+  reservationId?: string;
+  quoteInput: Record<string, unknown>;
+  returnedResults: number;
+  providerTaskId?: string;
+  relatedId?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const actualCredits = await actualCreditsForProviderResults(input.quoteInput, input.returnedResults);
+  await settlePaidAction({
+    workspaceId: input.workspaceId,
+    reservationId: input.reservationId,
+    actualCredits,
+    providerTaskId: input.providerTaskId,
+    relatedId: input.relatedId,
+    description: input.description,
+    metadata: {
+      ...(input.metadata || {}),
+      returnedResults: input.returnedResults,
+      actualCredits,
+      actualQuoteInput: { ...input.quoteInput, maxResults: Math.max(1, input.returnedResults || 0) }
+    }
+  });
 }
 
 function publishDescription(item: PublishItem, asset?: Asset) {
@@ -1327,18 +1377,20 @@ export async function POST(req: Request) {
     let normalized: Omit<CompetitorResult, "id" | "workspaceId" | "competitorId" | "platform" | "capturedAt">[];
     let source: "apify" | "fallback" = "apify";
     let error = "";
+    const billingQuoteInput = {
+      action: "social_audit.url_scan",
+      module: "social_audit",
+      provider: "apify",
+      platform,
+      actorId: apifyActorForBilling(platform, "url"),
+      maxResults: 100
+    };
     let billing;
     try {
       billing = await reservePaidAction({
         workspaceId,
         userId: user.id,
-        quoteInput: {
-          action: "social_audit.url_scan",
-          module: "social_audit",
-          provider: "apify",
-          platform,
-          maxResults: 100
-        },
+        quoteInput: billingQuoteInput,
         description: `Reserve credits for Social Audit scan: ${url}`,
         metadata: { url, minViews, platform }
       });
@@ -1348,9 +1400,11 @@ export async function POST(req: Request) {
     }
     try {
       const apifyItems = await scanSocialUrl(url, minViews);
-      await settlePaidAction({
+      await settlePaidActionForResults({
         workspaceId,
         reservationId: billing.reservationId,
+        quoteInput: billingQuoteInput,
+        returnedResults: apifyItems.length,
         description: `Charged Social Audit scan for ${handleFromUrl(url)}.`,
         metadata: { url, minViews, platform, returnedResults: apifyItems.length }
       });
@@ -1431,18 +1485,20 @@ export async function POST(req: Request) {
   if (action === "auditConnectedSocials") {
     const accounts = (await getConnectedUploadPostAccounts()).filter((account) => !account.reauthRequired);
     if (accounts.length === 0) return NextResponse.json({ audits: [], connectedAccounts: [] });
+    const connectedBillingQuoteInput = {
+      action: "social_audit.connected_accounts",
+      module: "social_audit",
+      provider: "apify",
+      platform: accounts[0]?.platform || "Instagram",
+      actorId: apifyActorForBilling(accounts[0]?.platform || "Instagram", "url"),
+      maxResults: Math.max(100, accounts.length * 100)
+    };
     let billing;
     try {
       billing = await reservePaidAction({
         workspaceId,
         userId: user.id,
-        quoteInput: {
-          action: "social_audit.connected_accounts",
-          module: "social_audit",
-          provider: "apify",
-          platform: accounts[0]?.platform || "Instagram",
-          maxResults: Math.max(100, accounts.length * 100)
-        },
+        quoteInput: connectedBillingQuoteInput,
         description: "Reserve credits for connected social audit batch.",
         metadata: { accountCount: accounts.length, accounts: accounts.map((account) => ({ platform: account.platform, handle: account.handle })) }
       });
@@ -1452,6 +1508,7 @@ export async function POST(req: Request) {
     }
     const audits = [];
     let apifySuccessCount = 0;
+    let apifyReturnedResults = 0;
     for (const account of accounts) {
       const platform = account.platform as Platform;
       let normalized: Omit<CompetitorResult, "id" | "workspaceId" | "competitorId" | "platform" | "capturedAt">[];
@@ -1460,6 +1517,7 @@ export async function POST(req: Request) {
       try {
         const apifyItems = await scanSocialUrl(account.url, 0);
         apifySuccessCount += 1;
+        apifyReturnedResults += apifyItems.length;
         normalized = apifyItems.map((item) => ({
           url: item.sourceUrl,
           title: item.title,
@@ -1528,11 +1586,13 @@ export async function POST(req: Request) {
       audits.push(audit);
     }
     if (apifySuccessCount > 0) {
-      await settlePaidAction({
+      await settlePaidActionForResults({
         workspaceId,
         reservationId: billing.reservationId,
+        quoteInput: connectedBillingQuoteInput,
+        returnedResults: apifyReturnedResults,
         description: "Charged connected social audit batch.",
-        metadata: { accountCount: accounts.length, apifySuccessCount }
+        metadata: { accountCount: accounts.length, apifySuccessCount, apifyReturnedResults }
       });
     } else {
       await releasePaidAction({
@@ -1560,18 +1620,20 @@ export async function POST(req: Request) {
     });
     if (cached) return NextResponse.json(cached);
 
+    const billingQuoteInput = {
+      action: "research.url_scan",
+      module: "research",
+      provider: "apify",
+      platform,
+      actorId: apifyActorForBilling(platform, "url"),
+      maxResults: 100
+    };
     let billing;
     try {
       billing = await reservePaidAction({
         workspaceId,
         userId: user.id,
-        quoteInput: {
-          action: "research.url_scan",
-          module: "research",
-          provider: "apify",
-          platform,
-          maxResults: 100
-        },
+        quoteInput: billingQuoteInput,
         description: `Reserve credits for Research URL scan: ${url}`,
         metadata: { url, minViews, platform }
       });
@@ -1610,6 +1672,7 @@ export async function POST(req: Request) {
         apifyRunId: runMeta?.runId,
         apifyDatasetId: runMeta?.datasetId,
         apifyActorId: runMeta?.actorId,
+        billingReservationId: billing.reservationId,
         error: startError
       };
       db.researchScans.push(created);
@@ -1617,16 +1680,6 @@ export async function POST(req: Request) {
       db.activity.push({ id: id("act"), workspaceId, message: runMeta ? `Research scan started for ${handleFromUrl(url)} using Apify. You can leave Research and come back later.` : `Research scan failed to start for ${handleFromUrl(url)}.`, createdAt: new Date().toISOString() });
       return created;
     });
-    if (runMeta) {
-      await settlePaidAction({
-        workspaceId,
-        reservationId: billing.reservationId,
-        relatedId: scan.id,
-        providerTaskId: runMeta.runId,
-        description: `Charged Research URL scan start for ${handleFromUrl(url)}.`,
-        metadata: { scanId: scan.id, runId: runMeta.runId, datasetId: runMeta.datasetId, actorId: runMeta.actorId }
-      });
-    }
     return NextResponse.json(scan);
   }
 
@@ -1635,6 +1688,14 @@ export async function POST(req: Request) {
     const scan = await mutateDb((db) => (db.researchScans || []).find((item) => item.id === scanId && item.workspaceId === workspaceId) || null);
     if (!scan) return NextResponse.json({ id: scanId, status: "missing", error: "Research scan no longer exists." });
     if (scan.status !== "running") return NextResponse.json(scan);
+    const scanBillingQuoteInput = {
+      action: scan.query ? "research.keyword_search" : "research.url_scan",
+      module: "research",
+      provider: "apify",
+      platform: scan.platform,
+      actorId: scan.apifyActorId || apifyActorForBilling(scan.platform, scan.query ? "keyword" : "url"),
+      maxResults: 100
+    };
     if (!scan.apifyRunId || !scan.apifyDatasetId || !scan.apifyActorId) {
       const failed = await mutateDb((db) => {
         const item = db.researchScans.find((entry) => entry.id === scanId && entry.workspaceId === workspaceId)!;
@@ -1642,6 +1703,13 @@ export async function POST(req: Request) {
         item.error = "Research scan is missing Apify run metadata.";
         item.completedAt = new Date().toISOString();
         return item;
+      });
+      await releasePaidAction({
+        workspaceId,
+        reservationId: scan.billingReservationId,
+        relatedId: scan.id,
+        description: "Released Research scan reservation because Apify run metadata was missing.",
+        metadata: { scanId: scan.id, error: failed.error }
       });
       return NextResponse.json(failed);
     }
@@ -1693,9 +1761,27 @@ export async function POST(req: Request) {
         item.status = "done";
         item.source = completedSource;
         item.completedAt = new Date().toISOString();
+        item.billingSettledAt = new Date().toISOString();
         item.error = completedError;
         db.activity.push({ id: id("act"), workspaceId, message: `Research scan completed for ${handleFromUrl(scan.url)} using ${completedSource === "fallback" ? "Apify fallback" : "Apify"}.`, createdAt: new Date().toISOString() });
         return item;
+      });
+      await settlePaidActionForResults({
+        workspaceId,
+        reservationId: scan.billingReservationId,
+        quoteInput: scanBillingQuoteInput,
+        returnedResults: normalized.length,
+        relatedId: updated.id,
+        providerTaskId: scan.apifyRunId,
+        description: `Charged ${scan.query ? "keyword Research" : "Research URL scan"} after Apify completion.`,
+        metadata: {
+          scanId: updated.id,
+          runId: scan.apifyRunId,
+          datasetId: scan.apifyDatasetId,
+          actorId: scan.apifyActorId,
+          completedSource,
+          completedError
+        }
       });
       return NextResponse.json(updated);
     } catch (err) {
@@ -1723,10 +1809,28 @@ export async function POST(req: Request) {
             item.status = "done";
             item.source = "fallback";
             item.completedAt = new Date().toISOString();
+            item.billingSettledAt = new Date().toISOString();
             const originalError = err instanceof Error ? err.message : "Apify keyword scan failed";
             item.error = `${originalError}; broader Apify keyword fallback used.`;
             db.activity.push({ id: id("act"), workspaceId, message: `Keyword research recovered for "${scan.query}" using Apify fallback.`, createdAt: new Date().toISOString() });
             return item;
+          });
+          await settlePaidActionForResults({
+            workspaceId,
+            reservationId: scan.billingReservationId,
+            quoteInput: scanBillingQuoteInput,
+            returnedResults: normalized.length,
+            relatedId: recovered.id,
+            providerTaskId: scan.apifyRunId,
+            description: "Charged keyword Research after fallback recovery.",
+            metadata: {
+              scanId: recovered.id,
+              runId: scan.apifyRunId,
+              datasetId: scan.apifyDatasetId,
+              actorId: scan.apifyActorId,
+              fallbackRecovered: true,
+              originalError: err instanceof Error ? err.message : "Apify keyword scan failed"
+            }
           });
           return NextResponse.json(recovered);
         } catch {
@@ -1740,6 +1844,14 @@ export async function POST(req: Request) {
         item.completedAt = new Date().toISOString();
         db.activity.push({ id: id("act"), workspaceId, message: `Research scan failed for ${handleFromUrl(scan.url)}.`, createdAt: new Date().toISOString() });
         return item;
+      });
+      await releasePaidAction({
+        workspaceId,
+        reservationId: scan.billingReservationId,
+        relatedId: scan.id,
+        providerTaskId: scan.apifyRunId,
+        description: "Released Research scan reservation because Apify scan failed.",
+        metadata: { scanId: scan.id, runId: scan.apifyRunId, datasetId: scan.apifyDatasetId, actorId: scan.apifyActorId, error: failed.error }
       });
       return NextResponse.json(failed);
     }
@@ -1770,18 +1882,20 @@ export async function POST(req: Request) {
     if (cached) return NextResponse.json(cached);
 
     const selectedPlatform = platformFromActorSource(dimensions.actorSources[0] || "");
+    const billingQuoteInput = {
+      action: "research.keyword_search",
+      module: "research",
+      provider: "apify",
+      platform: selectedPlatform,
+      actorId: apifyActorForBilling(selectedPlatform, "keyword"),
+      maxResults: 100
+    };
     let billing;
     try {
       billing = await reservePaidAction({
         workspaceId,
         userId: user.id,
-        quoteInput: {
-          action: "research.keyword_search",
-          module: "research",
-          provider: "apify",
-          platform: selectedPlatform,
-          maxResults: 100
-        },
+        quoteInput: billingQuoteInput,
         description: `Reserve credits for keyword Research: ${query}`,
         metadata: { query, minViews, dimensions, selectedPlatform }
       });
@@ -1798,6 +1912,30 @@ export async function POST(req: Request) {
     }
 
     if (!runMeta) {
+      await releasePaidAction({
+        workspaceId,
+        reservationId: billing.reservationId,
+        description: `Released keyword Research platform-actor reservation before fallback: ${query}`,
+        metadata: { error: startError, query, selectedPlatform, actorId: billingQuoteInput.actorId }
+      });
+      const fallbackBillingQuoteInput = {
+        ...billingQuoteInput,
+        actorId: apifyActorForBilling(selectedPlatform, "fallback"),
+        fallback: true
+      };
+      let fallbackBilling;
+      try {
+        fallbackBilling = await reservePaidAction({
+          workspaceId,
+          userId: user.id,
+          quoteInput: fallbackBillingQuoteInput,
+          description: `Reserve credits for fallback keyword Research: ${query}`,
+          metadata: { query, minViews, dimensions, selectedPlatform, startError }
+        });
+      } catch (error) {
+        await debugLog(workspaceId, { action, label: "Keyword Research fallback blocked by billing", status: "failed", provider: "system", error: error instanceof Error ? error.message : "Billing check failed" });
+        return billingErrorResponse(error);
+      }
       try {
         const fallbackItems = await scanKeywordsWithApify(query, dimensions, minViews, { skipPlatformActor: true });
         const normalized = apifyItemsToResearchResults(fallbackItems);
@@ -1836,19 +1974,21 @@ export async function POST(req: Request) {
           db.activity.push({ id: id("act"), workspaceId, message: `Keyword research completed for "${query}" using fallback search.`, createdAt: new Date().toISOString() });
           return created;
         });
-        await settlePaidAction({
+        await settlePaidActionForResults({
           workspaceId,
-          reservationId: billing.reservationId,
+          reservationId: fallbackBilling.reservationId,
+          quoteInput: fallbackBillingQuoteInput,
+          returnedResults: normalized.length,
           relatedId: scan.id,
           description: `Charged keyword Research fallback for "${query}".`,
-          metadata: { scanId: scan.id, query, selectedPlatform, fallback: true }
+          metadata: { scanId: scan.id, query, selectedPlatform, fallback: true, startError }
         });
         return NextResponse.json(scan);
       } catch (err) {
         startError = err instanceof Error ? `${startError}; fallback failed: ${err.message}` : `${startError}; fallback failed`;
         await releasePaidAction({
           workspaceId,
-          reservationId: billing.reservationId,
+          reservationId: fallbackBilling.reservationId,
           description: `Released keyword Research reservation because Apify failed: ${query}`,
           metadata: { error: startError, query, selectedPlatform }
         });
@@ -1872,6 +2012,7 @@ export async function POST(req: Request) {
         apifyRunId: runMeta?.runId,
         apifyDatasetId: runMeta?.datasetId,
         apifyActorId: runMeta?.actorId,
+        billingReservationId: billing.reservationId,
         error: startError
       };
       db.researchScans.push(created);
@@ -1879,16 +2020,6 @@ export async function POST(req: Request) {
       db.activity.push({ id: id("act"), workspaceId, message: runMeta ? `Keyword research started for "${query}" using Apify. You can leave Research and come back later.` : `Keyword research failed to start for "${query}".`, createdAt: new Date().toISOString() });
       return created;
     });
-    if (runMeta) {
-      await settlePaidAction({
-        workspaceId,
-        reservationId: billing.reservationId,
-        relatedId: scan.id,
-        providerTaskId: runMeta.runId,
-        description: `Charged keyword Research start for "${query}".`,
-        metadata: { scanId: scan.id, runId: runMeta.runId, datasetId: runMeta.datasetId, actorId: runMeta.actorId, selectedPlatform }
-      });
-    }
     return NextResponse.json(scan);
   }
 
@@ -2490,16 +2621,42 @@ export async function POST(req: Request) {
       x: String(body.xUrl || existing.sourceUrls.x || "").trim()
     };
     if (!Object.values(sourceUrls).some(Boolean)) return NextResponse.json({ error: "Add at least one profile URL before auto-fill." }, { status: 400 });
-    let billing;
+    const sourceCount = Object.values(sourceUrls).filter(Boolean).length;
+    const crawlQuoteInput = {
+      action: "persona.autofill_crawl",
+      module: "persona",
+      provider: "apify",
+      platform: "Google",
+      actorId: apifyActorForBilling("Google", "persona"),
+      maxResults: Math.max(10, sourceCount * 5)
+    };
+    const gptQuoteInput = generationBillingInput("persona.autofill_gpt", "persona", "text", "gpt-5-5", undefined, { inputTokens: 2500, outputTokens: 1200 });
+    let crawlBilling: Awaited<ReturnType<typeof reservePaidAction>> | null = null;
+    let gptBilling: Awaited<ReturnType<typeof reservePaidAction>> | null = null;
     try {
-      billing = await reservePaidAction({
+      crawlBilling = await reservePaidAction({
         workspaceId,
         userId: user.id,
-        quoteInput: generationBillingInput("persona.autofill", "persona", "text", "gpt-5-5", undefined, { inputTokens: 2500, outputTokens: 1200 }),
+        quoteInput: crawlQuoteInput,
+        description: "Reserve credits for Persona auto-fill Apify crawl.",
+        metadata: { sourceUrls, sourceCount }
+      });
+      gptBilling = await reservePaidAction({
+        workspaceId,
+        userId: user.id,
+        quoteInput: gptQuoteInput,
         description: "Reserve credits for Persona auto-fill GPT mapping.",
-        metadata: { sourceUrls }
+        metadata: { sourceUrls, sourceCount }
       });
     } catch (error) {
+      if (crawlBilling?.reservationId) {
+        await releasePaidAction({
+          workspaceId,
+          reservationId: crawlBilling.reservationId,
+          description: "Released Persona crawl reservation because GPT mapping reservation failed.",
+          metadata: { sourceUrls, error: error instanceof Error ? error.message : "Billing check failed" }
+        }).catch(() => null);
+      }
       await debugLog(workspaceId, { action, label: "Persona auto-fill blocked by billing", status: "failed", provider: "system", error: error instanceof Error ? error.message : "Billing check failed" });
       return billingErrorResponse(error);
     }
@@ -2515,8 +2672,22 @@ export async function POST(req: Request) {
       let crawlFallbackReason = "";
       try {
         crawled = await crawlPersonaSourcesWithApify(sourceUrls);
+        await settlePaidActionForResults({
+          workspaceId,
+          reservationId: crawlBilling?.reservationId,
+          quoteInput: crawlQuoteInput,
+          returnedResults: crawled.reduce((sum, item) => sum + Math.max(1, item.itemCount || 0), 0),
+          description: "Charged Persona auto-fill Apify crawl.",
+          metadata: { sourceUrls, sourceCount, crawledSources: crawled.map((item) => ({ source: item.source, itemCount: item.itemCount })) }
+        });
       } catch (error) {
         crawlFallbackReason = error instanceof Error ? error.message : "Apify persona crawl failed";
+        await releasePaidAction({
+          workspaceId,
+          reservationId: crawlBilling?.reservationId,
+          description: "Released Persona crawl reservation because Apify crawl failed.",
+          metadata: { sourceUrls, sourceCount, error: crawlFallbackReason }
+        });
         crawled = fallbackPersonaCrawlFromUrls(sourceUrls);
         await debugLog(workspaceId, {
           action,
@@ -2545,7 +2716,7 @@ export async function POST(req: Request) {
         compactGenerated = compactAutofillOutput(generated);
         await settlePaidAction({
           workspaceId,
-          reservationId: billing.reservationId,
+          reservationId: gptBilling?.reservationId,
           description: "Charged Persona auto-fill GPT mapping.",
           metadata: { model: "gpt-5-5", crawlFallbackReason, generated: compactGenerated }
         });
@@ -2554,7 +2725,7 @@ export async function POST(req: Request) {
         usedFallback = true;
         await releasePaidAction({
           workspaceId,
-          reservationId: billing.reservationId,
+          reservationId: gptBilling?.reservationId,
           description: "Released Persona auto-fill GPT reservation because Kie failed and local fallback was used.",
           metadata: { error: error instanceof Error ? error.message : "Kie persona auto-fill failed", crawlFallbackReason }
         });
@@ -2595,7 +2766,13 @@ export async function POST(req: Request) {
     } catch (error) {
       await releasePaidAction({
         workspaceId,
-        reservationId: billing.reservationId,
+        reservationId: crawlBilling?.reservationId,
+        description: "Released Persona crawl reservation after failure.",
+        metadata: { error: error instanceof Error ? error.message : "Persona auto-fill failed" }
+      }).catch(() => null);
+      await releasePaidAction({
+        workspaceId,
+        reservationId: gptBilling?.reservationId,
         description: "Released Persona auto-fill reservation after failure.",
         metadata: { error: error instanceof Error ? error.message : "Persona auto-fill failed" }
       }).catch(() => null);

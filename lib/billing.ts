@@ -49,6 +49,7 @@ const defaultBillingProviderMappingSeeds: Omit<BillingProviderMapping, "active">
   { id: "map_tiktok_scrape", uiKey: "tiktok-scrape", provider: "apify", providerModelOrActorId: "clockworks/tiktok-scraper", actionType: "scrape", label: "TikTok scrape" },
   { id: "map_youtube_scrape", uiKey: "youtube-scrape", provider: "apify", providerModelOrActorId: "streamers/youtube-scraper", actionType: "scrape", label: "YouTube scrape" },
   { id: "map_facebook_scrape", uiKey: "facebook-scrape", provider: "apify", providerModelOrActorId: "scrapeforge/facebook-search-posts", actionType: "scrape", label: "Facebook scrape" },
+  { id: "map_google_search_scrape", uiKey: "google-search-scrape", provider: "apify", providerModelOrActorId: "apify/google-search-scraper", actionType: "scrape", label: "Google Search scrape" },
   { id: "map_upload_post", uiKey: "upload-post-publish", provider: "upload-post", providerModelOrActorId: "upload-post", actionType: "publish", label: "Upload-Post publish" }
 ];
 
@@ -73,6 +74,7 @@ export const defaultBillingRateCards: BillingRateCard[] = [
   rate("rate_apify_tiktok", "apify", "scrape", "clockworks/tiktok-scraper", "TikTok scraper", "per_1k_results", 1.70, 2, 1),
   rate("rate_apify_youtube", "apify", "scrape", "streamers/youtube-scraper", "YouTube scraper", "per_1k_results", 2.40, 2, 1),
   rate("rate_apify_facebook", "apify", "scrape", "scrapeforge/facebook-search-posts", "Facebook search posts", "per_1k_results", 2.59, 2, 1),
+  rate("rate_apify_google_search", "apify", "scrape", "apify/google-search-scraper", "Google Search scraper", "per_1k_results", 1.50, 2, 1),
   rate("rate_upload_post_publish", "upload-post", "publish", "upload-post", "Upload-Post publish included", "per_post", 0, 2, 0, { included: true }),
   rate("rate_brevo_verification", "brevo", "publish", "brevo-verification-email", "Brevo verification email included", "per_action", 0, 2, 0, { included: true })
 ];
@@ -350,6 +352,7 @@ export function quoteBillingAction(db: Database, input: Record<string, unknown>)
   const generationType = String(input.generationType || "");
   const model = String(input.model || input.modelOrActorId || defaultModelForAction(action, generationType));
   const actorId = String(input.actorId || input.modelOrActorId || "");
+  if (action === "persona.autofill") return quotePersonaAutofill(db, input);
   if (action.includes("scrape") || action.includes("scan") || action.includes("search") || input.provider === "apify") {
     return quoteScrape(db, { action, moduleName, actorId, platform: String(input.platform || ""), maxResults: Number(input.maxResults || input.resultLimit || 100) });
   }
@@ -459,8 +462,50 @@ function quoteScrape(db: Database, input: { action: string; moduleName: string; 
   return { ...quote, minCredits: Math.max(quote.breakdown[0]?.credits || quote.credits, Math.ceil(quote.credits * 0.1)), maxCredits: quote.credits, label: `up to ${quote.credits.toLocaleString()} credits` };
 }
 
+function quotePersonaAutofill(db: Database, input: Record<string, unknown>): BillingQuote {
+  const sourceCount = Math.max(1, Number(input.sourceCount || 1));
+  const crawl = quoteScrape(db, {
+    action: "persona.autofill_crawl",
+    moduleName: "persona",
+    actorId: String(input.actorId || "apify/google-search-scraper"),
+    platform: "Google",
+    maxResults: Math.max(10, sourceCount * 5)
+  });
+  const gpt = quoteText(
+    db,
+    "persona.autofill_gpt",
+    "persona",
+    String(input.model || "gpt-5-5"),
+    Number(input.inputTokens || 2500),
+    Number(input.outputTokens || 1200)
+  );
+  const credits = crawl.credits + gpt.credits;
+  const minCredits = crawl.minCredits + gpt.minCredits;
+  const maxCredits = crawl.maxCredits + gpt.maxCredits;
+  const costUsd = roundUsd(crawl.costUsd + gpt.costUsd);
+  const chargeUsd = roundUsd(credits / db.billingSettings.creditScale);
+  return {
+    action: "persona.autofill",
+    module: "persona",
+    provider: "custom",
+    modelOrActorId: `${crawl.modelOrActorId}+${gpt.modelOrActorId}`,
+    credits,
+    minCredits,
+    maxCredits,
+    costUsd,
+    chargeUsd,
+    unit: "per_action",
+    unitCount: 1,
+    isEstimate: true,
+    label: `up to ${maxCredits.toLocaleString()} credits`,
+    rateCardId: `${crawl.rateCardId},${gpt.rateCardId}`,
+    breakdown: [...crawl.breakdown, ...gpt.breakdown]
+  };
+}
+
 function actorForPlatform(platform: string) {
   const normalized = platform.toLowerCase();
+  if (normalized.includes("google") || normalized.includes("persona")) return "apify/google-search-scraper";
   if (normalized.includes("instagram")) return "apify/instagram-scraper";
   if (normalized.includes("tiktok")) return "clockworks/tiktok-scraper";
   if (normalized.includes("youtube")) return "streamers/youtube-scraper";

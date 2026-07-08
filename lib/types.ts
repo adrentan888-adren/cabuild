@@ -153,6 +153,8 @@ export type ResearchScan = {
   apifyRunId?: string;
   apifyDatasetId?: string;
   apifyActorId?: string;
+  billingReservationId?: string;
+  billingSettledAt?: string;
   error?: string;
 };
 

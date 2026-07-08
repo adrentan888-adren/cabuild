@@ -875,8 +875,8 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   const autofillQuote = useBillingQuote(showAutofill ? {
     action: "persona.autofill",
     module: "persona",
-    generationType: "text",
     model: "gpt-5-5",
+    sourceCount: Math.max(1, Object.values(persona.sourceUrls || {}).filter(Boolean).length || 3),
     inputTokens: 2500,
     outputTokens: 1200
   } : null);
@@ -952,7 +952,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
               <button type="button" className="primary" onClick={(event) => autoFill(event.currentTarget.form)} disabled={autoFilling || autofillQuote.loading || !hasEnoughCredits(data.workspace.credits, autofillQuote.quote)}>{autoFilling ? <AnimatedDots label="Auto-filling persona" /> : quoteButtonLabel("Auto-fill persona", autofillQuote.quote, autofillQuote.loading)}</button>
               <span>Uses only public crawl results. Review and edit the saved persona after auto-fill.</span>
             </div>
-            <CreditQuoteHint {...autofillQuote} balance={data.workspace.credits} note="This estimates the GPT-5.5 mapping step; crawler usage is quoted separately in later billing enforcement." />
+            <CreditQuoteHint {...autofillQuote} balance={data.workspace.credits} note="Includes the public Apify crawl reservation and GPT-5.5 mapping estimate." />
           </section>
         )}
 

@@ -11,6 +11,7 @@ import {
   Bug,
   CalendarDays,
   Check,
+  CreditCard,
   ExternalLink,
   Eye,
   FileText,
@@ -29,7 +30,7 @@ import {
   UserRound,
   Wand2
 } from "lucide-react";
-import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BillingQuote, BillingSettings, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
+import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BillingCreditPackage, BillingPlan, BillingProvider, BillingQuote, BillingSettings, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 import type { PersonaMediaAsset, PersonaProfile } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
 
@@ -58,6 +59,21 @@ type AppData = {
   automationSourceWatchers: AutomationSourceWatcher[];
   automationSourceRuns: AutomationSourceRun[];
   billingSettings: BillingSettings;
+  billing: {
+    balance: { available: number; reserved: number; lifetimeGranted: number; lifetimeUsed: number };
+    currentPlan: BillingPlan | null;
+    plans: BillingPlan[];
+    creditPackages: BillingCreditPackage[];
+    ledger: BillingLedgerView[];
+    paymentHistory: BillingLedgerView[];
+    usageByModule: BillingBreakdown[];
+    usageByProvider: BillingBreakdown[];
+    subscriptionCredits: number;
+    topUpCredits: number;
+    bonusCredits: number;
+    usedCredits: number;
+    reservedCredits: number;
+  };
   promptTemplates: PromptTemplates;
   researchScans: {
     id: string;
@@ -95,6 +111,28 @@ type AppData = {
     error?: string;
     createdAt: string;
   }[];
+};
+
+type BillingLedgerView = {
+  id: string;
+  type: string;
+  module: string;
+  provider: BillingProvider | string;
+  action: string;
+  credits: number;
+  usdCost: number;
+  chargeUsd: number;
+  markup: number;
+  status: string;
+  description: string;
+  createdAt: string;
+  expiresAt?: string;
+};
+
+type BillingBreakdown = {
+  key: string;
+  credits: number;
+  entries: number;
 };
 
 const platforms: Platform[] = ["TikTok", "Instagram", "LinkedIn", "Facebook", "X"];
@@ -413,6 +451,7 @@ export default function Home() {
     ["create", "Create Content", Wand2],
     ["publish", "My Contents", CalendarDays],
     ["automation", "Automation", RefreshCcw],
+    ["billing", "Billing", CreditCard],
     ["analyse", "Analyse", BarChart3],
     ["logs", "Logs", Bug]
   ] as const;
@@ -480,6 +519,7 @@ export default function Home() {
           {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
           {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
+          {screen === "billing" && <BillingPanel data={data} />}
           {screen === "analyse" && <AnalyticsPanel data={data} />}
           {screen === "logs" && <LogPanel data={data} />}
           {screen === "settings" && <SettingsPanel data={data} run={run} integrations={integrations} />}
@@ -501,7 +541,7 @@ export default function Home() {
 }
 
 function title(screen: string) {
-  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", create: "Create Content", publish: "My Contents", automation: "Automation", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
+  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", create: "Create Content", publish: "My Contents", automation: "Automation", billing: "Billing", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
 }
 
 function AnimatedDots({ label }: { label: string }) {
@@ -2561,6 +2601,167 @@ function AnalyticsPanel({ data }: { data: AppData }) {
   return <div className="grid three"><Metric label="Engagement forecast" value="4.8%" /><Metric label="Published posts" value={data.publishQueue.filter((p) => p.status === "published").length} /><Metric label="Avg gap score" value={Math.round(data.opportunities.reduce((sum, item) => sum + item.gapScore, 0) / Math.max(1, data.opportunities.length))} /><PanelCard title="Feedback loop"><p>Published assets retain their originating brief, template, platform, and score so future recommendations can learn from performance results.</p></PanelCard></div>;
 }
 
+function BillingPanel({ data }: { data: AppData }) {
+  const billing = data.billing;
+  const [moduleFilter, setModuleFilter] = useState("all");
+  const [providerFilter, setProviderFilter] = useState("all");
+  const currentPlan = billing.currentPlan;
+  const lowCredit = data.workspace.credits <= data.billingSettings.lowCreditThreshold;
+  const automationLow = data.workspace.credits < data.billingSettings.automationMinimumBalance && data.automationSourceWatchers.some((item) => item.status === "active");
+  const usageEntries = billing.ledger.filter((entry) => entry.type === "usage" || entry.type === "reserve" || entry.type === "release");
+  const moduleOptions = Array.from(new Set(usageEntries.map((entry) => entry.module))).filter(Boolean).sort();
+  const providerOptions = Array.from(new Set(usageEntries.map((entry) => String(entry.provider)))).filter(Boolean).sort();
+  const filteredLedger = usageEntries
+    .filter((entry) => moduleFilter === "all" || entry.module === moduleFilter)
+    .filter((entry) => providerFilter === "all" || entry.provider === providerFilter)
+    .slice(0, 80);
+  const currentPrice = currentPlan?.priceUsd ?? -1;
+  const paymentHistory = billing.paymentHistory.slice(0, 30);
+  return (
+    <div className="billing-page">
+      <section className="billing-hero">
+        <div>
+          <div className="clbl">Billing</div>
+          <h2>Credits, plans, and usage</h2>
+          <p>Track credit balance, provider spend, automation safety, and upcoming Stripe purchase actions from one place.</p>
+        </div>
+        <button className="primary" type="button" disabled title="Stripe Customer Portal is scheduled for Phase 10"><CreditCard size={15} />Customer portal</button>
+      </section>
+
+      {(lowCredit || automationLow) && (
+        <div className="billing-warning">
+          <b>{automationLow ? "Automation may pause soon" : "Low credit balance"}</b>
+          <span>{automationLow ? `Your active automation needs at least ${formatCredits(data.billingSettings.automationMinimumBalance)} available before scheduled runs can continue.` : `Balance is below the warning threshold of ${formatCredits(data.billingSettings.lowCreditThreshold)}.`}</span>
+        </div>
+      )}
+
+      <div className="billing-summary-grid">
+        <Metric label="Available credits" value={formatCredits(data.workspace.credits)} />
+        <Metric label="Reserved credits" value={formatCredits(billing.reservedCredits)} />
+        <Metric label="Subscription credits" value={formatCredits(billing.subscriptionCredits)} />
+        <Metric label="Top-up credits" value={formatCredits(billing.topUpCredits)} />
+        <Metric label="Bonus / adjustments" value={formatCredits(billing.bonusCredits)} />
+        <Metric label="Lifetime used" value={formatCredits(billing.usedCredits)} />
+      </div>
+
+      <div className="billing-layout">
+        <div className="billing-main-column">
+          <PanelCard title="Credit Usage History">
+            <div className="billing-filters">
+              <label>Module<select value={moduleFilter} onChange={(event) => setModuleFilter(event.target.value)}>
+                <option value="all">All modules</option>
+                {moduleOptions.map((module) => <option key={module} value={module}>{billingModuleLabel(module)}</option>)}
+              </select></label>
+              <label>Provider<select value={providerFilter} onChange={(event) => setProviderFilter(event.target.value)}>
+                <option value="all">All providers</option>
+                {providerOptions.map((provider) => <option key={provider} value={provider}>{billingProviderLabel(provider)}</option>)}
+              </select></label>
+            </div>
+            <div className="billing-ledger-list">
+              {filteredLedger.map((entry) => <BillingLedgerRow key={entry.id} entry={entry} />)}
+              {filteredLedger.length === 0 && <div className="empty-state compact">No usage rows match the selected filters.</div>}
+            </div>
+          </PanelCard>
+
+          <PanelCard title="Usage by Module">
+            <BillingBreakdownList items={billing.usageByModule} labeler={billingModuleLabel} />
+          </PanelCard>
+
+          <PanelCard title="Usage by Provider">
+            <BillingBreakdownList items={billing.usageByProvider} labeler={billingProviderLabel} />
+          </PanelCard>
+        </div>
+
+        <div className="billing-side-column">
+          <PanelCard title="Current plan">
+            <div className="billing-plan-current">
+              <span>{currentPlan ? currentPlan.name : data.workspace.plan || "No plan"}</span>
+              <b>{currentPlan ? `${formatUsd(currentPlan.priceUsd)} / month` : "Manual workspace"}</b>
+              <p>{currentPlan ? `${formatCredits(currentPlan.totalCredits)} per cycle. Automation ${currentPlan.automationAllowed ? "included" : "not included"} on this plan.` : "Plan metadata is not linked yet. Admin can map this workspace to a plan from Billing settings."}</p>
+            </div>
+          </PanelCard>
+
+          <PanelCard title="Subscription plans">
+            <div className="billing-product-list">
+              {billing.plans.map((plan) => {
+                const isCurrent = currentPlan?.id === plan.id || (!currentPlan && plan.name === data.workspace.plan);
+                const action = isCurrent ? "Current plan" : currentPrice >= 0 && plan.priceUsd > currentPrice ? "Upgrade" : currentPrice >= 0 && plan.priceUsd < currentPrice ? "Downgrade" : "Subscribe";
+                return (
+                  <article className={`billing-product ${isCurrent ? "on" : ""}`} key={plan.id}>
+                    <div>
+                      <b>{plan.name}</b>
+                      <span>{formatUsd(plan.priceUsd)} / month</span>
+                      <small>{formatCredits(plan.totalCredits)} credits · {plan.bonusPercent}% bonus</small>
+                    </div>
+                    <button type="button" disabled title="Stripe Checkout starts in Phase 10">{action}</button>
+                  </article>
+                );
+              })}
+            </div>
+          </PanelCard>
+
+          <PanelCard title="Buy extra credits">
+            <div className="billing-product-list">
+              {billing.creditPackages.map((pkg) => (
+                <article className="billing-product" key={pkg.id}>
+                  <div>
+                    <b>{pkg.name}</b>
+                    <span>{formatUsd(pkg.priceUsd)}</span>
+                    <small>{formatCredits(pkg.totalCredits)} total · {formatCredits(pkg.bonusCredits)} bonus</small>
+                  </div>
+                  <button type="button" disabled title="Stripe Checkout starts in Phase 10">Buy credits</button>
+                </article>
+              ))}
+            </div>
+          </PanelCard>
+
+          <PanelCard title="Payment and Invoice History">
+            <div className="billing-ledger-list compact-list">
+              {paymentHistory.map((entry) => <BillingLedgerRow key={entry.id} entry={entry} compact />)}
+              {paymentHistory.length === 0 && <div className="empty-state compact">No Stripe payments or invoices recorded yet.</div>}
+            </div>
+          </PanelCard>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BillingLedgerRow({ entry, compact = false }: { entry: BillingLedgerView; compact?: boolean }) {
+  const creditText = `${entry.type === "usage" ? "-" : entry.credits < 0 ? "" : "+"}${formatCredits(Math.abs(entry.credits || 0))}`;
+  return (
+    <article className={`billing-ledger-row ${compact ? "compact" : ""}`}>
+      <div>
+        <b>{entry.description || entry.action}</b>
+        <span>{billingModuleLabel(entry.module)} · {billingProviderLabel(String(entry.provider))} · {entry.status}</span>
+      </div>
+      <div className="billing-ledger-amount">
+        <b className={entry.type === "usage" || entry.credits < 0 ? "debit" : "credit"}>{creditText}</b>
+        <span>{new Date(entry.createdAt).toLocaleString()}</span>
+      </div>
+    </article>
+  );
+}
+
+function BillingBreakdownList({ items, labeler }: { items: BillingBreakdown[]; labeler: (value: string) => string }) {
+  const max = Math.max(1, ...items.map((item) => item.credits));
+  return (
+    <div className="billing-breakdown-list">
+      {items.map((item) => (
+        <div className="billing-breakdown-row" key={item.key}>
+          <div>
+            <b>{labeler(item.key)}</b>
+            <span>{item.entries} action{item.entries === 1 ? "" : "s"}</span>
+          </div>
+          <div className="billing-bar"><span style={{ width: `${Math.max(4, (item.credits / max) * 100)}%` }} /></div>
+          <strong>{formatCredits(item.credits)}</strong>
+        </div>
+      ))}
+      {items.length === 0 && <div className="empty-state compact">No usage yet.</div>}
+    </div>
+  );
+}
+
 function LogPanel({ data }: { data: AppData }) {
   const [provider, setProvider] = useState("all");
   const [status, setStatus] = useState("all");
@@ -3153,6 +3354,39 @@ function PanelCard({ title, children }: { title: string; children: React.ReactNo
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return <div className="metric"><strong>{value}</strong><span>{label}</span></div>;
+}
+
+function formatCredits(value: number) {
+  return `${Math.round(value || 0).toLocaleString()} credits`;
+}
+
+function formatUsd(value: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: value % 1 === 0 ? 0 : 2 }).format(value || 0);
+}
+
+function billingModuleLabel(value: string) {
+  return ({
+    research: "Research",
+    social_audit: "Social Audit",
+    persona: "Persona",
+    create_content: "Create Content",
+    automation: "Automation",
+    publish: "My Contents / Publish",
+    billing: "Billing"
+  } as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function billingProviderLabel(value: string) {
+  return ({
+    kie: "Kie",
+    apify: "Apify",
+    "upload-post": "Upload-Post",
+    brevo: "Brevo",
+    stripe: "Stripe",
+    local: "Local/system",
+    system: "Local/system",
+    custom: "Composite"
+  } as Record<string, string>)[value] || value;
 }
 
 function compact(value: number) {

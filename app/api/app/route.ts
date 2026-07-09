@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { calculateCreditBalance } from "@/lib/billing";
 import { currentUser } from "@/lib/session";
 import { readDb } from "@/lib/store";
 import { getConnectedUploadPostAccounts } from "@/lib/providers/uploadPost";
@@ -23,6 +24,58 @@ function normalizedResearchBrief(brief: Brief) {
   return { ...brief, format, duration: sourceKind === "video" ? brief.duration : undefined };
 }
 
+function sumCredits(entries: { credits: number }[]) {
+  return entries.reduce((sum, entry) => sum + Math.abs(Math.ceil(Number(entry.credits || 0))), 0);
+}
+
+function groupUsage(entries: ReturnType<typeof safeBillingEntry>[], key: "module" | "provider") {
+  const map = new Map<string, { key: string; credits: number; entries: number }>();
+  entries
+    .filter((entry) => entry.type === "usage" && entry.status === "succeeded")
+    .forEach((entry) => {
+      const groupKey = entry[key] || "unknown";
+      const current = map.get(groupKey) || { key: groupKey, credits: 0, entries: 0 };
+      current.credits += Math.abs(Math.ceil(entry.credits || 0));
+      current.entries += 1;
+      map.set(groupKey, current);
+    });
+  return Array.from(map.values()).sort((a, b) => b.credits - a.credits);
+}
+
+function safeBillingEntry(entry: {
+  id: string;
+  type: string;
+  module: string;
+  provider: string;
+  action: string;
+  credits: number;
+  usdCost: number;
+  markup: number;
+  status: string;
+  description: string;
+  createdAt: string;
+  expiresAt?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const metadata = entry.metadata || {};
+  const chargeUsd = typeof metadata.chargeUsd === "number" ? metadata.chargeUsd : Math.max(0, Math.abs(entry.credits || 0) / 1000);
+  return {
+    id: entry.id,
+    type: entry.type,
+    module: entry.module,
+    provider: entry.provider,
+    action: entry.action,
+    credits: Math.round(entry.credits || 0),
+    usdCost: entry.usdCost,
+    chargeUsd,
+    markup: entry.markup,
+    status: entry.status,
+    description: entry.description,
+    createdAt: entry.createdAt,
+    expiresAt: entry.expiresAt
+  };
+}
+
 export async function GET() {
   const user = await currentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -30,6 +83,19 @@ export async function GET() {
   const connectedSocialAccounts = await getConnectedUploadPostAccounts().catch(() => []);
   const workspace = db.workspaces.find((item) => item.id === user.workspaceId)!;
   const workspaceAssets = db.assets.filter((item) => item.workspaceId === workspace.id);
+  const billingLedger = (db.billingLedger || [])
+    .filter((item) => item.workspaceId === workspace.id)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .map(safeBillingEntry);
+  const activeLedger = billingLedger.filter((entry) => !entry.expiresAt || new Date(entry.expiresAt).getTime() >= Date.now());
+  const billingBalance = calculateCreditBalance(db, workspace.id);
+  const billingPlans = (db.billingPlans || []).filter((plan) => plan.active);
+  const billingCreditPackages = (db.billingCreditPackages || []).filter((pkg) => pkg.active);
+  const currentPlan = billingPlans.find((plan) => plan.name.toLowerCase() === String(workspace.plan || "").toLowerCase()) || null;
+  const usageEntries = billingLedger.filter((entry) => entry.type === "usage" && entry.status === "succeeded");
+  const paymentHistory = billingLedger
+    .filter((entry) => ["purchase", "subscription_grant", "refund"].includes(entry.type) || entry.provider === "stripe")
+    .slice(0, 50);
   const scoped = {
     user: { id: user.id, email: user.email, name: user.name, role: user.role },
     workspace,
@@ -55,6 +121,21 @@ export async function GET() {
     automationSourceWatchers: (db.automationSourceWatchers || []).filter((item) => item.workspaceId === workspace.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     automationSourceRuns: (db.automationSourceRuns || []).filter((item) => item.workspaceId === workspace.id).sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()).slice(0, 50),
     billingSettings: db.billingSettings,
+    billing: {
+      balance: billingBalance,
+      currentPlan,
+      plans: billingPlans,
+      creditPackages: billingCreditPackages,
+      ledger: billingLedger.slice(0, 200),
+      paymentHistory,
+      usageByModule: groupUsage(billingLedger, "module"),
+      usageByProvider: groupUsage(billingLedger, "provider"),
+      subscriptionCredits: sumCredits(activeLedger.filter((entry) => entry.type === "subscription_grant" && entry.status === "succeeded")),
+      topUpCredits: sumCredits(activeLedger.filter((entry) => entry.type === "purchase" && entry.status === "succeeded")),
+      bonusCredits: sumCredits(activeLedger.filter((entry) => (entry.type === "bonus" || entry.type === "admin_adjustment") && entry.credits > 0 && entry.status === "succeeded")),
+      usedCredits: sumCredits(usageEntries),
+      reservedCredits: billingBalance.reserved
+    },
     activity: db.activity.filter((item) => item.workspaceId === workspace.id).slice(-10).reverse(),
     debugLogs: (db.debugLogs || []).filter((item) => item.workspaceId === workspace.id).slice(-200).reverse(),
     promptTemplates: db.promptTemplates

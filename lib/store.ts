@@ -246,7 +246,12 @@ export function seeded(): Database {
 
 export function normalizeDb(db: Database): Database {
   db.users ||= [];
+  db.workspaces ||= [];
+  db.brandKits ||= [];
+  db.competitors ||= [];
   for (const user of db.users) {
+    user.email = String(user.email || "").trim();
+    user.name = String(user.name || user.email.split("@")[0] || "User").trim();
     if (typeof user.emailVerified !== "boolean") user.emailVerified = true;
     if (!user.createdAt) user.createdAt = new Date().toISOString();
     if (!user.updatedAt) user.updatedAt = user.createdAt;

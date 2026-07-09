@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   const code = createVerificationCode();
   const normalizedEmail = String(email).trim().toLowerCase();
   const result = await mutateDb((db) => {
-    const existingUser = db.users.find((user) => user.email.toLowerCase() === normalizedEmail);
+    const existingUser = db.users.find((user) => String(user.email || "").toLowerCase() === normalizedEmail);
     if (existingUser?.emailVerified === false) {
       existingUser.emailVerificationCodeHash = hashVerificationCode(code);
       existingUser.emailVerificationExpiresAt = verificationExpiry();
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     if (existingUser) {
       return { error: "Email already exists" };
     }
-    const workspaceId = db.workspaces.find((workspace) => workspace.id === "ws_demo")?.id || db.workspaces[0]?.id;
+    const workspaceId = (db.workspaces || []).find((workspace) => workspace.id === "ws_demo")?.id || (db.workspaces || [])[0]?.id;
     if (!workspaceId) return { error: "Default workspace is missing" };
     const userId = id("usr");
     db.users.push({

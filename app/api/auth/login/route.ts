@@ -2,13 +2,19 @@ import { NextResponse } from "next/server";
 import { mutateDb, verifyPassword } from "@/lib/store";
 import { setSession } from "@/lib/session";
 
-const diagnosticToken = "phase7-deep-health-20260709";
-
 export async function POST(req: Request) {
+  let payload: { email?: string; password?: string };
   try {
-    const { email, password } = await req.json();
-    const normalizedEmail = String(email || "").trim().toLowerCase();
-    const result = await mutateDb((db) => {
+    payload = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid login request." }, { status: 400 });
+  }
+
+  const { email, password } = payload;
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  let result: { userId: string } | { error: string; status: 401 | 403; verificationRequired?: boolean; email?: string };
+  try {
+    result = await mutateDb((db) => {
       const user = db.users.find((item) => String(item.email || "").toLowerCase() === normalizedEmail);
       if (!user || !user.passwordHash || !verifyPassword(String(password), user.passwordHash)) return { error: "Invalid email or password", status: 401 as const };
       if (user.disabledAt) return { error: "This account has been disabled. Contact an administrator.", status: 403 as const };
@@ -19,18 +25,15 @@ export async function POST(req: Request) {
       user.updatedAt = user.updatedAt || user.lastLoginAt;
       return { userId: user.id };
     });
-    if ("error" in result) {
-      if (result.verificationRequired) return NextResponse.json({ error: result.error, verificationRequired: true, email: result.email }, { status: result.status });
-      return NextResponse.json({ error: result.error }, { status: result.status });
-    }
-    const res = NextResponse.json({ ok: true });
-    setSession(res, result.userId);
-    return res;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (process.env.POSTGRES_STATE_ID === "staging" && req.headers.get("x-ca-diagnostic") === diagnosticToken) {
-      return NextResponse.json({ error: "Login diagnostic failure", detail: message }, { status: 500 });
-    }
+  } catch {
     return NextResponse.json({ error: "Login failed" }, { status: 500 });
   }
+
+  if ("error" in result) {
+    if (result.verificationRequired) return NextResponse.json({ error: result.error, verificationRequired: true, email: result.email }, { status: result.status });
+    return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+  const res = NextResponse.json({ ok: true });
+  setSession(res, result.userId);
+  return res;
 }

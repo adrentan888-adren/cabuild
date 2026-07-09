@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { mutateDb, readDb } from "@/lib/store";
+import { mutateDb, readDb, verifyPassword } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +17,7 @@ export async function GET(req: Request) {
     }
     try {
       const db = await readDb();
+      const demo = db.users.find((user) => String(user.email || "").toLowerCase() === "demo@contentagent.tech");
       const mutation = await mutateDb((draft) => ({
         users: draft.users.length,
         workspaces: draft.workspaces.length,
@@ -27,7 +28,15 @@ export async function GET(req: Request) {
         surface: process.env.APP_SURFACE || "combined",
         deep: {
           read: { users: db.users.length, workspaces: db.workspaces.length, billingLedger: db.billingLedger?.length || 0 },
-          mutate: mutation
+          mutate: mutation,
+          auth: {
+            demoFound: Boolean(demo),
+            demoRole: demo?.role || null,
+            demoDisabled: Boolean(demo?.disabledAt),
+            demoEmailVerified: demo?.emailVerified !== false,
+            demoPasswordType: typeof demo?.passwordHash,
+            demoPasswordValid: demo ? verifyPassword("demo1234", demo.passwordHash) : false
+          }
         }
       });
     } catch (error) {

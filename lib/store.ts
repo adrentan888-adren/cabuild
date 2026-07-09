@@ -21,7 +21,9 @@ export function hashPassword(password: string, salt = crypto.randomBytes(16).toS
 }
 
 export function verifyPassword(password: string, stored: string) {
+  if (typeof stored !== "string") return false;
   const [salt, hash] = stored.split(":");
+  if (!salt || !hash) return false;
   return hashPassword(password, salt).split(":")[1] === hash;
 }
 

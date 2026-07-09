@@ -401,7 +401,7 @@ export type AutomationSourceRun = {
   billingEstimatedCredits?: number;
 };
 
-export type ApiKeyProvider = "kie" | "apify" | "apifyBackup" | "uploadPost";
+export type ApiKeyProvider = "kie" | "apify" | "apifyBackup" | "uploadPost" | "stripePublishable" | "stripeSecret" | "stripeWebhook" | "stripePortal";
 
 export type ApiKeyOverride = {
   provider: ApiKeyProvider;
@@ -519,6 +519,11 @@ export type BillingSettings = {
   automationMinimumBalance: number;
   automationDefaultRunCap: number;
   automationDefaultMonthlyCap: number;
+  dailySpendLimitCredits?: number;
+  monthlySpendLimitCredits?: number;
+  maxConcurrentGenerations?: number;
+  failedGenerationRefundPolicy?: "release_only" | "refund_if_provider_failed" | "manual_review";
+  stripeMode?: "test" | "live";
   allowNegativeBalance: false;
 };
 

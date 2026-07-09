@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { adminAdjustmentEntry, calculateCreditBalance, quoteBillingAction, recalculatePackageCredits, recalculatePlanCredits } from "@/lib/billing";
 import { hasPermission } from "@/lib/permissions";
 import { currentUser } from "@/lib/session";
-import { mutateDb, readDb } from "@/lib/store";
-import type { BillingCreditPackage, BillingPlan, BillingRateCard, Database } from "@/lib/types";
+import { id, mutateDb, readDb } from "@/lib/store";
+import type { BillingCreditPackage, BillingPlan, BillingProviderMapping, BillingRateCard, Database, User } from "@/lib/types";
 
 async function requireBillingAdmin(permission: "billing.view" | "billing.manage" = "billing.view") {
   const user = await currentUser();
@@ -48,6 +48,21 @@ function billingPayload(db: Database) {
     providerMappings: db.billingProviderMappings,
     ledger: db.billingLedger.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250)
   };
+}
+
+function auditBillingChange(db: Database, actor: User, message: string, details?: Record<string, unknown>) {
+  db.activity.push({ id: id("act"), workspaceId: actor.workspaceId, message, createdAt: new Date().toISOString() });
+  db.debugLogs ||= [];
+  db.debugLogs.push({
+    id: id("log"),
+    workspaceId: actor.workspaceId,
+    action: "adminBilling",
+    label: message,
+    status: "success",
+    provider: "system",
+    details,
+    createdAt: new Date().toISOString()
+  });
 }
 
 export async function GET() {
@@ -95,7 +110,7 @@ export async function PATCH(req: Request) {
         expiresAt: expiresAt || undefined
       }));
       workspace.credits = calculateCreditBalance(db, workspace.id).available;
-      db.activity.push({ id: `act_${Date.now().toString(16)}`, workspaceId: workspace.id, message: `Admin adjusted credits by ${credits} for ${targetUser?.email || workspace.name}.`, createdAt: new Date().toISOString() });
+      auditBillingChange(db, auth.user, `Admin adjusted credits by ${credits} for ${targetUser?.email || workspace.name}.`, { operation, targetUserId: targetUser?.id, workspaceId: workspace.id, credits, description });
       return { ok: true };
     }
 
@@ -104,6 +119,16 @@ export async function PATCH(req: Request) {
       const card = db.billingRateCards.find((item) => item.id === id);
       if (!card) return { error: "Rate card not found.", status: 404 as const };
       updateRateCard(card, body);
+      auditBillingChange(db, auth.user, `Admin updated billing rate card: ${card.label}.`, { operation, rateCardId: card.id, provider: card.provider, modelOrActorId: card.modelOrActorId });
+      return { ok: true };
+    }
+
+    if (operation === "updateProviderMapping") {
+      const id = String(body.id || "");
+      const mapping = db.billingProviderMappings.find((item) => item.id === id);
+      if (!mapping) return { error: "Provider mapping not found.", status: 404 as const };
+      updateProviderMapping(mapping, body);
+      auditBillingChange(db, auth.user, `Admin updated provider mapping: ${mapping.label}.`, { operation, mappingId: mapping.id, uiKey: mapping.uiKey, providerModelOrActorId: mapping.providerModelOrActorId });
       return { ok: true };
     }
 
@@ -113,6 +138,7 @@ export async function PATCH(req: Request) {
       if (!plan) return { error: "Plan not found.", status: 404 as const };
       updatePlan(plan, body);
       Object.assign(plan, recalculatePlanCredits(plan));
+      auditBillingChange(db, auth.user, `Admin updated billing plan: ${plan.name}.`, { operation, planId: plan.id, priceUsd: plan.priceUsd, totalCredits: plan.totalCredits });
       return { ok: true };
     }
 
@@ -122,6 +148,7 @@ export async function PATCH(req: Request) {
       if (!pkg) return { error: "Credit package not found.", status: 404 as const };
       updatePackage(pkg, body);
       Object.assign(pkg, recalculatePackageCredits(pkg));
+      auditBillingChange(db, auth.user, `Admin updated credit package: ${pkg.name}.`, { operation, packageId: pkg.id, priceUsd: pkg.priceUsd, totalCredits: pkg.totalCredits });
       return { ok: true };
     }
 
@@ -132,8 +159,14 @@ export async function PATCH(req: Request) {
         lowCreditThreshold: positiveInteger(body.lowCreditThreshold, db.billingSettings.lowCreditThreshold),
         automationMinimumBalance: positiveInteger(body.automationMinimumBalance, db.billingSettings.automationMinimumBalance),
         automationDefaultRunCap: positiveInteger(body.automationDefaultRunCap, db.billingSettings.automationDefaultRunCap),
-        automationDefaultMonthlyCap: positiveInteger(body.automationDefaultMonthlyCap, db.billingSettings.automationDefaultMonthlyCap)
+        automationDefaultMonthlyCap: positiveInteger(body.automationDefaultMonthlyCap, db.billingSettings.automationDefaultMonthlyCap),
+        dailySpendLimitCredits: nonNegativeInteger(body.dailySpendLimitCredits, db.billingSettings.dailySpendLimitCredits || 0),
+        monthlySpendLimitCredits: nonNegativeInteger(body.monthlySpendLimitCredits, db.billingSettings.monthlySpendLimitCredits || 0),
+        maxConcurrentGenerations: positiveInteger(body.maxConcurrentGenerations, db.billingSettings.maxConcurrentGenerations || 1),
+        failedGenerationRefundPolicy: parseRefundPolicy(body.failedGenerationRefundPolicy, db.billingSettings.failedGenerationRefundPolicy || "refund_if_provider_failed"),
+        stripeMode: body.stripeMode === "live" ? "live" : "test"
       };
+      auditBillingChange(db, auth.user, "Admin updated billing rules and settings.", { operation, settings: db.billingSettings });
       return { ok: true };
     }
 
@@ -147,11 +180,34 @@ export async function PATCH(req: Request) {
 
 function updateRateCard(card: BillingRateCard, body: Record<string, unknown>) {
   if (typeof body.label === "string") card.label = body.label.trim() || card.label;
+  if (typeof body.provider === "string" && ["kie", "apify", "upload-post", "brevo", "stripe", "local", "custom"].includes(body.provider)) {
+    card.provider = body.provider as BillingRateCard["provider"];
+  }
+  if (typeof body.actionType === "string" && ["video_generation", "image_generation", "text_generation", "scrape", "persona_crawl", "publish", "automation_run", "ai_assist"].includes(body.actionType)) {
+    card.actionType = body.actionType as BillingRateCard["actionType"];
+  }
+  if (typeof body.modelOrActorId === "string") card.modelOrActorId = body.modelOrActorId.trim() || card.modelOrActorId;
+  if (typeof body.unit === "string" && ["per_action", "per_second", "per_image", "per_1k_tokens", "per_1k_results", "per_post"].includes(body.unit)) {
+    card.unit = body.unit as BillingRateCard["unit"];
+  }
   card.baseCostUsd = nonNegativeNumber(body.baseCostUsd, card.baseCostUsd);
   card.markupMultiplier = positiveNumber(body.markupMultiplier, card.markupMultiplier);
   card.minimumChargeCredits = nonNegativeInteger(body.minimumChargeCredits, card.minimumChargeCredits);
   if (typeof body.active === "boolean") card.active = body.active;
   card.source = "manual";
+}
+
+function updateProviderMapping(mapping: BillingProviderMapping, body: Record<string, unknown>) {
+  if (typeof body.label === "string") mapping.label = body.label.trim() || mapping.label;
+  if (typeof body.uiKey === "string") mapping.uiKey = body.uiKey.trim() || mapping.uiKey;
+  if (typeof body.provider === "string" && ["kie", "apify", "upload-post", "brevo", "stripe", "local", "custom"].includes(body.provider)) {
+    mapping.provider = body.provider as BillingProviderMapping["provider"];
+  }
+  if (typeof body.providerModelOrActorId === "string") mapping.providerModelOrActorId = body.providerModelOrActorId.trim() || mapping.providerModelOrActorId;
+  if (typeof body.actionType === "string" && ["video_generation", "image_generation", "text_generation", "scrape", "persona_crawl", "publish", "automation_run", "ai_assist"].includes(body.actionType)) {
+    mapping.actionType = body.actionType as BillingProviderMapping["actionType"];
+  }
+  if (typeof body.active === "boolean") mapping.active = body.active;
 }
 
 function updatePlan(plan: BillingPlan, body: Record<string, unknown>) {
@@ -164,6 +220,7 @@ function updatePlan(plan: BillingPlan, body: Record<string, unknown>) {
   if (typeof body.active === "boolean") plan.active = body.active;
   if (typeof body.automationAllowed === "boolean") plan.automationAllowed = body.automationAllowed;
   plan.maxConcurrentGenerations = positiveInteger(body.maxConcurrentGenerations, plan.maxConcurrentGenerations || 1);
+  plan.monthlyUsageLimitCredits = body.monthlyUsageLimitCredits === "" ? undefined : nonNegativeInteger(body.monthlyUsageLimitCredits, plan.monthlyUsageLimitCredits || 0) || undefined;
 }
 
 function updatePackage(pkg: BillingCreditPackage, body: Record<string, unknown>) {
@@ -196,4 +253,8 @@ function nonNegativeInteger(value: unknown, fallback: number) {
 function positiveInteger(value: unknown, fallback: number) {
   const next = Math.round(Number(value));
   return Number.isFinite(next) && next > 0 ? next : fallback;
+}
+
+function parseRefundPolicy(value: unknown, fallback: NonNullable<Database["billingSettings"]["failedGenerationRefundPolicy"]>) {
+  return value === "release_only" || value === "manual_review" || value === "refund_if_provider_failed" ? value : fallback;
 }

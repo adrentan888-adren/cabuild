@@ -20,6 +20,11 @@ export const defaultBillingSettings: BillingSettings = {
   automationMinimumBalance: 3500,
   automationDefaultRunCap: 12000,
   automationDefaultMonthlyCap: 240000,
+  dailySpendLimitCredits: 50000,
+  monthlySpendLimitCredits: 240000,
+  maxConcurrentGenerations: 2,
+  failedGenerationRefundPolicy: "refund_if_provider_failed",
+  stripeMode: "test",
   allowNegativeBalance: false
 };
 

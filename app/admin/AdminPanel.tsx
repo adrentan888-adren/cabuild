@@ -366,7 +366,11 @@ function ApiKeyManagementCard({ integrations, adminData, currentRole }: { integr
     { id: "kie", label: "Kie.ai", hint: "Used for Gemini/GPT prompt generation, Seedance, VEO, and image generation." },
     { id: "apify", label: "Apify primary", hint: "Used for Research, Source Watcher crawling, and persona crawling." },
     { id: "apifyBackup", label: "Apify backup", hint: "Used automatically when the primary Apify token hits quota/auth/rate-limit errors." },
-    { id: "uploadPost", label: "Upload-Post", hint: "Used to connect social accounts and publish approved content." }
+    { id: "uploadPost", label: "Upload-Post", hint: "Used to connect social accounts and publish approved content." },
+    { id: "stripePublishable", label: "Stripe publishable key", hint: "Used by the frontend checkout flow in Phase 10. Stored masked until checkout is enabled." },
+    { id: "stripeSecret", label: "Stripe secret key", hint: "Used server-side for Stripe Checkout, subscriptions, invoices, and portal sessions." },
+    { id: "stripeWebhook", label: "Stripe webhook secret", hint: "Used server-side to verify Stripe webhook events before granting credits." },
+    { id: "stripePortal", label: "Stripe portal configuration", hint: "Optional Customer Portal configuration ID for billing self-service." }
   ];
   async function saveKey(provider: string, form: FormData) {
     setMessage("");
@@ -431,6 +435,443 @@ function formatUsd(value: number) {
 }
 
 function BillingManagementCard({ billingData, runBilling }: { billingData: AdminBillingData | null; runBilling: RunBillingAction }) {
+  const [activeBillingTab, setActiveBillingTab] = useState("plans");
+  const [quoteResult, setQuoteResult] = useState<Record<string, unknown> | null>(null);
+  const [ledgerModule, setLedgerModule] = useState("");
+  const [ledgerProvider, setLedgerProvider] = useState("");
+  const [ledgerUser, setLedgerUser] = useState("");
+  const [rateProvider, setRateProvider] = useState("");
+  const [rateAction, setRateAction] = useState("");
+  const [stripeMessage, setStripeMessage] = useState("");
+  const firstUser = billingData?.users[0];
+  const providerOptions = ["kie", "apify", "upload-post", "brevo", "stripe", "local", "custom"];
+  const actionOptions = ["video_generation", "image_generation", "text_generation", "scrape", "persona_crawl", "publish", "automation_run", "ai_assist"];
+  const unitOptions = ["per_action", "per_second", "per_image", "per_1k_tokens", "per_1k_results", "per_post"];
+  const billingTabs = [
+    ["plans", "Billing Plans"],
+    ["packages", "Credit Packages"],
+    ["rates", "Rate Cards"],
+    ["mapping", "Provider Mapping"],
+    ["stripe", "Stripe Settings"],
+    ["ledger", "Credit Ledger"],
+    ["users", "User Billing"],
+    ["rules", "Billing Rules"],
+    ["alerts", "Pricing Alerts"]
+  ];
+  const userById = new Map((billingData?.users || []).map((user) => [user.id, user]));
+  const ledger = (billingData?.ledger || []).filter((entry) => {
+    if (ledgerModule && entry.module !== ledgerModule) return false;
+    if (ledgerProvider && entry.provider !== ledgerProvider) return false;
+    if (ledgerUser && entry.userId !== ledgerUser) return false;
+    return true;
+  });
+  const filteredRates = (billingData?.rateCards || []).filter((card) => {
+    if (rateProvider && card.provider !== rateProvider) return false;
+    if (rateAction && card.actionType !== rateAction) return false;
+    return true;
+  });
+  const pricingAlerts = (billingData?.rateCards || []).filter((card) => card.source === "provider_sync");
+
+  async function adjustCredits(form: FormData) {
+    await runBilling("PATCH", {
+      operation: "adjustCredits",
+      userId: form.get("userId"),
+      credits: form.get("credits"),
+      description: form.get("description"),
+      expiresAt: form.get("expiresAt")
+    }, "Credit adjustment saved");
+  }
+  async function saveSettings(form: FormData) {
+    await runBilling("PATCH", {
+      operation: "updateSettings",
+      defaultMarkupMultiplier: form.get("defaultMarkupMultiplier"),
+      lowCreditThreshold: form.get("lowCreditThreshold"),
+      automationMinimumBalance: form.get("automationMinimumBalance"),
+      automationDefaultRunCap: form.get("automationDefaultRunCap"),
+      automationDefaultMonthlyCap: form.get("automationDefaultMonthlyCap"),
+      dailySpendLimitCredits: form.get("dailySpendLimitCredits"),
+      monthlySpendLimitCredits: form.get("monthlySpendLimitCredits"),
+      maxConcurrentGenerations: form.get("maxConcurrentGenerations"),
+      failedGenerationRefundPolicy: form.get("failedGenerationRefundPolicy"),
+      stripeMode: form.get("stripeMode")
+    }, "Billing rules saved");
+  }
+  async function quote(form: FormData) {
+    const result = await runBilling("POST", {
+      action: form.get("action"),
+      module: form.get("module"),
+      provider: form.get("provider"),
+      model: form.get("model"),
+      generationType: form.get("generationType"),
+      duration: form.get("duration"),
+      maxResults: form.get("maxResults"),
+      platform: form.get("platform")
+    }, "Quote calculated") as { quote?: Record<string, unknown> } | null;
+    if (result?.quote) setQuoteResult(result.quote);
+  }
+  async function saveRateCard(form: FormData) {
+    await runBilling("PATCH", {
+      operation: "updateRateCard",
+      id: form.get("id"),
+      label: form.get("label"),
+      provider: form.get("provider"),
+      actionType: form.get("actionType"),
+      modelOrActorId: form.get("modelOrActorId"),
+      unit: form.get("unit"),
+      baseCostUsd: form.get("baseCostUsd"),
+      markupMultiplier: form.get("markupMultiplier"),
+      minimumChargeCredits: form.get("minimumChargeCredits"),
+      active: form.get("active") === "on"
+    }, "Rate card saved");
+  }
+  async function saveMapping(form: FormData) {
+    await runBilling("PATCH", {
+      operation: "updateProviderMapping",
+      id: form.get("id"),
+      label: form.get("label"),
+      uiKey: form.get("uiKey"),
+      provider: form.get("provider"),
+      providerModelOrActorId: form.get("providerModelOrActorId"),
+      actionType: form.get("actionType"),
+      active: form.get("active") === "on"
+    }, "Provider mapping saved");
+  }
+  async function savePlan(form: FormData) {
+    await runBilling("PATCH", {
+      operation: "updatePlan",
+      id: form.get("id"),
+      name: form.get("name"),
+      priceUsd: form.get("priceUsd"),
+      baseCredits: form.get("baseCredits"),
+      bonusPercent: form.get("bonusPercent"),
+      expiryDays: form.get("expiryDays"),
+      stripePriceId: form.get("stripePriceId"),
+      active: form.get("active") === "on",
+      automationAllowed: form.get("automationAllowed") === "on",
+      maxConcurrentGenerations: form.get("maxConcurrentGenerations"),
+      monthlyUsageLimitCredits: form.get("monthlyUsageLimitCredits")
+    }, "Billing plan saved");
+  }
+  async function savePackage(form: FormData) {
+    await runBilling("PATCH", {
+      operation: "updateCreditPackage",
+      id: form.get("id"),
+      name: form.get("name"),
+      priceUsd: form.get("priceUsd"),
+      baseCredits: form.get("baseCredits"),
+      bonusPercent: form.get("bonusPercent"),
+      bonusCredits: form.get("bonusCredits"),
+      stripePriceId: form.get("stripePriceId"),
+      active: form.get("active") === "on",
+      expiresAfterDays: form.get("expiresAfterDays"),
+      maxPurchasesPerMonth: form.get("maxPurchasesPerMonth")
+    }, "Credit package saved");
+  }
+  async function saveStripeKey(provider: string, form: FormData) {
+    setStripeMessage("");
+    const value = String(form.get("value") || "").trim();
+    if (!value) {
+      setStripeMessage("Paste a value before saving.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/admin/api-keys", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, value })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not save Stripe setting.");
+      setStripeMessage("Stripe setting saved. Raw values remain hidden.");
+    } catch (error) {
+      setStripeMessage(error instanceof Error ? error.message : "Could not save Stripe setting.");
+    }
+  }
+
+  if (!billingData) {
+    return <PanelCard title="Billing management"><p className="muted">Loading billing data...</p></PanelCard>;
+  }
+
+  return (
+    <div className="admin-billing-page">
+      <div className="admin-billing-tabs" aria-label="Billing admin modules">
+        {billingTabs.map(([id, label]) => (
+          <button key={id} className={activeBillingTab === id ? "on" : ""} onClick={() => setActiveBillingTab(id)}>{label}</button>
+        ))}
+      </div>
+
+      {activeBillingTab === "plans" && (
+        <PanelCard title="Billing plans" action={<span className="admin-pill">{billingData.plans.length} plans</span>}>
+          <div className="billing-admin-list">
+            {billingData.plans.map((plan) => (
+              <form className="billing-admin-card" key={plan.id} action={savePlan}>
+                <input type="hidden" name="id" value={plan.id} />
+                <div className="billing-admin-card-head">
+                  <div><b>{plan.name}</b><span>{formatUsd(plan.priceUsd)} / month | {formatCredits(plan.totalCredits)}</span></div>
+                  <label className="checkline"><input name="active" type="checkbox" defaultChecked={plan.active} />Active</label>
+                </div>
+                <div className="modal-grid">
+                  <label>Name<input name="name" defaultValue={plan.name} /></label>
+                  <label>Monthly price USD<input name="priceUsd" type="number" step="0.01" defaultValue={plan.priceUsd} /></label>
+                  <label>Base credits<input name="baseCredits" type="number" step="1" defaultValue={plan.baseCredits} /></label>
+                  <label>Bonus %<input name="bonusPercent" type="number" step="0.1" defaultValue={plan.bonusPercent} /></label>
+                  <label>Credit expiry days<input name="expiryDays" type="number" step="1" defaultValue={plan.expiryDays} /></label>
+                  <label>Monthly usage limit<input name="monthlyUsageLimitCredits" type="number" step="1" defaultValue={plan.monthlyUsageLimitCredits || ""} placeholder="Optional" /></label>
+                  <label>Max concurrent generations<input name="maxConcurrentGenerations" type="number" step="1" defaultValue={plan.maxConcurrentGenerations || 1} /></label>
+                  <label>Stripe price ID<input name="stripePriceId" defaultValue={plan.stripePriceId || ""} placeholder="price_..." /></label>
+                </div>
+                <div className="row-actions">
+                  <label className="checkline"><input name="automationAllowed" type="checkbox" defaultChecked={Boolean(plan.automationAllowed)} />Automation allowed</label>
+                  <button><Save size={14} />Save plan</button>
+                </div>
+              </form>
+            ))}
+          </div>
+        </PanelCard>
+      )}
+
+      {activeBillingTab === "packages" && (
+        <PanelCard title="Credit packages" action={<span className="admin-pill">{billingData.creditPackages.length} packages</span>}>
+          <div className="billing-admin-list">
+            {billingData.creditPackages.map((pkg) => (
+              <form className="billing-admin-card" key={pkg.id} action={savePackage}>
+                <input type="hidden" name="id" value={pkg.id} />
+                <div className="billing-admin-card-head">
+                  <div><b>{pkg.name}</b><span>{formatUsd(pkg.priceUsd)} | {formatCredits(pkg.totalCredits)}</span></div>
+                  <label className="checkline"><input name="active" type="checkbox" defaultChecked={pkg.active} />Active</label>
+                </div>
+                <div className="modal-grid">
+                  <label>Name<input name="name" defaultValue={pkg.name} /></label>
+                  <label>Price USD<input name="priceUsd" type="number" step="0.01" defaultValue={pkg.priceUsd} /></label>
+                  <label>Base credits<input name="baseCredits" type="number" step="1" defaultValue={pkg.baseCredits} /></label>
+                  <label>Bonus %<input name="bonusPercent" type="number" step="0.1" defaultValue={pkg.bonusPercent} /></label>
+                  <label>Bonus credits<input name="bonusCredits" type="number" step="1" defaultValue={pkg.bonusCredits} /></label>
+                  <label>Expires after days<input name="expiresAfterDays" type="number" step="1" defaultValue={pkg.expiresAfterDays || ""} placeholder="No expiry" /></label>
+                  <label>Max purchases / month<input name="maxPurchasesPerMonth" type="number" step="1" defaultValue={pkg.maxPurchasesPerMonth || ""} placeholder="Unlimited" /></label>
+                  <label>Stripe price ID<input name="stripePriceId" defaultValue={pkg.stripePriceId || ""} placeholder="price_..." /></label>
+                </div>
+                <button><Save size={14} />Save package</button>
+              </form>
+            ))}
+          </div>
+        </PanelCard>
+      )}
+
+      {activeBillingTab === "rates" && (
+        <PanelCard title="Rate cards" action={<span className="admin-pill">{filteredRates.length} shown</span>}>
+          <div className="billing-admin-filters">
+            <label>Provider<select value={rateProvider} onChange={(event) => setRateProvider(event.target.value)}><option value="">All providers</option>{providerOptions.map((provider) => <option key={provider} value={provider}>{provider}</option>)}</select></label>
+            <label>Action<select value={rateAction} onChange={(event) => setRateAction(event.target.value)}><option value="">All actions</option>{actionOptions.map((action) => <option key={action} value={action}>{action}</option>)}</select></label>
+          </div>
+          <div className="billing-admin-list">
+            {filteredRates.map((card) => (
+              <form className="billing-admin-card" key={card.id} action={saveRateCard}>
+                <input type="hidden" name="id" value={card.id} />
+                <div className="billing-admin-card-head">
+                  <div><b>{card.label}</b><span>{card.provider} | {card.actionType} | {card.modelOrActorId}</span></div>
+                  <label className="checkline"><input name="active" type="checkbox" defaultChecked={card.active} />Active</label>
+                </div>
+                <div className="billing-rate-grid">
+                  <label>Label<input name="label" defaultValue={card.label} /></label>
+                  <label>Provider<select name="provider" defaultValue={card.provider}>{providerOptions.map((provider) => <option key={provider} value={provider}>{provider}</option>)}</select></label>
+                  <label>Action<select name="actionType" defaultValue={card.actionType}>{actionOptions.map((action) => <option key={action} value={action}>{action}</option>)}</select></label>
+                  <label>Provider model / actor<input name="modelOrActorId" defaultValue={card.modelOrActorId} /></label>
+                  <label>Unit<select name="unit" defaultValue={card.unit}>{unitOptions.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></label>
+                  <label>Base cost USD<input name="baseCostUsd" type="number" step="0.000001" defaultValue={card.baseCostUsd} /></label>
+                  <label>Markup<input name="markupMultiplier" type="number" step="0.1" defaultValue={card.markupMultiplier} /></label>
+                  <label>Minimum credits<input name="minimumChargeCredits" type="number" step="1" defaultValue={card.minimumChargeCredits} /></label>
+                </div>
+                <div className="row-actions">
+                  <span className="admin-pill">{card.source}{card.lastSyncedAt ? ` | synced ${new Date(card.lastSyncedAt).toLocaleString()}` : ""}</span>
+                  <button><Save size={14} />Save rate</button>
+                </div>
+              </form>
+            ))}
+          </div>
+        </PanelCard>
+      )}
+
+      {activeBillingTab === "mapping" && (
+        <PanelCard title="Provider mapping" action={<span className="admin-pill">{billingData.providerMappings.length} mappings</span>}>
+          <div className="billing-admin-list">
+            {billingData.providerMappings.map((mapping) => (
+              <form className="billing-admin-card compact" key={mapping.id} action={saveMapping}>
+                <input type="hidden" name="id" value={mapping.id} />
+                <div className="billing-rate-grid">
+                  <label>UI key<input name="uiKey" defaultValue={mapping.uiKey} /></label>
+                  <label>Label<input name="label" defaultValue={mapping.label} /></label>
+                  <label>Provider<select name="provider" defaultValue={mapping.provider}>{providerOptions.map((provider) => <option key={provider} value={provider}>{provider}</option>)}</select></label>
+                  <label>Action<select name="actionType" defaultValue={mapping.actionType}>{actionOptions.map((action) => <option key={action} value={action}>{action}</option>)}</select></label>
+                  <label>Provider model / actor<input name="providerModelOrActorId" defaultValue={mapping.providerModelOrActorId} /></label>
+                </div>
+                <div className="row-actions">
+                  <label className="checkline"><input name="active" type="checkbox" defaultChecked={mapping.active} />Active</label>
+                  <button><Save size={14} />Save mapping</button>
+                </div>
+              </form>
+            ))}
+          </div>
+        </PanelCard>
+      )}
+
+      {activeBillingTab === "stripe" && (
+        <div className="admin-tab-grid billing-grid">
+          <PanelCard title="Stripe settings">
+            <form className="brand-form" action={saveSettings}>
+              <label>Stripe mode
+                <select name="stripeMode" defaultValue={billingData.settings.stripeMode || "test"}>
+                  <option value="test">Test mode</option>
+                  <option value="live">Live mode</option>
+                </select>
+              </label>
+              <input type="hidden" name="defaultMarkupMultiplier" value={billingData.settings.defaultMarkupMultiplier} />
+              <input type="hidden" name="lowCreditThreshold" value={billingData.settings.lowCreditThreshold} />
+              <input type="hidden" name="automationMinimumBalance" value={billingData.settings.automationMinimumBalance} />
+              <input type="hidden" name="automationDefaultRunCap" value={billingData.settings.automationDefaultRunCap} />
+              <input type="hidden" name="automationDefaultMonthlyCap" value={billingData.settings.automationDefaultMonthlyCap} />
+              <input type="hidden" name="dailySpendLimitCredits" value={billingData.settings.dailySpendLimitCredits || 0} />
+              <input type="hidden" name="monthlySpendLimitCredits" value={billingData.settings.monthlySpendLimitCredits || 0} />
+              <input type="hidden" name="maxConcurrentGenerations" value={billingData.settings.maxConcurrentGenerations || 1} />
+              <input type="hidden" name="failedGenerationRefundPolicy" value={billingData.settings.failedGenerationRefundPolicy || "refund_if_provider_failed"} />
+              <button className="primary"><Save size={14} />Save Stripe mode</button>
+            </form>
+            <p className="muted compact">Checkout, webhooks, and portal sessions remain disabled until Phase 10. Price IDs can be assigned in Billing Plans and Credit Packages now.</p>
+          </PanelCard>
+          <PanelCard title="Stripe credentials">
+            {stripeMessage && <div className="provider-error inline">{stripeMessage}</div>}
+            <div className="api-key-editor-list">
+              {[
+                ["stripePublishable", "Publishable key"],
+                ["stripeSecret", "Secret key"],
+                ["stripeWebhook", "Webhook secret"],
+                ["stripePortal", "Customer Portal config ID"]
+              ].map(([provider, label]) => (
+                <form className="api-key-editor" key={provider} action={(form) => saveStripeKey(provider, form)}>
+                  <div><b>{label}</b><span>Paste a new value to replace the saved Stripe setting. Existing values stay hidden.</span></div>
+                  <input name="value" type="password" placeholder="Paste new Stripe value" />
+                  <button>Save</button>
+                </form>
+              ))}
+            </div>
+          </PanelCard>
+        </div>
+      )}
+
+      {activeBillingTab === "ledger" && (
+        <PanelCard title="Credit ledger" action={<span className="admin-pill">{ledger.length} rows</span>}>
+          <div className="billing-admin-filters three">
+            <label>Module<select value={ledgerModule} onChange={(event) => setLedgerModule(event.target.value)}><option value="">All modules</option>{Array.from(new Set(billingData.ledger.map((entry) => entry.module))).map((module) => <option key={module} value={module}>{module}</option>)}</select></label>
+            <label>Provider<select value={ledgerProvider} onChange={(event) => setLedgerProvider(event.target.value)}><option value="">All providers</option>{Array.from(new Set(billingData.ledger.map((entry) => entry.provider))).map((provider) => <option key={provider} value={provider}>{provider}</option>)}</select></label>
+            <label>User<select value={ledgerUser} onChange={(event) => setLedgerUser(event.target.value)}><option value="">All users/workspaces</option>{billingData.users.map((user) => <option key={user.id} value={user.id}>{user.email}</option>)}</select></label>
+          </div>
+          <div className="admin-user-table-wrap">
+            <table className="admin-user-table billing-table">
+              <thead><tr><th><span>Date</span></th><th><span>User</span></th><th><span>Type</span></th><th><span>Module</span></th><th><span>Provider</span></th><th><span>Action</span></th><th><span>Credits</span></th><th><span>Status</span></th><th><span>Description</span></th></tr></thead>
+              <tbody>
+                {ledger.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{new Date(entry.createdAt).toLocaleString()}</td>
+                    <td>{entry.userId ? userById.get(entry.userId)?.email || entry.userId : "Workspace"}</td>
+                    <td>{entry.type}</td>
+                    <td>{entry.module}</td>
+                    <td>{entry.provider}</td>
+                    <td>{entry.action}</td>
+                    <td>{formatCredits(entry.credits)}</td>
+                    <td>{entry.status}</td>
+                    <td>{entry.description}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </PanelCard>
+      )}
+
+      {activeBillingTab === "users" && (
+        <div className="admin-tab-grid billing-grid">
+          <PanelCard title="User billing" action={<span className="admin-pill">{billingData.users.length} users</span>}>
+            <div className="admin-user-table-wrap">
+              <table className="admin-user-table billing-table">
+                <thead><tr><th><span>Name</span></th><th><span>Email</span></th><th><span>Role</span></th><th><span>Workspace</span></th><th><span>Balance</span></th></tr></thead>
+                <tbody>
+                  {billingData.users.map((user) => (
+                    <tr key={user.id}><td>{user.name}</td><td>{user.email}</td><td>{user.role}</td><td>{user.workspaceName}</td><td>{formatCredits(user.credits)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </PanelCard>
+          <PanelCard title="Adjust user credits">
+            <form className="brand-form" action={adjustCredits}>
+              <label>User<select name="userId" defaultValue={firstUser?.id || ""} required>{billingData.users.map((user) => <option key={user.id} value={user.id}>{user.email} - {formatCredits(user.credits)}</option>)}</select></label>
+              <label>Credits<input name="credits" type="number" step="1" placeholder="5000 or -5000" required /></label>
+              <label>Description<input name="description" placeholder="Bonus, refund, correction, or removal reason" /></label>
+              <label>Expiry date<input name="expiresAt" type="datetime-local" /></label>
+              <button className="primary"><Save size={14} />Save adjustment</button>
+              <button type="button" disabled title="Stripe cancellation starts in Phase 10">Cancel subscription</button>
+            </form>
+          </PanelCard>
+        </div>
+      )}
+
+      {activeBillingTab === "rules" && (
+        <div className="admin-tab-grid billing-grid">
+          <PanelCard title="Billing rules">
+            <form className="brand-form" action={saveSettings}>
+              <div className="modal-grid">
+                <label>Default markup multiplier<input name="defaultMarkupMultiplier" type="number" step="0.1" defaultValue={billingData.settings.defaultMarkupMultiplier} /></label>
+                <label>Low credit threshold<input name="lowCreditThreshold" type="number" step="1" defaultValue={billingData.settings.lowCreditThreshold} /></label>
+                <label>Daily spend limit<input name="dailySpendLimitCredits" type="number" step="1" defaultValue={billingData.settings.dailySpendLimitCredits || 0} /></label>
+                <label>Monthly spend limit<input name="monthlySpendLimitCredits" type="number" step="1" defaultValue={billingData.settings.monthlySpendLimitCredits || 0} /></label>
+                <label>Max concurrent generations<input name="maxConcurrentGenerations" type="number" step="1" defaultValue={billingData.settings.maxConcurrentGenerations || 1} /></label>
+                <label>Failed-generation refund policy<select name="failedGenerationRefundPolicy" defaultValue={billingData.settings.failedGenerationRefundPolicy || "refund_if_provider_failed"}><option value="refund_if_provider_failed">Refund if provider failed</option><option value="release_only">Release only if not charged</option><option value="manual_review">Manual review</option></select></label>
+                <label>Automation minimum balance<input name="automationMinimumBalance" type="number" step="1" defaultValue={billingData.settings.automationMinimumBalance} /></label>
+                <label>Automation default run cap<input name="automationDefaultRunCap" type="number" step="1" defaultValue={billingData.settings.automationDefaultRunCap} /></label>
+                <label>Automation monthly cap<input name="automationDefaultMonthlyCap" type="number" step="1" defaultValue={billingData.settings.automationDefaultMonthlyCap} /></label>
+                <label>Stripe mode<select name="stripeMode" defaultValue={billingData.settings.stripeMode || "test"}><option value="test">Test</option><option value="live">Live</option></select></label>
+              </div>
+              <button className="primary"><Save size={14} />Save rules</button>
+            </form>
+          </PanelCard>
+          <PanelCard title="Quote tester">
+            <form className="brand-form" action={quote}>
+              <div className="modal-grid">
+                <label>Action<input name="action" defaultValue="create_content.generate" /></label>
+                <label>Module<input name="module" defaultValue="create_content" /></label>
+                <label>Provider<select name="provider" defaultValue="kie"><option value="kie">Kie</option><option value="apify">Apify</option><option value="upload-post">Upload-Post</option></select></label>
+                <label>Model / actor<input name="model" defaultValue="veo-fast" /></label>
+                <label>Generation type<select name="generationType" defaultValue="video"><option value="video">Video</option><option value="image">Image</option><option value="text">Text</option><option value="">N/A</option></select></label>
+                <label>Duration<input name="duration" type="number" defaultValue="8" /></label>
+                <label>Platform<input name="platform" placeholder="Instagram" /></label>
+                <label>Max results<input name="maxResults" type="number" defaultValue="100" /></label>
+              </div>
+              <button><CreditCard size={14} />Calculate quote</button>
+            </form>
+            {quoteResult && <div className="provider-error inline">Quote: <b>{String(quoteResult.label || "")}</b> | Cost {formatUsd(Number(quoteResult.costUsd || 0))} | Charge {formatUsd(Number(quoteResult.chargeUsd || 0))}</div>}
+          </PanelCard>
+        </div>
+      )}
+
+      {activeBillingTab === "alerts" && (
+        <PanelCard title="Pricing change alerts">
+          {pricingAlerts.length === 0 ? (
+            <div className="empty-state compact">No provider-synced pricing changes are waiting for approval. Phase 9 will add automated provider price sync, approve, and rollback actions.</div>
+          ) : (
+            <div className="billing-admin-list">
+              {pricingAlerts.map((card) => (
+                <div className="billing-admin-card compact" key={card.id}>
+                  <div className="billing-admin-card-head"><div><b>{card.label}</b><span>{card.provider} | {card.modelOrActorId} | {formatUsd(card.baseCostUsd)}</span></div><span className="admin-pill">Provider sync</span></div>
+                </div>
+              ))}
+            </div>
+          )}
+        </PanelCard>
+      )}
+    </div>
+  );
+}
+
+function OldBillingManagementCard({ billingData, runBilling }: { billingData: AdminBillingData | null; runBilling: RunBillingAction }) {
   const [quoteResult, setQuoteResult] = useState<Record<string, unknown> | null>(null);
   const firstUser = billingData?.users[0];
   async function adjustCredits(form: FormData) {

@@ -6,7 +6,11 @@ const providerEnv: Record<ApiKeyProvider, string> = {
   kie: "KIE_API_TOKEN",
   apify: "APIFY_API_TOKEN",
   apifyBackup: "APIFY_BACKUP_API_TOKEN",
-  uploadPost: "UPLOAD_POST_API_KEY"
+  uploadPost: "UPLOAD_POST_API_KEY",
+  stripePublishable: "STRIPE_PUBLISHABLE_KEY",
+  stripeSecret: "STRIPE_SECRET_KEY",
+  stripeWebhook: "STRIPE_WEBHOOK_SECRET",
+  stripePortal: "STRIPE_PORTAL_CONFIGURATION_ID"
 };
 
 function encryptionKey() {

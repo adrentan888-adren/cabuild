@@ -239,6 +239,8 @@ export function seeded(): Database {
     billingPlans: defaultBillingPlans.map((item) => ({ ...item })),
     billingCreditPackages: defaultBillingCreditPackages.map((item) => ({ ...item })),
     billingLedger: [],
+    billingPricingSyncRuns: [],
+    billingPricingAlerts: [],
     promptTemplates: defaultPromptTemplates,
     rolePermissions: defaultRolePermissions
   };
@@ -268,6 +270,8 @@ export function normalizeDb(db: Database): Database {
   db.automationSourceWatchers ||= [];
   db.automationSourceRuns ||= [];
   db.apiKeyOverrides ||= [];
+  db.billingPricingSyncRuns ||= [];
+  db.billingPricingAlerts ||= [];
   ensureBillingDefaults(db);
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
   const existingPermissions = (db as Database & { rolePermissions?: Partial<RolePermissions> }).rolePermissions || {};

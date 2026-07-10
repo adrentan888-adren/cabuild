@@ -2,7 +2,7 @@
 
 import { ArrowUpDown, CreditCard, KeyRound, Save, Server, Settings, ShieldCheck, Trash2, UserPlus, Users, WandSparkles, X } from "lucide-react";
 import { Fragment, useState } from "react";
-import type { Asset, BillingCreditPackage, BillingLedgerEntry, BillingPlan, BillingProviderMapping, BillingRateCard, BillingSettings, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
+import type { Asset, BillingCreditPackage, BillingLedgerEntry, BillingPlan, BillingPricingAlert, BillingPricingSyncRun, BillingProviderMapping, BillingRateCard, BillingSettings, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 
 export type AdminAppData = {
   user: { id: string; email: string; name: string; role: string };
@@ -90,6 +90,8 @@ export type AdminBillingData = {
   creditPackages: BillingCreditPackage[];
   rateCards: BillingRateCard[];
   providerMappings: BillingProviderMapping[];
+  pricingSyncRuns: BillingPricingSyncRun[];
+  pricingAlerts: BillingPricingAlert[];
   ledger: BillingLedgerEntry[];
 };
 
@@ -443,6 +445,8 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
   const [rateProvider, setRateProvider] = useState("");
   const [rateAction, setRateAction] = useState("");
   const [stripeMessage, setStripeMessage] = useState("");
+  const [pricingMessage, setPricingMessage] = useState("");
+  const [syncingProvider, setSyncingProvider] = useState("");
   const firstUser = billingData?.users[0];
   const providerOptions = ["kie", "apify", "upload-post", "brevo", "stripe", "local", "custom"];
   const actionOptions = ["video_generation", "image_generation", "text_generation", "scrape", "persona_crawl", "publish", "automation_run", "ai_assist"];
@@ -470,7 +474,13 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
     if (rateAction && card.actionType !== rateAction) return false;
     return true;
   });
-  const pricingAlerts = (billingData?.rateCards || []).filter((card) => card.source === "provider_sync");
+  const pricingAlerts = [...(billingData?.pricingAlerts || [])].sort((a, b) => {
+    const priority = (alert: BillingPricingAlert) => alert.status === "pending_review" ? 0 : alert.status === "manual_required" ? 1 : 2;
+    const priorityDiff = priority(a) - priority(b);
+    if (priorityDiff) return priorityDiff;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+  const pricingRuns = billingData?.pricingSyncRuns || [];
 
   async function adjustCredits(form: FormData) {
     await runBilling("PATCH", {
@@ -585,6 +595,27 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
       setStripeMessage("Stripe setting saved. Raw values remain hidden.");
     } catch (error) {
       setStripeMessage(error instanceof Error ? error.message : "Could not save Stripe setting.");
+    }
+  }
+  async function syncProviderPricing(provider: string) {
+    setPricingMessage("");
+    setSyncingProvider(provider);
+    try {
+      await runBilling("PATCH", { operation: "syncProviderPricing", provider }, `${provider} pricing sync completed`);
+      setPricingMessage(`${provider} pricing sync completed. Review any new alerts below.`);
+    } catch (error) {
+      setPricingMessage(error instanceof Error ? error.message : "Pricing sync failed.");
+    } finally {
+      setSyncingProvider("");
+    }
+  }
+  async function decidePricingAlert(alertId: string, operation: "approvePricingAlert" | "rejectPricingAlert" | "keepManualPricingAlert") {
+    setPricingMessage("");
+    try {
+      await runBilling("PATCH", { operation, alertId }, "Pricing alert updated");
+      setPricingMessage("Pricing alert updated.");
+    } catch (error) {
+      setPricingMessage(error instanceof Error ? error.message : "Could not update pricing alert.");
     }
   }
 
@@ -853,277 +884,64 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
       )}
 
       {activeBillingTab === "alerts" && (
-        <PanelCard title="Pricing change alerts">
-          {pricingAlerts.length === 0 ? (
-            <div className="empty-state compact">No provider-synced pricing changes are waiting for approval. Phase 9 will add automated provider price sync, approve, and rollback actions.</div>
-          ) : (
-            <div className="billing-admin-list">
-              {pricingAlerts.map((card) => (
-                <div className="billing-admin-card compact" key={card.id}>
-                  <div className="billing-admin-card-head"><div><b>{card.label}</b><span>{card.provider} | {card.modelOrActorId} | {formatUsd(card.baseCostUsd)}</span></div><span className="admin-pill">Provider sync</span></div>
+        <div className="admin-tab-grid billing-grid">
+          <PanelCard title="Provider pricing sync">
+            <p className="muted compact">Sync checks provider pricing sources and creates review alerts. Active rate cards do not change until an admin approves an alert.</p>
+            {pricingMessage && <div className="provider-error inline">{pricingMessage}</div>}
+            <div className="pricing-sync-actions">
+              <button className="primary" type="button" disabled={Boolean(syncingProvider)} onClick={() => syncProviderPricing("kie")}>{syncingProvider === "kie" ? "Syncing Kie..." : "Sync Kie pricing"}</button>
+              <button type="button" disabled={Boolean(syncingProvider)} onClick={() => syncProviderPricing("apify")}>{syncingProvider === "apify" ? "Syncing Apify..." : "Sync Apify pricing"}</button>
+            </div>
+            <div className="pricing-run-list">
+              {pricingRuns.length === 0 ? <div className="empty-state compact">No pricing sync runs yet.</div> : pricingRuns.slice(0, 6).map((run) => (
+                <div className="pricing-run-row" key={run.id}>
+                  <div>
+                    <b>{run.provider}</b>
+                    <span>{new Date(run.startedAt).toLocaleString()} | scanned {run.scannedCount} | alerts {run.alertCount} | manual {run.manualRequiredCount}</span>
+                    {run.error && <small>{run.error}</small>}
+                  </div>
+                  <span className={`status ${run.status === "failed" ? "failed" : "done"}`}>{run.status}</span>
                 </div>
               ))}
             </div>
-          )}
-        </PanelCard>
-      )}
-    </div>
-  );
-}
-
-function OldBillingManagementCard({ billingData, runBilling }: { billingData: AdminBillingData | null; runBilling: RunBillingAction }) {
-  const [quoteResult, setQuoteResult] = useState<Record<string, unknown> | null>(null);
-  const firstUser = billingData?.users[0];
-  async function adjustCredits(form: FormData) {
-    await runBilling("PATCH", {
-      operation: "adjustCredits",
-      userId: form.get("userId"),
-      credits: form.get("credits"),
-      description: form.get("description"),
-      expiresAt: form.get("expiresAt")
-    }, "Credit adjustment saved");
-  }
-  async function saveSettings(form: FormData) {
-    await runBilling("PATCH", {
-      operation: "updateSettings",
-      defaultMarkupMultiplier: form.get("defaultMarkupMultiplier"),
-      lowCreditThreshold: form.get("lowCreditThreshold"),
-      automationMinimumBalance: form.get("automationMinimumBalance"),
-      automationDefaultRunCap: form.get("automationDefaultRunCap"),
-      automationDefaultMonthlyCap: form.get("automationDefaultMonthlyCap")
-    }, "Billing settings saved");
-  }
-  async function quote(form: FormData) {
-    const result = await runBilling("POST", {
-      action: form.get("action"),
-      module: form.get("module"),
-      provider: form.get("provider"),
-      model: form.get("model"),
-      generationType: form.get("generationType"),
-      duration: form.get("duration"),
-      maxResults: form.get("maxResults"),
-      platform: form.get("platform")
-    }, "Quote calculated") as { quote?: Record<string, unknown> } | null;
-    if (result?.quote) setQuoteResult(result.quote);
-  }
-  async function saveRateCard(form: FormData) {
-    await runBilling("PATCH", {
-      operation: "updateRateCard",
-      id: form.get("id"),
-      label: form.get("label"),
-      baseCostUsd: form.get("baseCostUsd"),
-      markupMultiplier: form.get("markupMultiplier"),
-      minimumChargeCredits: form.get("minimumChargeCredits"),
-      active: form.get("active") === "on"
-    }, "Rate card saved");
-  }
-  async function savePlan(form: FormData) {
-    await runBilling("PATCH", {
-      operation: "updatePlan",
-      id: form.get("id"),
-      name: form.get("name"),
-      priceUsd: form.get("priceUsd"),
-      baseCredits: form.get("baseCredits"),
-      bonusPercent: form.get("bonusPercent"),
-      expiryDays: form.get("expiryDays"),
-      stripePriceId: form.get("stripePriceId"),
-      active: form.get("active") === "on",
-      automationAllowed: form.get("automationAllowed") === "on",
-      maxConcurrentGenerations: form.get("maxConcurrentGenerations")
-    }, "Billing plan saved");
-  }
-  async function savePackage(form: FormData) {
-    await runBilling("PATCH", {
-      operation: "updateCreditPackage",
-      id: form.get("id"),
-      name: form.get("name"),
-      priceUsd: form.get("priceUsd"),
-      baseCredits: form.get("baseCredits"),
-      bonusPercent: form.get("bonusPercent"),
-      bonusCredits: form.get("bonusCredits"),
-      stripePriceId: form.get("stripePriceId"),
-      active: form.get("active") === "on"
-    }, "Credit package saved");
-  }
-
-  if (!billingData) {
-    return <PanelCard title="Billing foundation"><p className="muted">Loading billing data...</p></PanelCard>;
-  }
-
-  return (
-    <div className="admin-tab-grid billing-grid">
-      <div className="billing-main-column">
-        <PanelCard title="Credit balances" action={<span className="admin-pill">Ledger backed</span>}>
-          <div className="admin-info-list">
-            {billingData.workspaceBalances.map((workspace) => (
-              <div key={workspace.workspaceId}>
-                <b>{workspace.workspaceName}</b>
-                <span>{formatCredits(workspace.available)} available | {formatCredits(workspace.reserved)} reserved | {formatCredits(workspace.lifetimeUsed)} used lifetime</span>
+          </PanelCard>
+          <PanelCard title="Pricing review queue" action={<span className="admin-pill">{pricingAlerts.length} alerts</span>}>
+            {pricingAlerts.length === 0 ? (
+              <div className="empty-state compact">No pricing alerts are waiting for review.</div>
+            ) : (
+              <div className="billing-admin-list">
+                {pricingAlerts.map((alert) => {
+                  const canApprove = alert.status === "pending_review" && typeof alert.newBaseCostUsd === "number";
+                  const decided = !["pending_review", "manual_required"].includes(alert.status);
+                  return (
+                    <div className="billing-admin-card compact pricing-alert-card" key={alert.id}>
+                      <div className="billing-admin-card-head">
+                        <div>
+                          <b>{alert.label}</b>
+                          <span>{alert.provider} | {alert.modelOrActorId} | {alert.source}</span>
+                        </div>
+                        <span className={`status ${alert.status === "approved" ? "done" : alert.status === "rejected" ? "failed" : ""}`}>{alert.status.replace(/_/g, " ")}</span>
+                      </div>
+                      <div className="pricing-change-grid">
+                        <div><span>Current</span><b>{formatUsd(alert.oldBaseCostUsd)}</b><small>{alert.oldUnit}</small></div>
+                        <div><span>Provider</span><b>{typeof alert.newBaseCostUsd === "number" ? formatUsd(alert.newBaseCostUsd) : "Manual review"}</b><small>{alert.newUnit || alert.oldUnit}</small></div>
+                        <div><span>Change</span><b>{typeof alert.changePercent === "number" ? `${alert.changePercent > 0 ? "+" : ""}${alert.changePercent}%` : "N/A"}</b><small>{new Date(alert.createdAt).toLocaleString()}</small></div>
+                      </div>
+                      <p className="muted compact">{alert.reason}</p>
+                      <div className="row-actions">
+                        {canApprove && <button className="primary" type="button" onClick={() => decidePricingAlert(alert.id, "approvePricingAlert")}>Approve</button>}
+                        {!decided && <button type="button" onClick={() => decidePricingAlert(alert.id, "keepManualPricingAlert")}>Keep manual</button>}
+                        {!decided && <button type="button" onClick={() => decidePricingAlert(alert.id, "rejectPricingAlert")}>Reject</button>}
+                        {decided && <span className="admin-pill">Decided {alert.decidedAt ? new Date(alert.decidedAt).toLocaleString() : ""}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
-        </PanelCard>
-
-        <PanelCard title="Manual credit adjustment" action={<span className="admin-pill">Phase 1</span>}>
-          <form className="brand-form" action={adjustCredits}>
-            <div className="modal-grid">
-              <label>User
-                <select name="userId" defaultValue={firstUser?.id || ""} required>
-                  {(billingData.users || []).map((user) => <option key={user.id} value={user.id}>{user.email} - {formatCredits(user.credits)}</option>)}
-                </select>
-              </label>
-              <label>Credits
-                <input name="credits" type="number" step="1" placeholder="Example: 5000 or -5000" required />
-              </label>
-              <label>Description
-                <input name="description" placeholder="Reason shown in ledger" />
-              </label>
-              <label>Expiry date
-                <input name="expiresAt" type="datetime-local" />
-              </label>
-            </div>
-            <p className="muted compact">Positive values grant credits. Negative values remove credits. Every adjustment is appended to the ledger and cannot be edited.</p>
-            <button className="primary"><Save size={14} />Save adjustment</button>
-          </form>
-        </PanelCard>
-
-        <PanelCard title="Quote tester">
-          <form className="brand-form" action={quote}>
-            <div className="modal-grid">
-              <label>Action<input name="action" defaultValue="create_content.generate" /></label>
-              <label>Module<input name="module" defaultValue="create_content" /></label>
-              <label>Provider<select name="provider" defaultValue="kie"><option value="kie">Kie</option><option value="apify">Apify</option><option value="upload-post">Upload-Post</option></select></label>
-              <label>Model / actor<input name="model" defaultValue="veo-fast" /></label>
-              <label>Generation type<select name="generationType" defaultValue="video"><option value="video">Video</option><option value="image">Image</option><option value="text">Text</option><option value="">N/A</option></select></label>
-              <label>Duration<input name="duration" type="number" defaultValue="8" /></label>
-              <label>Platform<input name="platform" placeholder="Instagram" /></label>
-              <label>Max results<input name="maxResults" type="number" defaultValue="100" /></label>
-            </div>
-            <button><CreditCard size={14} />Calculate quote</button>
-          </form>
-          {quoteResult && (
-            <div className="provider-error inline">
-              Quote: <b>{String(quoteResult.label || "")}</b> | Cost {formatUsd(Number(quoteResult.costUsd || 0))} | Charge {formatUsd(Number(quoteResult.chargeUsd || 0))}
-            </div>
-          )}
-        </PanelCard>
-
-        <PanelCard title="Recent credit ledger" action={<span className="admin-pill">{billingData.ledger.length} latest</span>}>
-          <div className="admin-user-table-wrap">
-            <table className="admin-user-table billing-table">
-              <thead>
-                <tr>
-                  <th><span>Date</span></th>
-                  <th><span>Type</span></th>
-                  <th><span>Module</span></th>
-                  <th><span>Provider</span></th>
-                  <th><span>Credits</span></th>
-                  <th><span>Description</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {billingData.ledger.map((entry) => (
-                  <tr key={entry.id}>
-                    <td>{new Date(entry.createdAt).toLocaleString()}</td>
-                    <td>{entry.type}</td>
-                    <td>{entry.module}</td>
-                    <td>{entry.provider}</td>
-                    <td>{formatCredits(entry.credits)}</td>
-                    <td>{entry.description}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </PanelCard>
-
-        <PanelCard title="Rate cards">
-          <div className="api-key-editor-list">
-            {billingData.rateCards.slice(0, 12).map((card) => (
-              <form className="api-key-editor billing-rate-editor" key={card.id} action={saveRateCard}>
-                <input type="hidden" name="id" value={card.id} />
-                <div>
-                  <b>{card.label}</b>
-                  <span>{card.provider} | {card.actionType} | {card.modelOrActorId} | {card.unit}</span>
-                  <small>Base {formatUsd(card.baseCostUsd)} | markup {card.markupMultiplier}x | min {card.minimumChargeCredits} credits</small>
-                </div>
-                <div className="billing-inline-fields">
-                  <input name="label" defaultValue={card.label} />
-                  <input name="baseCostUsd" type="number" step="0.000001" defaultValue={card.baseCostUsd} />
-                  <input name="markupMultiplier" type="number" step="0.1" defaultValue={card.markupMultiplier} />
-                  <input name="minimumChargeCredits" type="number" step="1" defaultValue={card.minimumChargeCredits} />
-                  <label className="checkline"><input name="active" type="checkbox" defaultChecked={card.active} />Active</label>
-                </div>
-                <button>Save</button>
-              </form>
-            ))}
-          </div>
-          <p className="muted compact">Showing the first 12 rate cards for Phase 1. More filtering/search can be added in Phase 8.</p>
-        </PanelCard>
-      </div>
-
-      <div className="billing-side-column">
-        <PanelCard title="Billing settings">
-          <form className="brand-form" action={saveSettings}>
-            <label>Default markup multiplier<input name="defaultMarkupMultiplier" type="number" step="0.1" defaultValue={billingData.settings.defaultMarkupMultiplier} /></label>
-            <label>Low credit threshold<input name="lowCreditThreshold" type="number" step="1" defaultValue={billingData.settings.lowCreditThreshold} /></label>
-            <label>Automation minimum balance<input name="automationMinimumBalance" type="number" step="1" defaultValue={billingData.settings.automationMinimumBalance} /></label>
-            <label>Automation default run cap<input name="automationDefaultRunCap" type="number" step="1" defaultValue={billingData.settings.automationDefaultRunCap} /></label>
-            <label>Automation monthly cap<input name="automationDefaultMonthlyCap" type="number" step="1" defaultValue={billingData.settings.automationDefaultMonthlyCap} /></label>
-            <button className="primary"><Save size={14} />Save settings</button>
-          </form>
-        </PanelCard>
-
-        <PanelCard title="Subscription plans">
-          <div className="api-key-editor-list">
-            {billingData.plans.map((plan) => (
-              <form className="billing-compact-editor" key={plan.id} action={savePlan}>
-                <input type="hidden" name="id" value={plan.id} />
-                <b>{plan.name}</b>
-                <div className="modal-grid">
-                  <label>Name<input name="name" defaultValue={plan.name} /></label>
-                  <label>Price USD<input name="priceUsd" type="number" step="0.01" defaultValue={plan.priceUsd} /></label>
-                  <label>Base credits<input name="baseCredits" type="number" step="1" defaultValue={plan.baseCredits} /></label>
-                  <label>Bonus %<input name="bonusPercent" type="number" step="0.1" defaultValue={plan.bonusPercent} /></label>
-                  <label>Expiry days<input name="expiryDays" type="number" step="1" defaultValue={plan.expiryDays} /></label>
-                  <label>Max concurrent<input name="maxConcurrentGenerations" type="number" step="1" defaultValue={plan.maxConcurrentGenerations || 1} /></label>
-                </div>
-                <label>Stripe price ID<input name="stripePriceId" defaultValue={plan.stripePriceId || ""} /></label>
-                <div className="row-actions">
-                  <label className="checkline"><input name="active" type="checkbox" defaultChecked={plan.active} />Active</label>
-                  <label className="checkline"><input name="automationAllowed" type="checkbox" defaultChecked={Boolean(plan.automationAllowed)} />Automation</label>
-                  <span className="admin-pill">{formatCredits(plan.totalCredits)}</span>
-                  <button>Save</button>
-                </div>
-              </form>
-            ))}
-          </div>
-        </PanelCard>
-
-        <PanelCard title="Credit packages">
-          <div className="api-key-editor-list">
-            {billingData.creditPackages.map((pkg) => (
-              <form className="billing-compact-editor" key={pkg.id} action={savePackage}>
-                <input type="hidden" name="id" value={pkg.id} />
-                <b>{pkg.name}</b>
-                <div className="modal-grid">
-                  <label>Name<input name="name" defaultValue={pkg.name} /></label>
-                  <label>Price USD<input name="priceUsd" type="number" step="0.01" defaultValue={pkg.priceUsd} /></label>
-                  <label>Base credits<input name="baseCredits" type="number" step="1" defaultValue={pkg.baseCredits} /></label>
-                  <label>Bonus %<input name="bonusPercent" type="number" step="0.1" defaultValue={pkg.bonusPercent} /></label>
-                  <label>Bonus credits<input name="bonusCredits" type="number" step="1" defaultValue={pkg.bonusCredits} /></label>
-                </div>
-                <label>Stripe price ID<input name="stripePriceId" defaultValue={pkg.stripePriceId || ""} /></label>
-                <div className="row-actions">
-                  <label className="checkline"><input name="active" type="checkbox" defaultChecked={pkg.active} />Active</label>
-                  <span className="admin-pill">{formatCredits(pkg.totalCredits)}</span>
-                  <button>Save</button>
-                </div>
-              </form>
-            ))}
-          </div>
-        </PanelCard>
-      </div>
+            )}
+          </PanelCard>
+        </div>
+      )}
     </div>
   );
 }

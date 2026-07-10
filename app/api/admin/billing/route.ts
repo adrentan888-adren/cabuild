@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { adminAdjustmentEntry, calculateCreditBalance, quoteBillingAction, recalculatePackageCredits, recalculatePlanCredits } from "@/lib/billing";
 import { hasPermission } from "@/lib/permissions";
+import { collectPricingSyncProposals } from "@/lib/pricingSync";
 import { currentUser } from "@/lib/session";
 import { id, mutateDb, readDb } from "@/lib/store";
-import type { BillingCreditPackage, BillingPlan, BillingProviderMapping, BillingRateCard, Database, User } from "@/lib/types";
+import type { BillingCreditPackage, BillingPlan, BillingPricingAlert, BillingProvider, BillingProviderMapping, BillingRateCard, Database, User } from "@/lib/types";
 
 async function requireBillingAdmin(permission: "billing.view" | "billing.manage" = "billing.view") {
   const user = await currentUser();
@@ -46,6 +47,8 @@ function billingPayload(db: Database) {
     creditPackages: db.billingCreditPackages,
     rateCards: db.billingRateCards,
     providerMappings: db.billingProviderMappings,
+    pricingSyncRuns: (db.billingPricingSyncRuns || []).slice().sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()).slice(0, 50),
+    pricingAlerts: (db.billingPricingAlerts || []).slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250),
     ledger: db.billingLedger.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250)
   };
 }
@@ -89,6 +92,51 @@ export async function PATCH(req: Request) {
   const body = await req.json() as Record<string, unknown>;
   const operation = String(body.operation || "");
 
+  if (operation === "syncProviderPricing") {
+    const provider = String(body.provider || "") as BillingProvider;
+    if (!["kie", "apify", "upload-post", "brevo", "stripe", "local", "custom"].includes(provider)) {
+      return NextResponse.json({ error: "Unsupported provider." }, { status: 400 });
+    }
+    const startedAt = new Date().toISOString();
+    let syncError = "";
+    let scannedCount = 0;
+    let proposals: Omit<BillingPricingAlert, "id" | "runId" | "createdAt" | "decidedAt" | "decidedBy" | "appliedAt">[] = [];
+    try {
+      const scan = await collectPricingSyncProposals(auth.db, provider);
+      scannedCount = scan.scannedCount;
+      proposals = scan.proposals;
+    } catch (error) {
+      syncError = error instanceof Error ? error.message : "Provider pricing sync failed.";
+      scannedCount = (auth.db.billingRateCards || []).filter((card) => card.provider === provider).length;
+    }
+    await mutateDb((db) => {
+      db.billingPricingSyncRuns ||= [];
+      db.billingPricingAlerts ||= [];
+      const runId = id("psync");
+      const now = new Date().toISOString();
+      const createdAlerts = proposals.filter((proposal) => !hasOpenPricingAlert(db, proposal.rateCardId));
+      db.billingPricingSyncRuns.unshift({
+        id: runId,
+        provider,
+        status: syncError ? "failed" : "completed",
+        scannedCount,
+        alertCount: createdAlerts.length,
+        manualRequiredCount: createdAlerts.filter((alert) => alert.status === "manual_required").length,
+        startedAt,
+        completedAt: now,
+        error: syncError || undefined,
+        createdBy: auth.user.id
+      });
+      for (const proposal of createdAlerts) {
+        db.billingPricingAlerts.unshift({ ...proposal, id: id("palert"), runId, createdAt: now });
+      }
+      auditBillingChange(db, auth.user, syncError ? `Admin pricing sync failed for ${provider}.` : `Admin ran pricing sync for ${provider}.`, { operation, provider, scannedCount, createdAlerts: createdAlerts.length, error: syncError || undefined });
+      return { ok: true };
+    });
+    const db = await readDb();
+    return NextResponse.json({ ok: true, ...billingPayload(db) });
+  }
+
   const result = await mutateDb((db) => {
     if (operation === "adjustCredits") {
       const userId = String(body.userId || "");
@@ -120,6 +168,48 @@ export async function PATCH(req: Request) {
       if (!card) return { error: "Rate card not found.", status: 404 as const };
       updateRateCard(card, body);
       auditBillingChange(db, auth.user, `Admin updated billing rate card: ${card.label}.`, { operation, rateCardId: card.id, provider: card.provider, modelOrActorId: card.modelOrActorId });
+      return { ok: true };
+    }
+
+    if (operation === "approvePricingAlert") {
+      const alert = findPricingAlert(db, body);
+      if ("error" in alert) return alert;
+      if (typeof alert.item.newBaseCostUsd !== "number") return { error: "This alert requires manual review and has no provider price to apply.", status: 400 as const };
+      const card = db.billingRateCards.find((item) => item.id === alert.item.rateCardId);
+      if (!card) return { error: "Rate card not found.", status: 404 as const };
+      const now = new Date().toISOString();
+      card.baseCostUsd = alert.item.newBaseCostUsd;
+      if (alert.item.newUnit) card.unit = alert.item.newUnit;
+      card.source = "provider_sync";
+      card.lastSyncedAt = now;
+      card.metadata = {
+        ...(card.metadata || {}),
+        providerSync: {
+          alertId: alert.item.id,
+          runId: alert.item.runId,
+          previousBaseCostUsd: alert.item.oldBaseCostUsd,
+          previousUnit: alert.item.oldUnit,
+          source: alert.item.source,
+          appliedAt: now,
+          appliedBy: auth.user.id
+        }
+      };
+      alert.item.status = "approved";
+      alert.item.decidedAt = now;
+      alert.item.decidedBy = auth.user.id;
+      alert.item.appliedAt = now;
+      auditBillingChange(db, auth.user, `Admin approved provider pricing change: ${card.label}.`, { operation, alertId: alert.item.id, rateCardId: card.id, newBaseCostUsd: card.baseCostUsd, unit: card.unit });
+      return { ok: true };
+    }
+
+    if (operation === "rejectPricingAlert" || operation === "keepManualPricingAlert") {
+      const alert = findPricingAlert(db, body);
+      if ("error" in alert) return alert;
+      const now = new Date().toISOString();
+      alert.item.status = operation === "rejectPricingAlert" ? "rejected" : "kept_manual";
+      alert.item.decidedAt = now;
+      alert.item.decidedBy = auth.user.id;
+      auditBillingChange(db, auth.user, operation === "rejectPricingAlert" ? `Admin rejected pricing alert: ${alert.item.label}.` : `Admin kept manual pricing for: ${alert.item.label}.`, { operation, alertId: alert.item.id, rateCardId: alert.item.rateCardId });
       return { ok: true };
     }
 
@@ -195,6 +285,20 @@ function updateRateCard(card: BillingRateCard, body: Record<string, unknown>) {
   card.minimumChargeCredits = nonNegativeInteger(body.minimumChargeCredits, card.minimumChargeCredits);
   if (typeof body.active === "boolean") card.active = body.active;
   card.source = "manual";
+  card.lastSyncedAt = undefined;
+}
+
+function hasOpenPricingAlert(db: Database, rateCardId: string) {
+  return (db.billingPricingAlerts || []).some((alert) => alert.rateCardId === rateCardId && ["pending_review", "manual_required"].includes(alert.status));
+}
+
+function findPricingAlert(db: Database, body: Record<string, unknown>) {
+  db.billingPricingAlerts ||= [];
+  const alertId = String(body.alertId || "");
+  const item = db.billingPricingAlerts.find((alert) => alert.id === alertId);
+  if (!item) return { error: "Pricing alert not found.", status: 404 as const };
+  if (!["pending_review", "manual_required"].includes(item.status)) return { error: "Pricing alert has already been decided.", status: 400 as const };
+  return { item };
 }
 
 function updateProviderMapping(mapping: BillingProviderMapping, body: Record<string, unknown>) {

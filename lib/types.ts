@@ -471,6 +471,48 @@ export type BillingRateCard = {
   metadata?: Record<string, unknown>;
 };
 
+export type BillingPricingAlertStatus =
+  | "pending_review"
+  | "approved"
+  | "rejected"
+  | "manual_required"
+  | "kept_manual";
+
+export type BillingPricingSyncRun = {
+  id: string;
+  provider: BillingProvider;
+  status: "completed" | "failed";
+  scannedCount: number;
+  alertCount: number;
+  manualRequiredCount: number;
+  startedAt: string;
+  completedAt: string;
+  error?: string;
+  createdBy?: string;
+};
+
+export type BillingPricingAlert = {
+  id: string;
+  runId: string;
+  provider: BillingProvider;
+  rateCardId: string;
+  label: string;
+  modelOrActorId: string;
+  oldBaseCostUsd: number;
+  newBaseCostUsd?: number;
+  oldUnit: BillingRateUnit;
+  newUnit?: BillingRateUnit;
+  changePercent?: number;
+  status: BillingPricingAlertStatus;
+  source: "kie_pricing_page" | "apify_actor_metadata" | "manual_catalog" | "manual_required";
+  reason: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+  appliedAt?: string;
+};
+
 export type BillingProviderMapping = {
   id: string;
   uiKey: string;
@@ -606,6 +648,8 @@ export type Database = {
   billingPlans: BillingPlan[];
   billingCreditPackages: BillingCreditPackage[];
   billingLedger: BillingLedgerEntry[];
+  billingPricingSyncRuns: BillingPricingSyncRun[];
+  billingPricingAlerts: BillingPricingAlert[];
   promptTemplates: PromptTemplates;
   rolePermissions: RolePermissions;
 };

@@ -2,7 +2,7 @@
 
 import { ArrowUpDown, CreditCard, KeyRound, Save, Server, Settings, ShieldCheck, Trash2, UserPlus, Users, WandSparkles, X } from "lucide-react";
 import { Fragment, useState } from "react";
-import type { Asset, BillingCreditPackage, BillingLedgerEntry, BillingPlan, BillingPricingAlert, BillingPricingSyncRun, BillingProviderMapping, BillingRateCard, BillingSettings, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
+import type { Asset, BillingCreditPackage, BillingLedgerEntry, BillingPlan, BillingPricingAlert, BillingPricingSyncRun, BillingProviderMapping, BillingRateCard, BillingSettings, BillingStripeEvent, BillingSubscriptionState, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 
 export type AdminAppData = {
   user: { id: string; email: string; name: string; role: string };
@@ -92,6 +92,8 @@ export type AdminBillingData = {
   providerMappings: BillingProviderMapping[];
   pricingSyncRuns: BillingPricingSyncRun[];
   pricingAlerts: BillingPricingAlert[];
+  stripeSubscriptions: BillingSubscriptionState[];
+  stripeEvents: BillingStripeEvent[];
   ledger: BillingLedgerEntry[];
 };
 
@@ -766,7 +768,7 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
               <input type="hidden" name="failedGenerationRefundPolicy" value={billingData.settings.failedGenerationRefundPolicy || "refund_if_provider_failed"} />
               <button className="primary"><Save size={14} />Save Stripe mode</button>
             </form>
-            <p className="muted compact">Checkout, webhooks, and portal sessions remain disabled until Phase 10. Price IDs can be assigned in Billing Plans and Credit Packages now.</p>
+            <p className="muted compact">Checkout and Customer Portal are enabled in test mode when Stripe keys and price IDs are configured. Configure the Stripe webhook endpoint as <code>/api/stripe/webhook</code>.</p>
           </PanelCard>
           <PanelCard title="Stripe credentials">
             {stripeMessage && <div className="provider-error inline">{stripeMessage}</div>}
@@ -783,6 +785,34 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
                   <button>Save</button>
                 </form>
               ))}
+            </div>
+          </PanelCard>
+          <PanelCard title="Stripe subscriptions">
+            <div className="admin-user-table-wrap">
+              <table className="admin-user-table billing-table">
+                <thead><tr><th><span>User</span></th><th><span>Plan</span></th><th><span>Status</span></th><th><span>Period end</span></th><th><span>Subscription</span></th></tr></thead>
+                <tbody>
+                  {(billingData.stripeSubscriptions || []).map((sub) => {
+                    const user = billingData.users.find((item) => item.id === sub.userId);
+                    const plan = billingData.plans.find((item) => item.id === sub.planId);
+                    return <tr key={sub.id}><td>{user?.email || sub.userId}</td><td>{plan?.name || sub.planId}</td><td>{sub.status}{sub.cancelAtPeriodEnd ? " (canceling)" : ""}</td><td>{sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleString() : "N/A"}</td><td>{sub.stripeSubscriptionId}</td></tr>;
+                  })}
+                  {(!billingData.stripeSubscriptions || billingData.stripeSubscriptions.length === 0) && <tr><td colSpan={5}>No Stripe subscriptions recorded yet.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </PanelCard>
+          <PanelCard title="Stripe webhook events">
+            <div className="admin-user-table-wrap">
+              <table className="admin-user-table billing-table">
+                <thead><tr><th><span>Processed</span></th><th><span>Type</span></th><th><span>Status</span></th><th><span>Mode</span></th><th><span>Event ID</span></th></tr></thead>
+                <tbody>
+                  {(billingData.stripeEvents || []).slice(0, 20).map((event) => (
+                    <tr key={event.id}><td>{new Date(event.processedAt).toLocaleString()}</td><td>{event.type}</td><td>{event.status}{event.error ? ` - ${event.error}` : ""}</td><td>{event.livemode ? "live" : "test"}</td><td>{event.stripeEventId}</td></tr>
+                  ))}
+                  {(!billingData.stripeEvents || billingData.stripeEvents.length === 0) && <tr><td colSpan={5}>No Stripe webhook events recorded yet.</td></tr>}
+                </tbody>
+              </table>
             </div>
           </PanelCard>
         </div>

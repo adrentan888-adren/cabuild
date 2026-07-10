@@ -62,6 +62,13 @@ type AppData = {
   billing: {
     balance: { available: number; reserved: number; lifetimeGranted: number; lifetimeUsed: number };
     currentPlan: BillingPlan | null;
+    currentSubscription: {
+      id: string;
+      planId: string;
+      status: string;
+      currentPeriodEnd?: string;
+      cancelAtPeriodEnd?: boolean;
+    } | null;
     plans: BillingPlan[];
     creditPackages: BillingCreditPackage[];
     ledger: BillingLedgerView[];
@@ -2605,7 +2612,10 @@ function BillingPanel({ data }: { data: AppData }) {
   const billing = data.billing;
   const [moduleFilter, setModuleFilter] = useState("all");
   const [providerFilter, setProviderFilter] = useState("all");
+  const [billingAction, setBillingAction] = useState("");
+  const [billingMessage, setBillingMessage] = useState("");
   const currentPlan = billing.currentPlan;
+  const currentSubscription = billing.currentSubscription;
   const lowCredit = data.workspace.credits <= data.billingSettings.lowCreditThreshold;
   const automationLow = data.workspace.credits < data.billingSettings.automationMinimumBalance && data.automationSourceWatchers.some((item) => item.status === "active");
   const usageEntries = billing.ledger.filter((entry) => entry.type === "usage" || entry.type === "reserve" || entry.type === "release");
@@ -2617,16 +2627,55 @@ function BillingPanel({ data }: { data: AppData }) {
     .slice(0, 80);
   const currentPrice = currentPlan?.priceUsd ?? -1;
   const paymentHistory = billing.paymentHistory.slice(0, 30);
+  async function openCheckout(kind: "plan" | "package", itemId: string) {
+    const actionKey = `${kind}:${itemId}`;
+    setBillingAction(actionKey);
+    setBillingMessage("");
+    try {
+      const res = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, itemId, returnUrl: window.location.origin })
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not open Stripe Checkout.");
+      if (!json.url) throw new Error("Stripe Checkout URL was not returned.");
+      window.location.href = json.url;
+    } catch (error) {
+      setBillingAction("");
+      setBillingMessage(error instanceof Error ? error.message : "Could not open Stripe Checkout.");
+    }
+  }
+  async function openPortal() {
+    setBillingAction("portal");
+    setBillingMessage("");
+    try {
+      const res = await fetch("/api/billing/portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ returnUrl: window.location.origin })
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not open Stripe Customer Portal.");
+      if (!json.url) throw new Error("Stripe Customer Portal URL was not returned.");
+      window.location.href = json.url;
+    } catch (error) {
+      setBillingAction("");
+      setBillingMessage(error instanceof Error ? error.message : "Could not open Stripe Customer Portal.");
+    }
+  }
   return (
     <div className="billing-page">
       <section className="billing-hero">
         <div>
           <div className="clbl">Billing</div>
           <h2>Credits, plans, and usage</h2>
-          <p>Track credit balance, provider spend, automation safety, and upcoming Stripe purchase actions from one place.</p>
+          <p>Track credit balance, provider spend, automation safety, Stripe purchases, and payment history from one place.</p>
         </div>
-        <button className="primary" type="button" disabled title="Stripe Customer Portal is scheduled for Phase 10"><CreditCard size={15} />Customer portal</button>
+        <button className="primary" type="button" disabled={Boolean(billingAction)} onClick={openPortal} title="Open Stripe Customer Portal"><CreditCard size={15} />{billingAction === "portal" ? "Opening..." : "Customer portal"}</button>
       </section>
+
+      {billingMessage && <div className="provider-error">{billingMessage}</div>}
 
       {(lowCredit || automationLow) && (
         <div className="billing-warning">
@@ -2677,7 +2726,7 @@ function BillingPanel({ data }: { data: AppData }) {
             <div className="billing-plan-current">
               <span>{currentPlan ? currentPlan.name : data.workspace.plan || "No plan"}</span>
               <b>{currentPlan ? `${formatUsd(currentPlan.priceUsd)} / month` : "Manual workspace"}</b>
-              <p>{currentPlan ? `${formatCredits(currentPlan.totalCredits)} per cycle. Automation ${currentPlan.automationAllowed ? "included" : "not included"} on this plan.` : "Plan metadata is not linked yet. Admin can map this workspace to a plan from Billing settings."}</p>
+              <p>{currentPlan ? `${formatCredits(currentPlan.totalCredits)} per cycle. Automation ${currentPlan.automationAllowed ? "included" : "not included"} on this plan.${currentSubscription ? ` Stripe status: ${currentSubscription.status}${currentSubscription.cancelAtPeriodEnd ? ", cancels at period end" : ""}.` : ""}` : "Plan metadata is not linked yet. Admin can map this workspace to a plan from Billing settings."}</p>
             </div>
           </PanelCard>
 
@@ -2691,9 +2740,16 @@ function BillingPanel({ data }: { data: AppData }) {
                     <div>
                       <b>{plan.name}</b>
                       <span>{formatUsd(plan.priceUsd)} / month</span>
-                      <small>{formatCredits(plan.totalCredits)} credits · {plan.bonusPercent}% bonus</small>
+                      <small>{formatCredits(plan.totalCredits)} per cycle · {plan.bonusPercent}% bonus</small>
                     </div>
-                    <button type="button" disabled title="Stripe Checkout starts in Phase 10">{action}</button>
+                    <button
+                      type="button"
+                      disabled={isCurrent || Boolean(billingAction) || !plan.stripePriceId}
+                      title={!plan.stripePriceId ? "Admin must configure the Stripe price ID first." : isCurrent ? "Current active plan" : "Open Stripe Checkout"}
+                      onClick={() => openCheckout("plan", plan.id)}
+                    >
+                      {isCurrent ? "Current plan" : billingAction === `plan:${plan.id}` ? "Opening..." : !plan.stripePriceId ? "Setup needed" : action}
+                    </button>
                   </article>
                 );
               })}
@@ -2709,7 +2765,14 @@ function BillingPanel({ data }: { data: AppData }) {
                     <span>{formatUsd(pkg.priceUsd)}</span>
                     <small>{formatCredits(pkg.totalCredits)} total · {formatCredits(pkg.bonusCredits)} bonus</small>
                   </div>
-                  <button type="button" disabled title="Stripe Checkout starts in Phase 10">Buy credits</button>
+                  <button
+                    type="button"
+                    disabled={Boolean(billingAction) || !pkg.stripePriceId}
+                    title={!pkg.stripePriceId ? "Admin must configure the Stripe price ID first." : "Open Stripe Checkout"}
+                    onClick={() => openCheckout("package", pkg.id)}
+                  >
+                    {billingAction === `package:${pkg.id}` ? "Opening..." : !pkg.stripePriceId ? "Setup needed" : "Buy credits"}
+                  </button>
                 </article>
               ))}
             </div>

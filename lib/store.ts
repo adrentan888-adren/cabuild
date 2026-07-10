@@ -241,6 +241,8 @@ export function seeded(): Database {
     billingLedger: [],
     billingPricingSyncRuns: [],
     billingPricingAlerts: [],
+    billingSubscriptions: [],
+    billingStripeEvents: [],
     promptTemplates: defaultPromptTemplates,
     rolePermissions: defaultRolePermissions
   };
@@ -272,6 +274,8 @@ export function normalizeDb(db: Database): Database {
   db.apiKeyOverrides ||= [];
   db.billingPricingSyncRuns ||= [];
   db.billingPricingAlerts ||= [];
+  db.billingSubscriptions ||= [];
+  db.billingStripeEvents ||= [];
   ensureBillingDefaults(db);
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
   const existingPermissions = (db as Database & { rolePermissions?: Partial<RolePermissions> }).rolePermissions || {};

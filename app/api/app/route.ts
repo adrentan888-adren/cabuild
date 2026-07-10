@@ -91,7 +91,13 @@ export async function GET() {
   const billingBalance = calculateCreditBalance(db, workspace.id);
   const billingPlans = (db.billingPlans || []).filter((plan) => plan.active);
   const billingCreditPackages = (db.billingCreditPackages || []).filter((pkg) => pkg.active);
-  const currentPlan = billingPlans.find((plan) => plan.name.toLowerCase() === String(workspace.plan || "").toLowerCase()) || null;
+  const currentSubscription = (db.billingSubscriptions || [])
+    .filter((item) => item.workspaceId === workspace.id)
+    .filter((item) => ["active", "trialing", "past_due"].includes(item.status))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] || null;
+  const currentPlan = billingPlans.find((plan) => plan.id === currentSubscription?.planId)
+    || billingPlans.find((plan) => plan.name.toLowerCase() === String(workspace.plan || "").toLowerCase())
+    || null;
   const usageEntries = billingLedger.filter((entry) => entry.type === "usage" && entry.status === "succeeded");
   const paymentHistory = billingLedger
     .filter((entry) => ["purchase", "subscription_grant", "refund"].includes(entry.type) || entry.provider === "stripe")
@@ -124,6 +130,13 @@ export async function GET() {
     billing: {
       balance: billingBalance,
       currentPlan,
+      currentSubscription: currentSubscription ? {
+        id: currentSubscription.id,
+        planId: currentSubscription.planId,
+        status: currentSubscription.status,
+        currentPeriodEnd: currentSubscription.currentPeriodEnd,
+        cancelAtPeriodEnd: currentSubscription.cancelAtPeriodEnd
+      } : null,
       plans: billingPlans,
       creditPackages: billingCreditPackages,
       ledger: billingLedger.slice(0, 200),

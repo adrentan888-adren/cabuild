@@ -33,6 +33,7 @@ export type User = {
   passwordHash: string;
   role: UserRole;
   workspaceId: string;
+  stripeCustomerId?: string;
   emailVerified?: boolean;
   emailVerificationCodeHash?: string;
   emailVerificationExpiresAt?: string;
@@ -591,6 +592,34 @@ export type BillingLedgerEntry = {
   expiresAt?: string;
 };
 
+export type BillingSubscriptionState = {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  planId: string;
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  status: "active" | "trialing" | "past_due" | "canceled" | "unpaid" | "incomplete" | "incomplete_expired" | "paused" | "unknown";
+  currentPeriodStart?: string;
+  currentPeriodEnd?: string;
+  cancelAtPeriodEnd?: boolean;
+  latestInvoiceId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BillingStripeEvent = {
+  id: string;
+  stripeEventId: string;
+  type: string;
+  livemode: boolean;
+  status: "processed" | "ignored" | "failed";
+  error?: string;
+  createdAt: string;
+  processedAt: string;
+  metadata?: Record<string, unknown>;
+};
+
 export type BillingQuote = {
   action: string;
   module: string;
@@ -650,6 +679,8 @@ export type Database = {
   billingLedger: BillingLedgerEntry[];
   billingPricingSyncRuns: BillingPricingSyncRun[];
   billingPricingAlerts: BillingPricingAlert[];
+  billingSubscriptions: BillingSubscriptionState[];
+  billingStripeEvents: BillingStripeEvent[];
   promptTemplates: PromptTemplates;
   rolePermissions: RolePermissions;
 };

@@ -49,6 +49,8 @@ function billingPayload(db: Database) {
     providerMappings: db.billingProviderMappings,
     pricingSyncRuns: (db.billingPricingSyncRuns || []).slice().sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()).slice(0, 50),
     pricingAlerts: (db.billingPricingAlerts || []).slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250),
+    stripeSubscriptions: (db.billingSubscriptions || []).slice().sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 100),
+    stripeEvents: (db.billingStripeEvents || []).slice().sort((a, b) => new Date(b.processedAt).getTime() - new Date(a.processedAt).getTime()).slice(0, 100),
     ledger: db.billingLedger.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250)
   };
 }

@@ -42,10 +42,10 @@ try {
   await page.getByRole("button", { name: "Stripe Connection", exact: true }).click();
   await page.getByText("Test account", { exact: true }).waitFor();
   assert(await page.getByText("Live account", { exact: true }).isVisible(), "Live connection panel is missing.");
-  assert(await page.locator('input[placeholder="sk_test_..."]').isVisible(), "Test secret-key input is missing.");
-  assert(await page.locator('input[placeholder="sk_live_..."]').isDisabled(), "Live secret-key input should be locked during Phase 10.5.");
+  assert(await page.locator('input[placeholder^="sk_test_"]').isVisible(), "Test secret-key input is missing.");
+  assert(await page.locator('input[placeholder^="sk_live_"]').isDisabled(), "Live secret-key input should be locked during Phase 10.5.");
   assert((await page.getByText("Connect Stripe", { exact: true }).count()) >= 1, "Connect Stripe action is missing.");
-  assert(await page.getByText(/Live setup will unlock in Phase 11/).isVisible(), "Phase 11 live lock guidance is missing.");
+  assert(await page.getByText(/Live setup is disabled by the deployment environment/).isVisible(), "Environment-level live lock guidance is missing.");
   assert(await page.getByText("Stripe catalogue", { exact: true }).isVisible(), "Stripe catalogue table is missing.");
   assert(await page.getByText("Checkout orders", { exact: true }).isVisible(), "Checkout order audit table is missing.");
   await page.screenshot({ path: ".next/phase10-5-admin-desktop.png", fullPage: true });

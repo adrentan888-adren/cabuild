@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowUpDown, CheckCircle2, CreditCard, ExternalLink, KeyRound, Link2, RefreshCcw, Save, Server, Settings, ShieldCheck, Trash2, Unplug, UserPlus, Users, WandSparkles, X } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, CheckCircle2, CreditCard, ExternalLink, KeyRound, Link2, RefreshCcw, Rocket, Save, Server, Settings, ShieldCheck, Trash2, Unplug, UserPlus, Users, WandSparkles, X } from "lucide-react";
 import { Fragment, useState } from "react";
-import type { Asset, BillingCheckoutOrder, BillingCreditPackage, BillingLedgerEntry, BillingPlan, BillingPricingAlert, BillingPricingSyncRun, BillingProviderMapping, BillingRateCard, BillingSettings, BillingStripeCatalogueMapping, BillingStripeCatalogueRevision, BillingStripeConnection, BillingStripeEvent, BillingStripeSubscriptionMigration, BillingSubscriptionState, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, StripeMode, Workspace } from "@/lib/types";
+import type { Asset, BillingCheckoutOrder, BillingCreditPackage, BillingLedgerEntry, BillingPlan, BillingPricingAlert, BillingPricingSyncRun, BillingProviderMapping, BillingRateCard, BillingSettings, BillingStripeCatalogueMapping, BillingStripeCatalogueRevision, BillingStripeConnection, BillingStripeEvent, BillingStripeLaunchControl, BillingStripeLaunchReport, BillingStripeSubscriptionMigration, BillingSubscriptionState, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, StripeMode, Workspace } from "@/lib/types";
 
 export type AdminAppData = {
   user: { id: string; email: string; name: string; role: string };
@@ -99,6 +99,24 @@ export type AdminBillingData = {
   stripeCatalogueRevisions: BillingStripeCatalogueRevision[];
   stripeCheckoutOrders: BillingCheckoutOrder[];
   stripeSubscriptionMigrations: BillingStripeSubscriptionMigration[];
+  stripeLiveLaunchControl: BillingStripeLaunchControl;
+  stripeLiveLaunchReports: BillingStripeLaunchReport[];
+  stripeLiveCatalogueComparison: {
+    itemKind: "plan" | "package";
+    itemId: string;
+    name: string;
+    priceUsd: number;
+    interval?: "month";
+    baseCredits: number;
+    bonusCredits: number;
+    totalCredits: number;
+    testPriceId?: string;
+    testStatus: string;
+    liveProductId?: string;
+    livePriceId?: string;
+    liveStatus: string;
+    matches: boolean;
+  }[];
   stripePermissions: string[];
   stripeLiveSetupLocked: boolean;
   ledger: BillingLedgerEntry[];
@@ -466,6 +484,7 @@ function BillingManagementCard({ billingData, runBilling, runStripe }: { billing
     ["rates", "Rate Cards"],
     ["mapping", "Provider Mapping"],
     ["stripe", "Stripe Connection"],
+    ["launch", "Live Launch"],
     ["ledger", "Credit Ledger"],
     ["users", "User Billing"],
     ["rules", "Billing Rules"],
@@ -497,6 +516,7 @@ function BillingManagementCard({ billingData, runBilling, runStripe }: { billing
     ...billingData.creditPackages.map((item) => ({ id: item.id, name: item.name, kind: "package" as const, priceUsd: item.priceUsd, totalCredits: item.totalCredits }))
   ] : [];
   const activeStripeMappings = (billingData?.stripeCatalogueMappings || []).filter((item) => item.active);
+  const latestLiveReport = billingData?.stripeLiveLaunchReports?.[0];
 
   async function adjustCredits(form: FormData) {
     await runBilling("PATCH", {
@@ -597,6 +617,41 @@ function BillingManagementCard({ billingData, runBilling, runStripe }: { billing
     const result = await runStripe(payload, success) as { message?: string; error?: string } | null;
     setStripeMessage(result?.message || (result ? success : "Stripe action failed. Review the notification or logs."));
     setStripeBusy("");
+  }
+  async function saveLiveReadiness(form: FormData) {
+    if (!billingData) return;
+    const readiness = billingData.stripeLiveLaunchControl.readiness.map((item) => ({
+      key: item.key,
+      confirmed: form.get(`ready:${item.key}`) === "on",
+      note: form.get(`note:${item.key}`)
+    }));
+    await stripeAction("live-readiness", { operation: "updateLiveReadiness", mode: "live", readiness }, "Live-readiness checklist saved");
+  }
+  async function approveLiveReadiness() {
+    const confirmation = window.prompt("Type APPROVE LIVE READINESS to confirm every prerequisite.");
+    if (!confirmation) return;
+    await stripeAction("approve-live-readiness", { operation: "approveLiveReadiness", mode: "live", confirmation }, "Live readiness approved");
+  }
+  async function saveLiveRollout(form: FormData) {
+    if (!billingData) return;
+    const allowlistedUserIds = billingData.users.filter((user) => form.get(`allow:${user.id}`) === "on").map((user) => user.id);
+    await stripeAction("live-rollout", { operation: "updateLiveRollout", mode: "live", stage: form.get("stage"), allowlistedUserIds }, "Live rollout saved");
+  }
+  async function saveLiveReport(form: FormData) {
+    if (!billingData) return;
+    const checks = Object.fromEntries(["topUpCreditsCorrect", "subscriptionCreditsCorrect", "receiptConfirmed", "portalConfirmed", "cancellationConfirmed", "refundConfirmed", "duplicateWebhookConfirmed"].map((key) => [key, form.get(key) === "on"]));
+    await stripeAction("live-report", {
+      operation: "saveLiveLaunchReport",
+      mode: "live",
+      reportId: form.get("reportId"),
+      topUpOrderId: form.get("topUpOrderId"),
+      subscriptionOrderId: form.get("subscriptionOrderId"),
+      stripePaymentIntentId: form.get("stripePaymentIntentId"),
+      stripeSubscriptionId: form.get("stripeSubscriptionId"),
+      ledgerEntryIds: form.get("ledgerEntryIds"),
+      checks,
+      notes: form.get("notes")
+    }, "Live smoke-test report saved");
   }
   async function syncProviderPricing(provider: string) {
     setPricingMessage("");
@@ -744,6 +799,98 @@ function BillingManagementCard({ billingData, runBilling, runStripe }: { billing
         </PanelCard>
       )}
 
+      {activeBillingTab === "launch" && (
+        <div className="stripe-admin-stack live-launch-stack">
+          {stripeMessage && <div className="provider-error inline">{stripeMessage}</div>}
+          <PanelCard title="Phase 11 readiness" action={<span className={`status ${billingData.stripeLiveLaunchControl.readinessApprovedAt ? "done" : "pending"}`}>{billingData.stripeLiveLaunchControl.readinessApprovedAt ? "Approved" : `${billingData.stripeLiveLaunchControl.readiness.filter((item) => item.confirmed).length}/${billingData.stripeLiveLaunchControl.readiness.length}`}</span>}>
+            <p className="muted compact">Confirm operational, legal, tax, backup, and security prerequisites before the live Stripe key can be connected. Editing this checklist clears its approval.</p>
+            <form className="brand-form" action={saveLiveReadiness}>
+              <div className="live-readiness-list">
+                {billingData.stripeLiveLaunchControl.readiness.map((item) => (
+                  <div className="live-readiness-row" key={item.key}>
+                    <label className="checkline"><input name={`ready:${item.key}`} type="checkbox" defaultChecked={item.confirmed} /><span><b>{item.label}</b><small>{item.description}</small></span></label>
+                    <input name={`note:${item.key}`} defaultValue={item.note || ""} placeholder="Evidence or decision note" />
+                  </div>
+                ))}
+              </div>
+              <div className="row-actions">
+                <button disabled={!stripeCan("stripe.approveLiveLaunch") || Boolean(stripeBusy)}><Save size={14} />Save checklist</button>
+                <button className="primary" type="button" disabled={!stripeCan("stripe.approveLiveLaunch") || Boolean(stripeBusy) || billingData.stripeLiveLaunchControl.readiness.some((item) => !item.confirmed)} onClick={approveLiveReadiness}><ShieldCheck size={14} />Approve readiness</button>
+              </div>
+            </form>
+          </PanelCard>
+
+          <PanelCard title="Test and live catalogue comparison" action={<span className={`status ${billingData.stripeLiveCatalogueComparison.every((item) => item.matches) ? "done" : "pending"}`}>{billingData.stripeLiveCatalogueComparison.filter((item) => item.matches).length}/{billingData.stripeLiveCatalogueComparison.length} match</span>}>
+            <div className="admin-user-table-wrap">
+              <table className="admin-user-table billing-table">
+                <thead><tr><th><span>Offer</span></th><th><span>Backend</span></th><th><span>Test Price</span></th><th><span>Live Price</span></th><th><span>Match</span></th></tr></thead>
+                <tbody>{billingData.stripeLiveCatalogueComparison.map((item) => <tr key={`${item.itemKind}:${item.itemId}`}><td><b>{item.name}</b><small>{item.itemKind === "plan" ? "Monthly" : "Top-up"}</small></td><td>{formatUsd(item.priceUsd)}<small>{formatCredits(item.totalCredits)} | bonus {formatCredits(item.bonusCredits)}</small></td><td><code>{item.testPriceId || "Not synced"}</code></td><td><code>{item.livePriceId || "Not synced"}</code></td><td><span className={`status ${item.matches ? "done" : "pending"}`}>{item.matches ? "Match" : "Pending"}</span></td></tr>)}</tbody>
+              </table>
+            </div>
+            <div className="row-actions">
+              <button type="button" disabled={Boolean(stripeBusy)} onClick={() => stripeAction("live-preflight", { operation: "runLivePreflight", mode: "live" }, "Live preflight completed")}><RefreshCcw size={14} />Run preflight</button>
+              <button className="primary" type="button" disabled={!stripeCan("stripe.approveLiveLaunch") || Boolean(stripeBusy) || billingData.stripeLiveCatalogueComparison.some((item) => !item.matches)} onClick={async () => {
+                const confirmation = window.prompt("Type APPROVE LIVE CATALOGUE to approve the current real-payment prices and credits.");
+                if (!confirmation) return;
+                await stripeAction("approve-live-catalogue", { operation: "approveLiveCatalogue", mode: "live", confirmation }, "Live catalogue approved");
+              }}><CheckCircle2 size={14} />Approve live catalogue</button>
+            </div>
+            {billingData.stripeLiveLaunchControl.lastPreflightChecks && <div className="preflight-grid">{billingData.stripeLiveLaunchControl.lastPreflightChecks.map((check) => <div className={check.passed ? "pass" : "fail"} key={check.key}><span>{check.passed ? "Pass" : "Action"}</span><b>{check.label}</b><small>{check.detail}</small></div>)}</div>}
+          </PanelCard>
+
+          <PanelCard title="Controlled rollout" action={<span className={`status ${billingData.stripeLiveLaunchControl.checkoutKillSwitch ? "pending" : "done"}`}>{billingData.stripeLiveLaunchControl.checkoutKillSwitch ? "Checkout blocked" : "Checkout open"}</span>}>
+            <form className="brand-form" action={saveLiveRollout}>
+              <label>Rollout stage<select name="stage" defaultValue={billingData.stripeLiveLaunchControl.rolloutStage}><option value="disabled">Disabled</option><option value="owner_only">Owner only</option><option value="internal">Internal admins</option><option value="allowlist">Selected users</option><option value="all_verified">All verified users</option></select></label>
+              <div className="live-allowlist">
+                <b>User allowlist</b>
+                <div>{billingData.users.map((user) => <label className="checkline" key={user.id}><input name={`allow:${user.id}`} type="checkbox" defaultChecked={billingData.stripeLiveLaunchControl.allowlistedUserIds.includes(user.id)} /><span>{user.name}<small>{user.email} | {user.role}</small></span></label>)}</div>
+              </div>
+              <button disabled={!stripeCan("stripe.manageLiveRollout") || Boolean(stripeBusy)}><Save size={14} />Save rollout</button>
+            </form>
+            <p className="muted compact">Owner-only can be used for the first real top-up and subscription. Expanding to internal, allowlisted, or all verified users requires an approved smoke-test report.</p>
+          </PanelCard>
+
+          <PanelCard title="Owner live smoke-test report" action={<span className={`status ${latestLiveReport?.status === "approved" ? "done" : "pending"}`}>{latestLiveReport?.status || "Not started"}</span>}>
+            <form className="brand-form" action={saveLiveReport}>
+              <input type="hidden" name="reportId" value={latestLiveReport?.id || ""} />
+              <div className="modal-grid">
+                <label>$5 top-up order ID<input name="topUpOrderId" defaultValue={latestLiveReport?.topUpOrderId || ""} placeholder="order_..." /></label>
+                <label>$20 subscription order ID<input name="subscriptionOrderId" defaultValue={latestLiveReport?.subscriptionOrderId || ""} placeholder="order_..." /></label>
+                <label>Stripe PaymentIntent ID<input name="stripePaymentIntentId" defaultValue={latestLiveReport?.stripePaymentIntentId || ""} placeholder="pi_..." /></label>
+                <label>Stripe subscription ID<input name="stripeSubscriptionId" defaultValue={latestLiveReport?.stripeSubscriptionId || ""} placeholder="sub_..." /></label>
+                <label className="span-2">Content Agent ledger IDs<input name="ledgerEntryIds" defaultValue={latestLiveReport?.ledgerEntryIds.join(", ") || ""} placeholder="cred_..., cred_..." /></label>
+              </div>
+              <div className="live-report-checks">
+                {[
+                  ["topUpCreditsCorrect", "Top-up credits exactly once"], ["subscriptionCreditsCorrect", "Subscription credits exactly once"], ["receiptConfirmed", "Charge and receipt confirmed"], ["portalConfirmed", "Customer Portal opened"], ["cancellationConfirmed", "Cancellation recorded"], ["refundConfirmed", "Refund and credit reversal reconciled"], ["duplicateWebhookConfirmed", "Duplicate webhook caused no duplicate grant"]
+                ].map(([key, label]) => <label className="checkline" key={key}><input name={key} type="checkbox" defaultChecked={Boolean(latestLiveReport?.checks[key as keyof BillingStripeLaunchReport["checks"]])} />{label}</label>)}
+              </div>
+              <label>Redacted launch notes<textarea name="notes" defaultValue={latestLiveReport?.notes || ""} placeholder="Record outcomes and redacted object references. Never enter card details or API keys." /></label>
+              <div className="row-actions">
+                <button disabled={!stripeCan("stripe.manageLiveRollout") || Boolean(stripeBusy)}><Save size={14} />Save report</button>
+                <button className="primary" type="button" disabled={!latestLiveReport || latestLiveReport.status === "approved" || !stripeCan("stripe.approveLiveLaunch") || Boolean(stripeBusy)} onClick={async () => {
+                  const confirmation = window.prompt("Type APPROVE LIVE SMOKE TEST to permit wider rollout.");
+                  if (!confirmation || !latestLiveReport) return;
+                  await stripeAction("approve-live-report", { operation: "approveLiveLaunchReport", mode: "live", reportId: latestLiveReport.id, confirmation }, "Live smoke-test report approved");
+                }}><Rocket size={14} />Approve smoke test</button>
+              </div>
+            </form>
+          </PanelCard>
+
+          <PanelCard title="Emergency rollback">
+            <div className="provider-error inline"><AlertTriangle size={15} />This blocks new live Checkout sessions immediately. Webhooks remain enabled so existing payments, subscriptions, refunds, and retries continue to be recorded.</div>
+            <button className="danger-btn" type="button" disabled={!stripeCan("stripe.emergencyStop") || Boolean(stripeBusy)} onClick={async () => {
+              const reason = window.prompt("Enter the incident or rollback reason.");
+              if (!reason) return;
+              const confirmation = window.prompt("Type STOP LIVE CHECKOUT to confirm the emergency stop.");
+              if (!confirmation) return;
+              await stripeAction("emergency-live-stop", { operation: "emergencyStopLive", mode: "live", reason, confirmation }, "Live Checkout stopped; webhooks remain active");
+            }}><AlertTriangle size={14} />Stop live Checkout</button>
+            {billingData.stripeLiveLaunchControl.emergencyStoppedAt && <p className="muted compact">Last stopped {new Date(billingData.stripeLiveLaunchControl.emergencyStoppedAt).toLocaleString()}: {billingData.stripeLiveLaunchControl.emergencyReason}</p>}
+          </PanelCard>
+        </div>
+      )}
+
       {activeBillingTab === "stripe" && (
         <div className="stripe-admin-stack">
           {stripeMessage && <div className="provider-error inline">{stripeMessage}</div>}
@@ -772,17 +919,22 @@ function BillingManagementCard({ billingData, runBilling, runStripe }: { billing
           <div className="stripe-connection-grid">
             {(["test", "live"] as StripeMode[]).map((mode) => {
               const connection = billingData.stripeConnections.find((item) => item.mode === mode) || { mode, status: "disconnected", checkoutEnabled: false, webhookStatus: "missing" as const };
-              const locked = mode === "live" && billingData.stripeLiveSetupLocked;
+              const locked = mode === "live" && (billingData.stripeLiveSetupLocked || !billingData.stripeLiveLaunchControl.readinessApprovedAt);
               const canConnect = stripeCan(mode === "test" ? "stripe.connectTest" : "stripe.connectLive");
               const canSync = stripeCan(mode === "test" ? "stripe.manageTestCatalogue" : "stripe.manageLiveCatalogue");
               const connectForm = (
-                <form className="stripe-connect-form" action={(form) => stripeAction(`connect:${mode}`, {
-                  operation: "connect",
-                  mode,
-                  secretKey: form.get("secretKey"),
-                  publishableKey: form.get("publishableKey")
-                }, `Stripe ${mode} account connected`)}>
-                  <label>Secret key<input name="secretKey" type="password" required placeholder={mode === "test" ? "sk_test_..." : "sk_live_..."} autoComplete="off" disabled={locked || !canConnect || Boolean(stripeBusy)} /></label>
+                <form className="stripe-connect-form" action={async (form) => {
+                  const confirmation = mode === "live" ? window.prompt("Type CONNECT LIVE STRIPE to connect the real-payment account.") : "";
+                  if (mode === "live" && !confirmation) return;
+                  await stripeAction(`connect:${mode}`, {
+                    operation: "connect",
+                    mode,
+                    secretKey: form.get("secretKey"),
+                    publishableKey: form.get("publishableKey"),
+                    confirmation
+                  }, `Stripe ${mode} account connected`);
+                }}>
+                  <label>Secret or restricted key<input name="secretKey" type="password" required placeholder={mode === "test" ? "sk_test_... or rk_test_..." : "sk_live_... or rk_live_..."} autoComplete="off" disabled={locked || !canConnect || Boolean(stripeBusy)} /></label>
                   <label>Publishable key <span>optional</span><input name="publishableKey" type="password" placeholder={mode === "test" ? "pk_test_..." : "pk_live_..."} autoComplete="off" disabled={locked || !canConnect || Boolean(stripeBusy)} /></label>
                   <button className="primary" disabled={locked || !canConnect || Boolean(stripeBusy)}><Link2 size={14} />{stripeBusy === `connect:${mode}` ? "Connecting..." : connection.status === "connected" ? "Replace connection" : "Connect Stripe"}</button>
                 </form>
@@ -805,8 +957,17 @@ function BillingManagementCard({ billingData, runBilling, runStripe }: { billing
                       <div className="row-actions stripe-actions">
                         <a className="asset-link" href={mode === "test" ? "https://dashboard.stripe.com/test" : "https://dashboard.stripe.com"} target="_blank" rel="noreferrer"><ExternalLink size={13} />Stripe Dashboard</a>
                         <button type="button" disabled={Boolean(stripeBusy)} onClick={() => stripeAction(`validate:${mode}`, { operation: "validate", mode }, `Stripe ${mode} validated`)}><CheckCircle2 size={14} />{stripeBusy === `validate:${mode}` ? "Validating..." : "Validate"}</button>
-                        <button type="button" disabled={locked || !canSync || Boolean(stripeBusy)} onClick={() => stripeAction(`sync:${mode}`, { operation: "syncCatalogue", mode, subscriptionPolicy: "new_customers_only", reason: "Admin synchronized Content Agent billing offers." }, `Stripe ${mode} catalogue synchronized`)}><RefreshCcw size={14} />{stripeBusy === `sync:${mode}` ? "Synchronizing..." : "Sync catalogue"}</button>
-                        <button className={connection.checkoutEnabled ? "danger-btn" : "primary"} type="button" disabled={locked || !canSync || Boolean(stripeBusy)} onClick={() => stripeAction(`checkout:${mode}`, { operation: "toggleCheckout", mode, enabled: !connection.checkoutEnabled, confirmation: mode === "live" && !connection.checkoutEnabled ? "ENABLE LIVE CHECKOUT" : "" }, `${mode} Checkout ${connection.checkoutEnabled ? "disabled" : "enabled"}`)}>{connection.checkoutEnabled ? "Disable Checkout" : "Enable Checkout"}</button>
+                        <button type="button" disabled={locked || !canSync || Boolean(stripeBusy)} onClick={async () => {
+                          const confirmation = mode === "live" ? window.prompt("Type SYNC LIVE CATALOGUE to create or update real Stripe products and prices.") : "";
+                          if (mode === "live" && !confirmation) return;
+                          await stripeAction(`sync:${mode}`, { operation: "syncCatalogue", mode, subscriptionPolicy: "new_customers_only", reason: "Admin synchronized Content Agent billing offers.", confirmation }, `Stripe ${mode} catalogue synchronized`);
+                        }}><RefreshCcw size={14} />{stripeBusy === `sync:${mode}` ? "Synchronizing..." : "Sync catalogue"}</button>
+                        <button className={connection.checkoutEnabled ? "danger-btn" : "primary"} type="button" disabled={locked || !canSync || Boolean(stripeBusy)} onClick={async () => {
+                          const enablingLive = mode === "live" && !connection.checkoutEnabled;
+                          const confirmation = enablingLive ? window.prompt("Type ENABLE LIVE CHECKOUT to allow real payments for the selected rollout stage.") : "";
+                          if (enablingLive && !confirmation) return;
+                          await stripeAction(`checkout:${mode}`, { operation: "toggleCheckout", mode, enabled: !connection.checkoutEnabled, confirmation }, `${mode} Checkout ${connection.checkoutEnabled ? "disabled" : "enabled"}`);
+                        }}>{connection.checkoutEnabled ? "Disable Checkout" : "Enable Checkout"}</button>
                       </div>
                       {canConnect && <details className="stripe-replace"><summary>Replace account credentials</summary>{connectForm}</details>}
                       {stripeCan("stripe.disconnect") && <button className="stripe-disconnect" type="button" disabled={Boolean(stripeBusy)} onClick={() => {
@@ -817,7 +978,7 @@ function BillingManagementCard({ billingData, runBilling, runStripe }: { billing
                     </>
                   ) : (
                     <>
-                      <p className="muted">{locked ? "Live setup will unlock in Phase 11 after test-mode acceptance." : "Enter the Stripe secret key. Content Agent validates the account and creates the signed webhook automatically."}</p>
+                      <p className="muted">{locked ? billingData.stripeLiveSetupLocked ? "Live setup is disabled by the deployment environment." : "Approve every item in Live Launch before connecting the live account." : "Enter the Stripe secret key. Content Agent validates the account and creates the signed webhook automatically."}</p>
                       {connectForm}
                     </>
                   )}

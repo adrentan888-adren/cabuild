@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { defaultBillingCreditPackages, defaultBillingPlans, defaultBillingProviderMappings, defaultBillingRateCards, defaultBillingSettings, ensureBillingDefaults } from "./billing";
 import { normalizePersonaProfile } from "./persona";
 import { mutatePostgresDb, postgresEnabled, readPostgresDb, writePostgresDb } from "./postgresStore";
+import { defaultStripeLaunchControl, ensureStripeLaunchDefaults } from "./stripeLaunch";
 import type { Database, PermissionKey, PersonaProfile, Platform, PromptTemplates, RolePermissions, UserRole } from "./types";
 
 const dataDir = path.join(process.cwd(), "data");
@@ -84,6 +85,9 @@ const allPermissionKeys: PermissionKey[] = [
   "stripe.migrateSubscriptions",
   "stripe.disconnect",
   "stripe.viewEvents",
+  "stripe.approveLiveLaunch",
+  "stripe.manageLiveRollout",
+  "stripe.emergencyStop",
   "system.view",
   "logs.view",
   "settings.view",
@@ -266,6 +270,8 @@ export function seeded(): Database {
     billingStripeCatalogueRevisions: [],
     billingCheckoutOrders: [],
     billingStripeSubscriptionMigrations: [],
+    billingStripeLaunchControl: defaultStripeLaunchControl(),
+    billingStripeLaunchReports: [],
     promptTemplates: defaultPromptTemplates,
     rolePermissions: defaultRolePermissions
   };
@@ -311,6 +317,7 @@ export function normalizeDb(db: Database): Database {
   db.billingStripeCatalogueRevisions ||= [];
   db.billingCheckoutOrders ||= [];
   db.billingStripeSubscriptionMigrations ||= [];
+  ensureStripeLaunchDefaults(db);
   ensureBillingDefaults(db);
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
   const existingPermissions = (db as Database & { rolePermissions?: Partial<RolePermissions> }).rolePermissions || {};

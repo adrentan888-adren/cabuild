@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { calculateCreditBalance } from "@/lib/billing";
+import { liveCheckoutAccess } from "@/lib/stripeLaunch";
 import { currentUser } from "@/lib/session";
 import { readDb } from "@/lib/store";
 import { getConnectedUploadPostAccounts } from "@/lib/providers/uploadPost";
@@ -91,7 +92,8 @@ export async function GET() {
   const billingBalance = calculateCreditBalance(db, workspace.id);
   const stripeMode = db.billingSettings.stripeMode === "live" ? "live" : "test";
   const stripeConnection = db.billingStripeConnections.find((item) => item.mode === stripeMode);
-  const stripeCheckoutEnabled = Boolean(stripeConnection?.checkoutEnabled && db.billingSettings.stripeCheckoutEnabled?.[stripeMode]);
+  const liveAccess = stripeMode === "live" ? liveCheckoutAccess(db, user) : { allowed: true, stage: "test" };
+  const stripeCheckoutEnabled = Boolean(stripeConnection?.checkoutEnabled && db.billingSettings.stripeCheckoutEnabled?.[stripeMode] && liveAccess.allowed);
   const billingPlans = (db.billingPlans || []).filter((plan) => plan.active);
   const billingCreditPackages = (db.billingCreditPackages || []).filter((pkg) => pkg.active);
   const currentSubscription = (db.billingSubscriptions || [])
@@ -143,6 +145,7 @@ export async function GET() {
       } : null,
       stripeMode,
       stripeCheckoutEnabled,
+      stripeRolloutStage: liveAccess.stage,
       plans: billingPlans.map((plan) => ({
         ...plan,
         stripePriceId: stripeCheckoutEnabled ? db.billingStripeCatalogueMappings.find((mapping) => mapping.mode === stripeMode && mapping.itemKind === "plan" && mapping.itemId === plan.id && mapping.active && mapping.status === "synced")?.priceId : undefined

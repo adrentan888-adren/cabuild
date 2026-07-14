@@ -21,7 +21,7 @@ export async function POST(req: Request) {
 
   const result = await mutateDb((db) => {
     db.billingStripeEvents ||= [];
-    const existing = db.billingStripeEvents.find((item) => item.stripeEventId === event.id);
+    const existing = db.billingStripeEvents.find((item) => item.stripeEventId === event.id && item.livemode === Boolean(event.livemode));
     if (existing) return { ok: true, duplicate: true, status: existing.status };
     const now = new Date().toISOString();
     let status: "processed" | "ignored" | "failed" = "processed";
@@ -67,7 +67,7 @@ function processStripeEvent(db: Database, type: string, object: Record<string, u
   if (type === "invoice.paid") return processInvoicePaid(db, object, eventId, mode);
   if (type === "invoice.payment_failed") return processInvoicePaymentFailed(db, object);
   if (type === "customer.subscription.updated" || type === "customer.subscription.deleted") return processSubscriptionUpdated(db, object, type, mode);
-  if (type === "charge.refunded") return processChargeRefunded(db, object, eventId);
+  if (type === "charge.refunded") return processChargeRefunded(db, object, eventId, mode);
   if (type === "payment_intent.succeeded") return { status: "ignored" as const, metadata: { reason: "PaymentIntent events are informational; Checkout or invoice events grant credits." } };
   return { status: "ignored" as const, metadata: { reason: "Unhandled Stripe event type." } };
 }
@@ -134,7 +134,7 @@ function processInvoicePaid(db: Database, invoice: Record<string, unknown>, even
     catalogueRevisionId: revisionId,
     subscriptionId,
     customerId,
-    status: String(invoice.status || "active"),
+    status: "active",
     latestInvoiceId: stripeObjectString(invoice, "id"),
     currentPeriodStart: stripeTimestampToIso(nestedNumber(invoice, "lines", "data", 0, "period", "start")),
     currentPeriodEnd: stripeTimestampToIso(nestedNumber(invoice, "lines", "data", 0, "period", "end"))
@@ -184,16 +184,19 @@ function processSubscriptionUpdated(db: Database, subscription: Record<string, u
   return { status: "processed" as const, metadata: { subscriptionId: stripeObjectString(subscription, "id"), planId: plan?.id, status: eventType === "customer.subscription.deleted" ? "canceled" : subscription.status } };
 }
 
-function processChargeRefunded(db: Database, charge: Record<string, unknown>, eventId: string) {
+function processChargeRefunded(db: Database, charge: Record<string, unknown>, eventId: string, mode: StripeMode) {
   const paymentIntentId = objectId(charge.payment_intent);
   if (!paymentIntentId) return { status: "ignored" as const, metadata: { reason: "Refunded charge has no payment_intent." } };
-  const original = db.billingLedger.find((entry) => entry.stripePaymentIntentId === paymentIntentId && ["purchase", "subscription_grant"].includes(entry.type));
+  const original = db.billingLedger.find((entry) => {
+    const entryMode = String(entry.metadata?.stripeMode || "test");
+    return entry.stripePaymentIntentId === paymentIntentId && entryMode === mode && ["purchase", "subscription_grant"].includes(entry.type);
+  });
   if (!original) return { status: "ignored" as const, metadata: { reason: "No matching credited ledger entry found for refunded charge.", paymentIntentId } };
   const amount = Math.max(1, stripeObjectNumber(charge, "amount"));
   const amountRefunded = Math.max(0, stripeObjectNumber(charge, "amount_refunded"));
   const targetCreditsToRemove = Math.ceil(Math.abs(original.credits || 0) * Math.min(1, amountRefunded / amount));
   const alreadyRemoved = db.billingLedger
-    .filter((entry) => entry.type === "refund" && entry.metadata?.stripePaymentIntentId === paymentIntentId)
+    .filter((entry) => entry.type === "refund" && entry.metadata?.stripePaymentIntentId === paymentIntentId && String(entry.metadata?.stripeMode || "test") === mode)
     .reduce((sum, entry) => sum + Math.abs(entry.credits || 0), 0);
   const creditsToRemove = Math.max(0, targetCreditsToRemove - alreadyRemoved);
   if (creditsToRemove <= 0) return { status: "ignored" as const, metadata: { reason: "Refund was already reflected in credits.", paymentIntentId } };
@@ -213,7 +216,7 @@ function processChargeRefunded(db: Database, charge: Record<string, unknown>, ev
     stripePaymentIntentId: paymentIntentId,
     stripeSubscriptionId: original.stripeSubscriptionId,
     description: `Stripe refund removed ${creditsToRemove.toLocaleString()} credits.`,
-    metadata: { stripeEventId: eventId, stripeChargeId: stripeObjectString(charge, "id"), stripePaymentIntentId: paymentIntentId, originalLedgerId: original.id, amount, amountRefunded },
+    metadata: { stripeEventId: eventId, stripeChargeId: stripeObjectString(charge, "id"), stripePaymentIntentId: paymentIntentId, originalLedgerId: original.id, amount, amountRefunded, stripeMode: mode },
     createdAt: new Date().toISOString()
   });
   updateWorkspaceCreditBalance(db, original.workspaceId);

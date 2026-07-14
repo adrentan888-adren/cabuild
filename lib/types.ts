@@ -27,6 +27,9 @@ export type PermissionKey =
   | "stripe.migrateSubscriptions"
   | "stripe.disconnect"
   | "stripe.viewEvents"
+  | "stripe.approveLiveLaunch"
+  | "stripe.manageLiveRollout"
+  | "stripe.emergencyStop"
   | "system.view"
   | "logs.view"
   | "settings.view"
@@ -670,6 +673,62 @@ export type BillingStripeSubscriptionMigration = {
   results?: { subscriptionId: string; status: "pending" | "completed" | "failed"; error?: string }[];
 };
 
+export type StripeLiveRolloutStage = "disabled" | "owner_only" | "internal" | "allowlist" | "all_verified";
+
+export type BillingStripeReadinessItem = {
+  key: string;
+  label: string;
+  description: string;
+  confirmed: boolean;
+  note?: string;
+  confirmedAt?: string;
+  confirmedBy?: string;
+};
+
+export type BillingStripeLaunchControl = {
+  readiness: BillingStripeReadinessItem[];
+  readinessApprovedAt?: string;
+  readinessApprovedBy?: string;
+  liveCatalogueFingerprint?: string;
+  liveCatalogueApprovedAt?: string;
+  liveCatalogueApprovedBy?: string;
+  rolloutStage: StripeLiveRolloutStage;
+  allowlistedUserIds: string[];
+  checkoutKillSwitch: boolean;
+  emergencyStoppedAt?: string;
+  emergencyStoppedBy?: string;
+  emergencyReason?: string;
+  lastPreflightAt?: string;
+  lastPreflightPassed?: boolean;
+  lastPreflightChecks?: { key: string; label: string; passed: boolean; detail: string }[];
+  updatedAt?: string;
+  updatedBy?: string;
+};
+
+export type BillingStripeLaunchReport = {
+  id: string;
+  status: "draft" | "approved";
+  topUpOrderId?: string;
+  subscriptionOrderId?: string;
+  stripePaymentIntentId?: string;
+  stripeSubscriptionId?: string;
+  ledgerEntryIds: string[];
+  checks: {
+    topUpCreditsCorrect: boolean;
+    subscriptionCreditsCorrect: boolean;
+    receiptConfirmed: boolean;
+    portalConfirmed: boolean;
+    cancellationConfirmed: boolean;
+    refundConfirmed: boolean;
+    duplicateWebhookConfirmed: boolean;
+  };
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+  approvedAt?: string;
+  approvedBy?: string;
+};
+
 export type BillingCreditPackage = {
   id: string;
   name: string;
@@ -819,6 +878,8 @@ export type Database = {
   billingStripeCatalogueRevisions: BillingStripeCatalogueRevision[];
   billingCheckoutOrders: BillingCheckoutOrder[];
   billingStripeSubscriptionMigrations: BillingStripeSubscriptionMigration[];
+  billingStripeLaunchControl: BillingStripeLaunchControl;
+  billingStripeLaunchReports: BillingStripeLaunchReport[];
   promptTemplates: PromptTemplates;
   rolePermissions: RolePermissions;
 };

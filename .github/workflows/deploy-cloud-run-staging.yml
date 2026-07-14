@@ -87,7 +87,7 @@ jobs:
           DATA_STORE_PROVIDER: "postgres"
           POSTGRES_STATE_ID: "staging"
           POSTGRES_SSL: "false"
-          STRIPE_LIVE_SETUP_ENABLED: "false"
+          STRIPE_LIVE_SETUP_ENABLED: "true"
           STRIPE_WEBHOOK_BASE_URL: "https://contentagent-api-staging-mkhae4sjlq-as.a.run.app"
           BREVO_FROM_EMAIL: "sean@gigwave.tech"
           BREVO_FROM_NAME: "Gig Wave"

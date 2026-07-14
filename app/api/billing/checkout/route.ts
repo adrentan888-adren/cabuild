@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { id, mutateDb, readDb } from "@/lib/store";
 import { createStripeCheckoutSession, ensureStripeCustomer } from "@/lib/stripeBilling";
+import { liveCheckoutAccess } from "@/lib/stripeLaunch";
 import type { StripeMode } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,10 @@ export async function POST(req: Request) {
   const connection = db.billingStripeConnections.find((item) => item.mode === stripeMode);
   if (!connection?.checkoutEnabled || !db.billingSettings.stripeCheckoutEnabled?.[stripeMode]) {
     return NextResponse.json({ error: `Stripe ${stripeMode} Checkout is currently disabled. An admin must connect Stripe, synchronize the catalogue, and enable Checkout.` }, { status: 503 });
+  }
+  if (stripeMode === "live") {
+    const access = liveCheckoutAccess(db, user);
+    if (!access.allowed) return NextResponse.json({ error: access.reason, rolloutStage: access.stage }, { status: 403 });
   }
   const workspace = db.workspaces.find((item) => item.id === user.workspaceId);
   if (!workspace) return NextResponse.json({ error: "Workspace not found." }, { status: 404 });

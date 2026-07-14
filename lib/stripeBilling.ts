@@ -112,8 +112,8 @@ export async function stripeRequestWithSecret<T>(secretKey: string, method: "GET
 export async function configuredStripeMode(mode: StripeMode) {
   const secretKey = await getStripeModeKey(mode, "secret");
   if (!secretKey) return { configured: false, mode: "missing" as const };
-  if (secretKey.startsWith("sk_test_")) return { configured: true, mode: "test" as const };
-  if (secretKey.startsWith("sk_live_")) return { configured: true, mode: "live" as const };
+  if (secretKey.startsWith("sk_test_") || secretKey.startsWith("rk_test_")) return { configured: true, mode: "test" as const };
+  if (secretKey.startsWith("sk_live_") || secretKey.startsWith("rk_live_")) return { configured: true, mode: "live" as const };
   return { configured: true, mode: "unknown" as const };
 }
 
@@ -134,8 +134,9 @@ export async function verifyStripeWebhookPayload(payload: string, signatureHeade
 }
 
 export function assertStripeKeyMode(secretKey: string, mode: StripeMode) {
-  const valid = mode === "test" ? secretKey.startsWith("sk_test_") : secretKey.startsWith("sk_live_");
-  if (!valid) throw new Error(`Expected a Stripe ${mode} secret key beginning with ${mode === "test" ? "sk_test_" : "sk_live_"}.`);
+  const expected = mode === "test" ? ["sk_test_", "rk_test_"] : ["sk_live_", "rk_live_"];
+  const valid = expected.some((prefix) => secretKey.startsWith(prefix));
+  if (!valid) throw new Error(`Expected a Stripe ${mode} secret or restricted key beginning with ${expected.join(" or ")}.`);
 }
 
 export async function validateStripeAccount(secretKey: string, mode: StripeMode): Promise<StripeAccountSummary> {

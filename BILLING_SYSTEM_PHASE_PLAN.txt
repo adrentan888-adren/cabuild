@@ -1201,6 +1201,17 @@ Phase 11 acceptance checklist:
 - Controlled rollout report is approved before public activation.
 
 
+Phase 11 implementation status (2026-07-14):
+- Controlled-launch code and backend GUI are implemented on staging/admin-split.
+- Automated API and Playwright acceptance suites pass without real charges.
+- Staging starts with live Checkout disabled, rollout disabled, and kill switch armed.
+- Remaining operator acceptance: complete readiness evidence, connect the verified
+  live Stripe account, approve the live catalogue, run owner-only real $5/$20
+  transactions, reconcile refund/cancellation/duplicate webhook results, approve
+  the smoke report, and only then expand rollout.
+- Production remains unchanged until operator acceptance is complete.
+
+
 ============================================================
 PHASE 12 - REPORTING, RECONCILIATION, AND FINANCE AUDIT
 ============================================================

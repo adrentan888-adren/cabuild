@@ -3,6 +3,7 @@ import { adminAdjustmentEntry, calculateCreditBalance, quoteBillingAction, recal
 import { hasPermission, permissionCatalog } from "@/lib/permissions";
 import { collectPricingSyncProposals } from "@/lib/pricingSync";
 import { currentUser } from "@/lib/session";
+import { ensureStripeLaunchDefaults, liveCatalogueComparison } from "@/lib/stripeLaunch";
 import { id, mutateDb, readDb } from "@/lib/store";
 import type { BillingCreditPackage, BillingPlan, BillingPricingAlert, BillingProvider, BillingProviderMapping, BillingRateCard, Database, User } from "@/lib/types";
 
@@ -17,6 +18,7 @@ async function requireBillingAdmin(permission: "billing.view" | "billing.manage"
 }
 
 function billingPayload(db: Database, actor?: User) {
+  ensureStripeLaunchDefaults(db);
   const workspaceBalances = db.workspaces.map((workspace) => {
     const balance = calculateCreditBalance(db, workspace.id);
     return {
@@ -56,6 +58,9 @@ function billingPayload(db: Database, actor?: User) {
     stripeCatalogueRevisions: db.billingStripeCatalogueRevisions.slice().sort((a, b) => new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime()).slice(0, 100),
     stripeCheckoutOrders: actor && hasPermission(db, actor, "stripe.viewEvents") ? db.billingCheckoutOrders.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 100) : [],
     stripeSubscriptionMigrations: db.billingStripeSubscriptionMigrations.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 100),
+    stripeLiveLaunchControl: db.billingStripeLaunchControl,
+    stripeLiveLaunchReports: db.billingStripeLaunchReports.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 20),
+    stripeLiveCatalogueComparison: liveCatalogueComparison(db),
     stripePermissions: actor ? (actor.role === "owner" || actor.role === "super_admin" ? permissionCatalog.map((item) => item.key) : db.rolePermissions[actor.role] || []) : [],
     stripeLiveSetupLocked: process.env.STRIPE_LIVE_SETUP_ENABLED !== "true",
     ledger: db.billingLedger.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250)

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteApiKeyOverrides, getStripeModeKey, saveApiKeyOverride, stripeModeProvider } from "@/lib/apiKeyOverrides";
-import { hasPermission } from "@/lib/permissions";
+import { hasPermission, permissionCatalog } from "@/lib/permissions";
 import { currentUser } from "@/lib/session";
 import { syncStripeCatalogue } from "@/lib/stripeCatalogue";
 import { createStripeWebhookEndpoint, retrieveStripeWebhookEndpoint, validateStripeAccount } from "@/lib/stripeBilling";
@@ -219,7 +219,7 @@ function stripeAdminPayload(db: Database, user: User) {
     catalogueRevisions: db.billingStripeCatalogueRevisions.slice().sort((a, b) => new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime()).slice(0, 100),
     checkoutOrders: canViewEvents ? db.billingCheckoutOrders.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 100) : [],
     subscriptionMigrations: db.billingStripeSubscriptionMigrations.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 100),
-    permissions: db.rolePermissions[user.role] || [],
+    permissions: user.role === "owner" || user.role === "super_admin" ? permissionCatalog.map((item) => item.key) : db.rolePermissions[user.role] || [],
     liveSetupLocked: process.env.STRIPE_LIVE_SETUP_ENABLED !== "true"
   };
 }

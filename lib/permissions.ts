@@ -36,7 +36,7 @@ export function normalizedRolePermissions(input?: Partial<RolePermissions>): Rol
   const valid = new Set(permissionCatalog.map((item) => item.key));
   return allRoles.reduce((acc, role) => {
     const base = defaultRolePermissions[role] || [];
-    const source = Array.isArray(input?.[role]) ? input?.[role] || [] : base;
+    const source = role === "owner" || role === "super_admin" ? permissionCatalog.map((item) => item.key) : Array.isArray(input?.[role]) ? input?.[role] || [] : base;
     acc[role] = Array.from(new Set(source)).filter((item): item is PermissionKey => valid.has(item as PermissionKey));
     return acc;
   }, {} as RolePermissions);

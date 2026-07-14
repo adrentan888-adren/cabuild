@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminAdjustmentEntry, calculateCreditBalance, quoteBillingAction, recalculatePackageCredits, recalculatePlanCredits } from "@/lib/billing";
-import { hasPermission } from "@/lib/permissions";
+import { hasPermission, permissionCatalog } from "@/lib/permissions";
 import { collectPricingSyncProposals } from "@/lib/pricingSync";
 import { currentUser } from "@/lib/session";
 import { id, mutateDb, readDb } from "@/lib/store";
@@ -56,7 +56,7 @@ function billingPayload(db: Database, actor?: User) {
     stripeCatalogueRevisions: db.billingStripeCatalogueRevisions.slice().sort((a, b) => new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime()).slice(0, 100),
     stripeCheckoutOrders: actor && hasPermission(db, actor, "stripe.viewEvents") ? db.billingCheckoutOrders.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 100) : [],
     stripeSubscriptionMigrations: db.billingStripeSubscriptionMigrations.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 100),
-    stripePermissions: actor ? db.rolePermissions[actor.role] || [] : [],
+    stripePermissions: actor ? (actor.role === "owner" || actor.role === "super_admin" ? permissionCatalog.map((item) => item.key) : db.rolePermissions[actor.role] || []) : [],
     stripeLiveSetupLocked: process.env.STRIPE_LIVE_SETUP_ENABLED !== "true",
     ledger: db.billingLedger.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250)
   };

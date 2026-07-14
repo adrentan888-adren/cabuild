@@ -315,7 +315,9 @@ export function normalizeDb(db: Database): Database {
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
   const existingPermissions = (db as Database & { rolePermissions?: Partial<RolePermissions> }).rolePermissions || {};
   db.rolePermissions = allRoles.reduce((acc, role) => {
-    const source = Array.isArray(existingPermissions[role]) ? existingPermissions[role] as PermissionKey[] : defaultRolePermissions[role] || [];
+    const source = role === "owner" || role === "super_admin"
+      ? allPermissionKeys
+      : Array.isArray(existingPermissions[role]) ? existingPermissions[role] as PermissionKey[] : defaultRolePermissions[role] || [];
     acc[role] = Array.from(new Set(source))
       .filter((permission): permission is PermissionKey => allPermissionKeys.includes(permission as PermissionKey));
     return acc;

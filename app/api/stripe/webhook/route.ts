@@ -200,6 +200,11 @@ function processChargeRefunded(db: Database, charge: Record<string, unknown>, ev
     .reduce((sum, entry) => sum + Math.abs(entry.credits || 0), 0);
   const creditsToRemove = Math.max(0, targetCreditsToRemove - alreadyRemoved);
   if (creditsToRemove <= 0) return { status: "ignored" as const, metadata: { reason: "Refund was already reflected in credits.", paymentIntentId } };
+  const targetRefundUsd = roundUsd(Math.abs(original.usdCost || 0) * Math.min(1, amountRefunded / amount));
+  const alreadyRefundedUsd = db.billingLedger
+    .filter((entry) => entry.type === "refund" && entry.metadata?.stripePaymentIntentId === paymentIntentId && String(entry.metadata?.stripeMode || "test") === mode)
+    .reduce((sum, entry) => sum + Math.abs(entry.usdCost || 0), 0);
+  const refundUsd = Math.max(0, roundUsd(targetRefundUsd - alreadyRefundedUsd));
   db.billingLedger.push({
     id: id("cred"),
     userId: original.userId,
@@ -209,7 +214,7 @@ function processChargeRefunded(db: Database, charge: Record<string, unknown>, ev
     provider: "stripe",
     action: "stripe.charge_refunded",
     credits: -creditsToRemove,
-    usdCost: 0,
+    usdCost: -refundUsd,
     markup: 0,
     status: "refunded",
     relatedId: original.relatedId,
@@ -219,8 +224,19 @@ function processChargeRefunded(db: Database, charge: Record<string, unknown>, ev
     metadata: { stripeEventId: eventId, stripeChargeId: stripeObjectString(charge, "id"), stripePaymentIntentId: paymentIntentId, originalLedgerId: original.id, amount, amountRefunded, stripeMode: mode },
     createdAt: new Date().toISOString()
   });
+  if (amountRefunded >= amount) {
+    const order = db.billingCheckoutOrders.find((item) => item.mode === mode && item.stripePaymentIntentId === paymentIntentId);
+    if (order) {
+      order.status = "refunded";
+      order.updatedAt = new Date().toISOString();
+    }
+  }
   updateWorkspaceCreditBalance(db, original.workspaceId);
-  return { status: "processed" as const, metadata: { paymentIntentId, creditsRemoved: creditsToRemove } };
+  return { status: "processed" as const, metadata: { paymentIntentId, creditsRemoved: creditsToRemove, refundUsd } };
+}
+
+function roundUsd(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function grantTopUpCredits(db: Database, input: { user: User; workspace: Workspace; pkg: BillingCreditPackage; session: Record<string, unknown>; eventId: string; order?: BillingCheckoutOrder }) {

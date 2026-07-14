@@ -19,6 +19,11 @@ export type PermissionKey =
   | "apiKeys.edit"
   | "billing.view"
   | "billing.manage"
+  | "finance.view"
+  | "finance.reconcile"
+  | "finance.export"
+  | "finance.close"
+  | "finance.resolveAlerts"
   | "stripe.view"
   | "stripe.connectTest"
   | "stripe.manageTestCatalogue"
@@ -757,7 +762,112 @@ export type BillingSettings = {
   failedGenerationRefundPolicy?: "release_only" | "refund_if_provider_failed" | "manual_review";
   stripeMode?: "test" | "live";
   stripeCheckoutEnabled?: Partial<Record<StripeMode, boolean>>;
+  financeMarginAlertPercent?: number;
+  financeLiabilityAlertUsd?: number;
+  financeHighSpendUserUsd?: number;
+  financeWebhookFailureHours?: number;
   allowNegativeBalance: false;
+};
+
+export type BillingStripeBalanceTransaction = {
+  id: string;
+  stripeBalanceTransactionId: string;
+  mode: StripeMode;
+  amountUsd: number;
+  feeUsd: number;
+  netUsd: number;
+  currency: string;
+  type: string;
+  reportingCategory: string;
+  status: string;
+  sourceId?: string;
+  chargeId?: string;
+  paymentIntentId?: string;
+  refundId?: string;
+  payoutId?: string;
+  description?: string;
+  createdAt: string;
+  availableOn?: string;
+  syncedAt: string;
+};
+
+export type BillingReconciliationRun = {
+  id: string;
+  mode: StripeMode;
+  source: "manual" | "scheduled";
+  status: "completed" | "failed";
+  from: string;
+  to: string;
+  syncedTransactions: number;
+  checkedRecords: number;
+  alertsDetected: number;
+  startedAt: string;
+  completedAt: string;
+  initiatedBy?: string;
+  error?: string;
+};
+
+export type BillingReconciliationAlert = {
+  id: string;
+  mode: StripeMode;
+  type: "payment_without_credits" | "credits_without_payment" | "amount_mismatch" | "currency_mismatch" | "duplicate_credit" | "refund_without_reversal" | "subscription_mismatch" | "webhook_failure" | "negative_balance" | "margin_threshold" | "liability_threshold" | "high_user_spend";
+  severity: "info" | "warning" | "critical";
+  status: "open" | "resolved" | "ignored";
+  message: string;
+  amountUsd?: number;
+  orderId?: string;
+  ledgerEntryId?: string;
+  userId?: string;
+  workspaceId?: string;
+  stripeReference?: string;
+  details?: Record<string, unknown>;
+  detectedAt: string;
+  lastDetectedAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  resolutionNote?: string;
+};
+
+export type BillingFinanceMetrics = {
+  grossSalesUsd: number;
+  refundsUsd: number;
+  netSalesUsd: number;
+  stripeFeesUsd: number;
+  netCashUsd: number;
+  subscriptionRevenueUsd: number;
+  topUpRevenueUsd: number;
+  providerCostUsd: number;
+  grossMarginUsd: number;
+  grossMarginPercent: number;
+  creditsSold: number;
+  creditsGranted: number;
+  creditsConsumed: number;
+  creditsExpired: number;
+  creditsRefunded: number;
+  creditsAdjusted: number;
+  faceValueLiabilityUsd: number;
+  providerCostLiabilityUsd: number;
+  mrrUsd: number;
+  activeSubscriptions: number;
+  newSubscriptions: number;
+  canceledSubscriptions: number;
+  churnRatePercent: number;
+};
+
+export type BillingFinanceCloseReport = {
+  id: string;
+  periodType: "daily" | "monthly";
+  mode: StripeMode;
+  from: string;
+  to: string;
+  metrics: BillingFinanceMetrics;
+  unresolvedAlertCount: number;
+  unresolvedAlertValueUsd: number;
+  transactionCount: number;
+  ledgerEntryCount: number;
+  hash: string;
+  createdAt: string;
+  createdBy: string;
 };
 
 export type BillingLedgerEntry = {
@@ -880,6 +990,10 @@ export type Database = {
   billingStripeSubscriptionMigrations: BillingStripeSubscriptionMigration[];
   billingStripeLaunchControl: BillingStripeLaunchControl;
   billingStripeLaunchReports: BillingStripeLaunchReport[];
+  billingStripeBalanceTransactions: BillingStripeBalanceTransaction[];
+  billingReconciliationRuns: BillingReconciliationRun[];
+  billingReconciliationAlerts: BillingReconciliationAlert[];
+  billingFinanceCloseReports: BillingFinanceCloseReport[];
   promptTemplates: PromptTemplates;
   rolePermissions: RolePermissions;
 };

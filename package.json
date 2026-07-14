@@ -14,7 +14,9 @@
     "test:stripe-phase10.5": "node tools/stripe/phase10-5-smoke.mjs",
     "test:stripe-phase10.5-ui": "node tools/stripe/phase10-5-ui-smoke.mjs",
     "test:stripe-phase11": "node tools/stripe/phase11-smoke.mjs",
-    "test:stripe-phase11-ui": "node tools/stripe/phase11-ui-smoke.mjs"
+    "test:stripe-phase11-ui": "node tools/stripe/phase11-ui-smoke.mjs",
+    "test:stripe-phase12": "node tools/stripe/phase12-smoke.mjs",
+    "test:stripe-phase12-ui": "node tools/stripe/phase12-ui-smoke.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

@@ -26,6 +26,10 @@ export const defaultBillingSettings: BillingSettings = {
   failedGenerationRefundPolicy: "refund_if_provider_failed",
   stripeMode: "test",
   stripeCheckoutEnabled: { test: false, live: false },
+  financeMarginAlertPercent: 20,
+  financeLiabilityAlertUsd: 10000,
+  financeHighSpendUserUsd: 500,
+  financeWebhookFailureHours: 24,
   allowNegativeBalance: false
 };
 
@@ -255,7 +259,8 @@ export function calculateCreditBalance(db: Pick<Database, "billingLedger">, work
       reserved += Math.abs(credits);
       continue;
     }
-    if (["failed", "refunded"].includes(entry.status)) continue;
+    if (entry.status === "failed") continue;
+    if (entry.status === "refunded" && entry.type !== "refund") continue;
     if (entry.type === "usage") {
       available -= Math.abs(credits);
       lifetimeUsed += Math.abs(credits);

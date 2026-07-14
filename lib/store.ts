@@ -77,6 +77,11 @@ const allPermissionKeys: PermissionKey[] = [
   "apiKeys.edit",
   "billing.view",
   "billing.manage",
+  "finance.view",
+  "finance.reconcile",
+  "finance.export",
+  "finance.close",
+  "finance.resolveAlerts",
   "stripe.view",
   "stripe.connectTest",
   "stripe.manageTestCatalogue",
@@ -112,6 +117,10 @@ export const defaultRolePermissions: RolePermissions = {
     "apiKeys.edit",
     "billing.view",
     "billing.manage",
+    "finance.view",
+    "finance.reconcile",
+    "finance.export",
+    "finance.resolveAlerts",
     "stripe.view",
     "stripe.connectTest",
     "stripe.manageTestCatalogue",
@@ -128,6 +137,7 @@ export const defaultRolePermissions: RolePermissions = {
     "prompts.view",
     "apiKeys.view",
     "billing.view",
+    "finance.view",
     "stripe.view",
     "stripe.viewEvents",
     "system.view",
@@ -272,6 +282,10 @@ export function seeded(): Database {
     billingStripeSubscriptionMigrations: [],
     billingStripeLaunchControl: defaultStripeLaunchControl(),
     billingStripeLaunchReports: [],
+    billingStripeBalanceTransactions: [],
+    billingReconciliationRuns: [],
+    billingReconciliationAlerts: [],
+    billingFinanceCloseReports: [],
     promptTemplates: defaultPromptTemplates,
     rolePermissions: defaultRolePermissions
   };
@@ -317,6 +331,10 @@ export function normalizeDb(db: Database): Database {
   db.billingStripeCatalogueRevisions ||= [];
   db.billingCheckoutOrders ||= [];
   db.billingStripeSubscriptionMigrations ||= [];
+  db.billingStripeBalanceTransactions ||= [];
+  db.billingReconciliationRuns ||= [];
+  db.billingReconciliationAlerts ||= [];
+  db.billingFinanceCloseReports ||= [];
   ensureStripeLaunchDefaults(db);
   ensureBillingDefaults(db);
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };

@@ -7,6 +7,7 @@ import { scanSocialUrl } from "@/lib/providers/apify";
 import { generateImage, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { publishPhotoPost, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 import { encodeUploadKey, saveGeneratedMediaFromUrl } from "@/lib/providers/uploads";
+import { runScheduledFinanceReconciliation } from "@/lib/finance";
 
 export const dynamic = "force-dynamic";
 
@@ -881,5 +882,6 @@ export async function POST(req: NextRequest) {
       runs.push({ watcherId: watcher.id, error: message });
     }
   }
-  return NextResponse.json({ ok: true, polled, dueWatchers: due.length, runs });
+  const financeReconciliation = await runScheduledFinanceReconciliation().catch((error) => [{ mode: "test" as const, status: "failed", reason: error instanceof Error ? error.message : "Finance reconciliation failed" }]);
+  return NextResponse.json({ ok: true, polled, dueWatchers: due.length, runs, financeReconciliation });
 }

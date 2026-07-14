@@ -2,6 +2,7 @@
 
 import { AlertTriangle, ArrowUpDown, CheckCircle2, CreditCard, ExternalLink, KeyRound, Link2, RefreshCcw, Rocket, Save, Server, Settings, ShieldCheck, Trash2, Unplug, UserPlus, Users, WandSparkles, X } from "lucide-react";
 import { Fragment, useState } from "react";
+import FinanceManagement from "./FinanceManagement";
 import type { Asset, BillingCheckoutOrder, BillingCreditPackage, BillingLedgerEntry, BillingPlan, BillingPricingAlert, BillingPricingSyncRun, BillingProviderMapping, BillingRateCard, BillingSettings, BillingStripeCatalogueMapping, BillingStripeCatalogueRevision, BillingStripeConnection, BillingStripeEvent, BillingStripeLaunchControl, BillingStripeLaunchReport, BillingStripeSubscriptionMigration, BillingSubscriptionState, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, StripeMode, Workspace } from "@/lib/types";
 
 export type AdminAppData = {
@@ -485,6 +486,7 @@ function BillingManagementCard({ billingData, runBilling, runStripe }: { billing
     ["mapping", "Provider Mapping"],
     ["stripe", "Stripe Connection"],
     ["launch", "Live Launch"],
+    ["finance", "Finance"],
     ["ledger", "Credit Ledger"],
     ["users", "User Billing"],
     ["rules", "Billing Rules"],
@@ -715,6 +717,8 @@ function BillingManagementCard({ billingData, runBilling, runStripe }: { billing
           </div>
         </PanelCard>
       )}
+
+      {activeBillingTab === "finance" && <FinanceManagement settings={billingData.settings} />}
 
       {activeBillingTab === "packages" && (
         <PanelCard title="Credit packages" action={<span className="admin-pill">{billingData.creditPackages.length} packages</span>}>

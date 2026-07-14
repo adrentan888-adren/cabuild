@@ -392,7 +392,7 @@ async function approveLiveLaunchReport(body: Record<string, unknown>, mode: Stri
     if (!report) return { error: "Live smoke-test report not found." };
     if (Object.values(report.checks).some((value) => !value)) return { error: "Every smoke-test check must pass before approval." };
     if (!report.topUpOrderId || !report.subscriptionOrderId || report.ledgerEntryIds.length === 0) return { error: "Record the live top-up order, subscription order, and ledger IDs before approval." };
-    const topUpOrder = db.billingCheckoutOrders.find((order) => order.id === report.topUpOrderId && order.mode === "live" && order.itemKind === "package" && order.status === "paid");
+    const topUpOrder = db.billingCheckoutOrders.find((order) => order.id === report.topUpOrderId && order.mode === "live" && order.itemKind === "package" && ["paid", "refunded"].includes(order.status) && Boolean(order.paidAt));
     const subscriptionOrder = db.billingCheckoutOrders.find((order) => order.id === report.subscriptionOrderId && order.mode === "live" && order.itemKind === "plan" && order.status === "paid");
     if (!topUpOrder || !subscriptionOrder) return { error: "The report must reference paid live top-up and subscription orders." };
     const reportLedger = db.billingLedger.filter((entry) => report.ledgerEntryIds.includes(entry.id) && entry.provider === "stripe" && String(entry.metadata?.stripeMode || "test") === "live");

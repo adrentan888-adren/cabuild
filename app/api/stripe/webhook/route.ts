@@ -1,17 +1,20 @@
 import { NextResponse } from "next/server";
 import { updateWorkspaceCreditBalance } from "@/lib/billing";
-import { id, mutateDb } from "@/lib/store";
+import { id, mutateDb, readDb } from "@/lib/store";
 import { stripeMetadata, stripeObjectNumber, stripeObjectString, stripeTimestampToIso, verifyStripeWebhookPayload } from "@/lib/stripeBilling";
-import type { BillingCreditPackage, BillingPlan, BillingSubscriptionState, Database, User, Workspace } from "@/lib/types";
+import type { BillingCheckoutOrder, BillingCreditPackage, BillingPlan, BillingStripeCatalogueRevision, BillingSubscriptionState, Database, StripeMode, User, Workspace } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   const payload = await req.text();
+  const routeMode = stripeModeFromPath(req.url);
+  const currentDb = await readDb();
+  const mode: StripeMode = routeMode || (currentDb.billingSettings.stripeMode === "live" ? "live" : "test");
   let event;
   try {
-    event = await verifyStripeWebhookPayload(payload, req.headers.get("stripe-signature"));
+    event = await verifyStripeWebhookPayload(payload, req.headers.get("stripe-signature"), mode);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid Stripe webhook." }, { status: 400 });
   }
@@ -23,13 +26,18 @@ export async function POST(req: Request) {
     const now = new Date().toISOString();
     let status: "processed" | "ignored" | "failed" = "processed";
     let error = "";
-    const metadata: Record<string, unknown> = { eventType: event.type };
+    const metadata: Record<string, unknown> = { eventType: event.type, stripeMode: mode };
     try {
-      const expectedLive = db.billingSettings?.stripeMode === "live";
+      const expectedLive = mode === "live";
       if (Boolean(event.livemode) !== expectedLive) {
-        throw new Error(`Stripe event mode mismatch. App is ${expectedLive ? "live" : "test"}, event is ${event.livemode ? "live" : "test"}.`);
+        throw new Error(`Stripe event mode mismatch. Endpoint is ${mode}, event is ${event.livemode ? "live" : "test"}.`);
       }
-      const outcome = processStripeEvent(db, event.type, event.data.object, event.id);
+      const profile = db.billingStripeConnections.find((item) => item.mode === mode);
+      if (profile) {
+        profile.lastWebhookAt = now;
+        profile.webhookStatus = "configured";
+      }
+      const outcome = processStripeEvent(db, event.type, event.data.object, event.id, mode);
       status = outcome.status;
       Object.assign(metadata, outcome.metadata || {});
     } catch (err) {
@@ -54,52 +62,76 @@ export async function POST(req: Request) {
   return NextResponse.json({ received: true, duplicate: result.duplicate, status: result.status });
 }
 
-function processStripeEvent(db: Database, type: string, object: Record<string, unknown>, eventId: string) {
-  if (type === "checkout.session.completed") return processCheckoutCompleted(db, object, eventId);
-  if (type === "invoice.paid") return processInvoicePaid(db, object, eventId);
+function processStripeEvent(db: Database, type: string, object: Record<string, unknown>, eventId: string, mode: StripeMode) {
+  if (type === "checkout.session.completed") return processCheckoutCompleted(db, object, eventId, mode);
+  if (type === "invoice.paid") return processInvoicePaid(db, object, eventId, mode);
   if (type === "invoice.payment_failed") return processInvoicePaymentFailed(db, object);
-  if (type === "customer.subscription.updated" || type === "customer.subscription.deleted") return processSubscriptionUpdated(db, object, type);
+  if (type === "customer.subscription.updated" || type === "customer.subscription.deleted") return processSubscriptionUpdated(db, object, type, mode);
   if (type === "charge.refunded") return processChargeRefunded(db, object, eventId);
   if (type === "payment_intent.succeeded") return { status: "ignored" as const, metadata: { reason: "PaymentIntent events are informational; Checkout or invoice events grant credits." } };
   return { status: "ignored" as const, metadata: { reason: "Unhandled Stripe event type." } };
 }
 
-function processCheckoutCompleted(db: Database, session: Record<string, unknown>, eventId: string) {
+function processCheckoutCompleted(db: Database, session: Record<string, unknown>, eventId: string, mode: StripeMode) {
   const metadata = stripeMetadata(session);
-  const kind = metadata.purchaseKind;
-  const user = findUser(db, metadata.userId, objectId(session.customer));
-  const workspace = findWorkspace(db, metadata.workspaceId, user);
-  saveCustomer(user, session.customer);
+  const order = findCheckoutOrder(db, metadata.orderId, stripeObjectString(session, "id"));
+  const kind = metadata.purchaseKind || order?.itemKind;
+  const user = findUser(db, metadata.userId || order?.userId, objectId(session.customer), mode);
+  const workspace = findWorkspace(db, metadata.workspaceId || order?.workspaceId, user);
+  saveCustomer(user, session.customer, mode);
+  if (order) {
+    order.status = "paid";
+    order.stripeCheckoutSessionId = stripeObjectString(session, "id") || order.stripeCheckoutSessionId;
+    order.stripeCustomerId = objectId(session.customer) || order.stripeCustomerId;
+    order.stripeSubscriptionId = objectId(session.subscription) || order.stripeSubscriptionId;
+    order.stripePaymentIntentId = objectId(session.payment_intent) || order.stripePaymentIntentId;
+    order.updatedAt = new Date().toISOString();
+    order.paidAt ||= order.updatedAt;
+  }
   if (kind === "package") {
-    const pkg = db.billingCreditPackages.find((item) => item.id === metadata.itemId);
+    const pkg = db.billingCreditPackages.find((item) => item.id === (metadata.itemId || order?.itemId));
     if (!pkg) throw new Error("Stripe top-up package is no longer configured.");
-    grantTopUpCredits(db, { user, workspace, pkg, session, eventId });
-    return { status: "processed" as const, metadata: { purchaseKind: kind, packageId: pkg.id, credits: pkg.totalCredits } };
+    grantTopUpCredits(db, { user, workspace, pkg, session, eventId, order });
+    return { status: "processed" as const, metadata: { purchaseKind: kind, packageId: pkg.id, credits: order?.creditsPromised || pkg.totalCredits, orderId: order?.id } };
   }
   if (kind === "plan") {
-    const plan = db.billingPlans.find((item) => item.id === metadata.itemId);
-    if (plan) upsertSubscription(db, { user, workspace, plan, subscriptionId: objectId(session.subscription), customerId: objectId(session.customer), status: "incomplete", latestInvoiceId: objectId(session.invoice) });
-    return { status: "processed" as const, metadata: { purchaseKind: kind, planId: plan?.id || metadata.itemId, note: "Subscription credits are granted from invoice.paid." } };
+    const plan = db.billingPlans.find((item) => item.id === (metadata.itemId || order?.itemId));
+    if (plan) upsertSubscription(db, { user, workspace, plan, mode, catalogueRevisionId: order?.catalogueRevisionId || metadata.catalogueRevisionId, subscriptionId: objectId(session.subscription), customerId: objectId(session.customer), status: "incomplete", latestInvoiceId: objectId(session.invoice) });
+    return { status: "processed" as const, metadata: { purchaseKind: kind, planId: plan?.id || metadata.itemId, orderId: order?.id, note: "Subscription credits are granted from invoice.paid." } };
   }
   return { status: "ignored" as const, metadata: { reason: "Checkout session has no recognized purchaseKind metadata." } };
 }
 
-function processInvoicePaid(db: Database, invoice: Record<string, unknown>, eventId: string) {
+function processInvoicePaid(db: Database, invoice: Record<string, unknown>, eventId: string, mode: StripeMode) {
   const metadata = mergeMetadata(stripeMetadata(invoice), nestedMetadata(invoice, "subscription_details"));
   const subscriptionId = objectId(invoice.subscription) || stripeObjectString(metadata, "stripeSubscriptionId");
   if (!subscriptionId) return { status: "ignored" as const, metadata: { reason: "Invoice has no subscription ID." } };
   const customerId = objectId(invoice.customer);
-  const user = findUser(db, metadata.userId, customerId);
-  const workspace = findWorkspace(db, metadata.workspaceId, user);
-  saveCustomer(user, invoice.customer);
+  const subscriptionState = db.billingSubscriptions.find((item) => item.stripeSubscriptionId === subscriptionId);
+  const order = findCheckoutOrder(db, metadata.orderId) || db.billingCheckoutOrders.find((item) => item.stripeSubscriptionId === subscriptionId);
+  const user = findUser(db, metadata.userId || order?.userId || subscriptionState?.userId, customerId, mode);
+  const workspace = findWorkspace(db, metadata.workspaceId || order?.workspaceId || subscriptionState?.workspaceId, user);
+  saveCustomer(user, invoice.customer, mode);
   const priceId = metadata.stripePriceId || linePriceId(invoice);
-  const plan = db.billingPlans.find((item) => item.id === metadata.itemId) || db.billingPlans.find((item) => item.stripePriceId && item.stripePriceId === priceId);
+  const mappedPlanId = db.billingStripeCatalogueMappings.find((item) => item.mode === mode && item.itemKind === "plan" && item.priceId === priceId)?.itemId;
+  const plan = db.billingPlans.find((item) => item.id === (metadata.itemId || order?.itemId || subscriptionState?.planId || mappedPlanId)) || db.billingPlans.find((item) => item.stripePriceId && item.stripePriceId === priceId);
   if (!plan) throw new Error("Paid Stripe invoice did not match an active billing plan.");
-  grantSubscriptionCredits(db, { user, workspace, plan, invoice, eventId, subscriptionId, customerId });
+  const revisionId = order?.catalogueRevisionId || metadata.catalogueRevisionId || subscriptionState?.catalogueRevisionId;
+  const revision = db.billingStripeCatalogueRevisions.find((item) => item.id === revisionId);
+  grantSubscriptionCredits(db, { user, workspace, plan, revision, invoice, eventId, subscriptionId, customerId, order });
+  if (order) {
+    order.status = "paid";
+    order.stripeInvoiceId = stripeObjectString(invoice, "id") || order.stripeInvoiceId;
+    order.stripeSubscriptionId = subscriptionId;
+    order.updatedAt = new Date().toISOString();
+    order.paidAt ||= order.updatedAt;
+  }
   upsertSubscription(db, {
     user,
     workspace,
     plan,
+    mode,
+    catalogueRevisionId: revisionId,
     subscriptionId,
     customerId,
     status: String(invoice.status || "active"),
@@ -108,7 +140,7 @@ function processInvoicePaid(db: Database, invoice: Record<string, unknown>, even
     currentPeriodEnd: stripeTimestampToIso(nestedNumber(invoice, "lines", "data", 0, "period", "end"))
   });
   (workspace as unknown as { plan: string }).plan = plan.name;
-  return { status: "processed" as const, metadata: { planId: plan.id, credits: plan.totalCredits, invoiceId: stripeObjectString(invoice, "id"), subscriptionId } };
+  return { status: "processed" as const, metadata: { planId: plan.id, credits: revision?.totalCredits || order?.creditsPromised || plan.totalCredits, invoiceId: stripeObjectString(invoice, "id"), subscriptionId, orderId: order?.id, catalogueRevisionId: revisionId } };
 }
 
 function processInvoicePaymentFailed(db: Database, invoice: Record<string, unknown>) {
@@ -124,19 +156,22 @@ function processInvoicePaymentFailed(db: Database, invoice: Record<string, unkno
   return { status: "processed" as const, metadata: { invoiceId: stripeObjectString(invoice, "id"), subscriptionId, reason: "Payment failed; no credits granted." } };
 }
 
-function processSubscriptionUpdated(db: Database, subscription: Record<string, unknown>, eventType: string) {
+function processSubscriptionUpdated(db: Database, subscription: Record<string, unknown>, eventType: string, mode: StripeMode) {
   const metadata = stripeMetadata(subscription);
   const customerId = objectId(subscription.customer);
-  const user = findUser(db, metadata.userId, customerId);
+  const user = findUser(db, metadata.userId, customerId, mode);
   const workspace = findWorkspace(db, metadata.workspaceId, user);
-  saveCustomer(user, subscription.customer);
+  saveCustomer(user, subscription.customer, mode);
   const priceId = linePriceIdFromSubscription(subscription);
-  const plan = db.billingPlans.find((item) => item.id === metadata.itemId) || db.billingPlans.find((item) => item.stripePriceId && item.stripePriceId === priceId);
+  const catalogueMapping = db.billingStripeCatalogueMappings.find((item) => item.mode === mode && item.itemKind === "plan" && item.priceId === priceId);
+  const plan = db.billingPlans.find((item) => item.id === (metadata.itemId || catalogueMapping?.itemId)) || db.billingPlans.find((item) => item.stripePriceId && item.stripePriceId === priceId);
   if (plan) {
     upsertSubscription(db, {
       user,
       workspace,
       plan,
+      mode,
+      catalogueRevisionId: metadata.catalogueRevisionId || catalogueMapping?.revisionId,
       subscriptionId: stripeObjectString(subscription, "id"),
       customerId,
       status: eventType === "customer.subscription.deleted" ? "canceled" : String(subscription.status || "unknown"),
@@ -185,10 +220,13 @@ function processChargeRefunded(db: Database, charge: Record<string, unknown>, ev
   return { status: "processed" as const, metadata: { paymentIntentId, creditsRemoved: creditsToRemove } };
 }
 
-function grantTopUpCredits(db: Database, input: { user: User; workspace: Workspace; pkg: BillingCreditPackage; session: Record<string, unknown>; eventId: string }) {
+function grantTopUpCredits(db: Database, input: { user: User; workspace: Workspace; pkg: BillingCreditPackage; session: Record<string, unknown>; eventId: string; order?: BillingCheckoutOrder }) {
   const sessionId = stripeObjectString(input.session, "id");
   if (db.billingLedger.some((entry) => entry.metadata?.stripeCheckoutSessionId === sessionId)) return;
-  const expiresAt = input.pkg.expiresAfterDays ? new Date(Date.now() + input.pkg.expiresAfterDays * 86400_000).toISOString() : undefined;
+  const credits = input.order?.creditsPromised || input.pkg.totalCredits;
+  const chargeUsd = input.order?.amountUsd ?? input.pkg.priceUsd;
+  const expiryDays = input.order?.expiryDays ?? input.pkg.expiresAfterDays;
+  const expiresAt = expiryDays ? new Date(Date.now() + expiryDays * 86400_000).toISOString() : undefined;
   db.billingLedger.push({
     id: id("cred"),
     userId: input.user.id,
@@ -197,24 +235,27 @@ function grantTopUpCredits(db: Database, input: { user: User; workspace: Workspa
     module: "billing",
     provider: "stripe",
     action: "stripe.top_up",
-    credits: input.pkg.totalCredits,
-    usdCost: input.pkg.priceUsd,
+    credits,
+    usdCost: chargeUsd,
     markup: 1,
     status: "succeeded",
     relatedId: input.pkg.id,
     stripePaymentIntentId: objectId(input.session.payment_intent) || undefined,
-    description: `Purchased ${input.pkg.name}: ${input.pkg.totalCredits.toLocaleString()} credits.`,
-    metadata: { stripeEventId: input.eventId, stripeCheckoutSessionId: sessionId, stripeCustomerId: objectId(input.session.customer), chargeUsd: input.pkg.priceUsd },
+    description: `Purchased ${input.order?.itemName || input.pkg.name}: ${credits.toLocaleString()} credits.`,
+    metadata: { stripeEventId: input.eventId, stripeCheckoutSessionId: sessionId, stripeCustomerId: objectId(input.session.customer), chargeUsd, checkoutOrderId: input.order?.id, catalogueRevisionId: input.order?.catalogueRevisionId, stripeMode: input.order?.mode },
     createdAt: new Date().toISOString(),
     expiresAt
   });
   updateWorkspaceCreditBalance(db, input.workspace.id);
 }
 
-function grantSubscriptionCredits(db: Database, input: { user: User; workspace: Workspace; plan: BillingPlan; invoice: Record<string, unknown>; eventId: string; subscriptionId: string; customerId: string }) {
+function grantSubscriptionCredits(db: Database, input: { user: User; workspace: Workspace; plan: BillingPlan; revision?: BillingStripeCatalogueRevision; order?: BillingCheckoutOrder; invoice: Record<string, unknown>; eventId: string; subscriptionId: string; customerId: string }) {
   const invoiceId = stripeObjectString(input.invoice, "id");
   if (invoiceId && db.billingLedger.some((entry) => entry.metadata?.stripeInvoiceId === invoiceId)) return;
-  const expiresAt = input.plan.expiryDays ? new Date(Date.now() + input.plan.expiryDays * 86400_000).toISOString() : undefined;
+  const credits = input.revision?.totalCredits || input.order?.creditsPromised || input.plan.totalCredits;
+  const chargeUsd = input.revision?.amountUsd ?? input.order?.amountUsd ?? input.plan.priceUsd;
+  const expiryDays = input.revision?.expiryDays ?? input.order?.expiryDays ?? input.plan.expiryDays;
+  const expiresAt = expiryDays ? new Date(Date.now() + expiryDays * 86400_000).toISOString() : undefined;
   db.billingLedger.push({
     id: id("cred"),
     userId: input.user.id,
@@ -223,14 +264,14 @@ function grantSubscriptionCredits(db: Database, input: { user: User; workspace: 
     module: "billing",
     provider: "stripe",
     action: "stripe.subscription_grant",
-    credits: input.plan.totalCredits,
-    usdCost: input.plan.priceUsd,
+    credits,
+    usdCost: chargeUsd,
     markup: 1,
     status: "succeeded",
     relatedId: input.plan.id,
     stripeSubscriptionId: input.subscriptionId,
-    description: `${input.plan.name} subscription credits granted: ${input.plan.totalCredits.toLocaleString()} credits.`,
-    metadata: { stripeEventId: input.eventId, stripeInvoiceId: invoiceId, stripeCustomerId: input.customerId, chargeUsd: input.plan.priceUsd },
+    description: `${input.revision?.itemName || input.order?.itemName || input.plan.name} subscription credits granted: ${credits.toLocaleString()} credits.`,
+    metadata: { stripeEventId: input.eventId, stripeInvoiceId: invoiceId, stripeCustomerId: input.customerId, chargeUsd, checkoutOrderId: input.order?.id, catalogueRevisionId: input.revision?.id || input.order?.catalogueRevisionId, stripeMode: input.revision?.mode || input.order?.mode },
     createdAt: new Date().toISOString(),
     expiresAt
   });
@@ -241,6 +282,8 @@ function upsertSubscription(db: Database, input: {
   user: User;
   workspace: Workspace;
   plan: BillingPlan;
+  mode: StripeMode;
+  catalogueRevisionId?: string;
   subscriptionId: string;
   customerId: string;
   status: string;
@@ -258,6 +301,8 @@ function upsertSubscription(db: Database, input: {
     workspaceId: input.workspace.id,
     userId: input.user.id,
     planId: input.plan.id,
+    stripeMode: input.mode,
+    catalogueRevisionId: input.catalogueRevisionId,
     stripeCustomerId: input.customerId,
     stripeSubscriptionId: input.subscriptionId,
     status,
@@ -271,8 +316,10 @@ function upsertSubscription(db: Database, input: {
   else db.billingSubscriptions.push({ id: id("sub"), ...next, createdAt: now });
 }
 
-function findUser(db: Database, userId?: string, stripeCustomerId?: string) {
-  const user = db.users.find((item) => item.id === userId) || db.users.find((item) => item.stripeCustomerId && item.stripeCustomerId === stripeCustomerId);
+function findUser(db: Database, userId: string | undefined, stripeCustomerId: string | undefined, mode: StripeMode) {
+  const user = db.users.find((item) => item.id === userId)
+    || db.users.find((item) => item.stripeCustomerIds?.[mode] && item.stripeCustomerIds[mode] === stripeCustomerId)
+    || (mode === "test" ? db.users.find((item) => item.stripeCustomerId && item.stripeCustomerId === stripeCustomerId) : undefined);
   if (!user) throw new Error("Stripe event user could not be matched.");
   return user;
 }
@@ -283,9 +330,17 @@ function findWorkspace(db: Database, workspaceId: string | undefined, user: User
   return workspace;
 }
 
-function saveCustomer(user: User, value: unknown) {
+function saveCustomer(user: User, value: unknown, mode: StripeMode) {
   const customerId = objectId(value);
-  if (customerId && !user.stripeCustomerId) user.stripeCustomerId = customerId;
+  if (!customerId) return;
+  user.stripeCustomerIds ||= {};
+  user.stripeCustomerIds[mode] ||= customerId;
+  if (mode === "test" && !user.stripeCustomerId) user.stripeCustomerId = customerId;
+}
+
+function findCheckoutOrder(db: Database, orderId?: string, sessionId?: string) {
+  return (orderId ? db.billingCheckoutOrders.find((item) => item.id === orderId) : undefined)
+    || (sessionId ? db.billingCheckoutOrders.find((item) => item.stripeCheckoutSessionId === sessionId) : undefined);
 }
 
 function objectId(value: unknown) {
@@ -332,4 +387,11 @@ function nestedValue(object: unknown, ...path: Array<string | number>): unknown 
 function normalizeSubscriptionStatus(value: string): BillingSubscriptionState["status"] {
   const allowed: BillingSubscriptionState["status"][] = ["active", "trialing", "past_due", "canceled", "unpaid", "incomplete", "incomplete_expired", "paused"];
   return allowed.includes(value as BillingSubscriptionState["status"]) ? value as BillingSubscriptionState["status"] : "unknown";
+}
+
+function stripeModeFromPath(value: string): StripeMode | null {
+  const pathname = new URL(value).pathname.replace(/\/$/, "");
+  if (pathname.endsWith("/test")) return "test";
+  if (pathname.endsWith("/live")) return "live";
+  return null;
 }

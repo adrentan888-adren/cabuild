@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { mutateDb, readDb } from "./store";
-import type { ApiKeyProvider } from "./types";
+import type { ApiKeyProvider, StripeMode } from "./types";
 
 const providerEnv: Record<ApiKeyProvider, string> = {
   kie: "KIE_API_TOKEN",
@@ -10,8 +10,31 @@ const providerEnv: Record<ApiKeyProvider, string> = {
   stripePublishable: "STRIPE_PUBLISHABLE_KEY",
   stripeSecret: "STRIPE_SECRET_KEY",
   stripeWebhook: "STRIPE_WEBHOOK_SECRET",
-  stripePortal: "STRIPE_PORTAL_CONFIGURATION_ID"
+  stripePortal: "STRIPE_PORTAL_CONFIGURATION_ID",
+  stripeTestPublishable: "STRIPE_TEST_PUBLISHABLE_KEY",
+  stripeTestSecret: "STRIPE_TEST_SECRET_KEY",
+  stripeTestWebhook: "STRIPE_TEST_WEBHOOK_SECRET",
+  stripeTestPortal: "STRIPE_TEST_PORTAL_CONFIGURATION_ID",
+  stripeLivePublishable: "STRIPE_LIVE_PUBLISHABLE_KEY",
+  stripeLiveSecret: "STRIPE_LIVE_SECRET_KEY",
+  stripeLiveWebhook: "STRIPE_LIVE_WEBHOOK_SECRET",
+  stripeLivePortal: "STRIPE_LIVE_PORTAL_CONFIGURATION_ID"
 };
+
+const stripeModeProviders = {
+  test: {
+    publishable: "stripeTestPublishable",
+    secret: "stripeTestSecret",
+    webhook: "stripeTestWebhook",
+    portal: "stripeTestPortal"
+  },
+  live: {
+    publishable: "stripeLivePublishable",
+    secret: "stripeLiveSecret",
+    webhook: "stripeLiveWebhook",
+    portal: "stripeLivePortal"
+  }
+} as const;
 
 function encryptionKey() {
   return crypto.createHash("sha256").update(process.env.APP_SECRET || "contentagent-local-secret").digest();
@@ -47,6 +70,24 @@ export async function getProviderApiKey(provider: ApiKeyProvider) {
   return process.env[providerEnv[provider]]?.trim() || "";
 }
 
+export async function getStripeModeKey(mode: StripeMode, kind: "publishable" | "secret" | "webhook" | "portal") {
+  const provider = stripeModeProviders[mode][kind] as ApiKeyProvider;
+  const value = await getProviderApiKey(provider);
+  if (value) return value;
+  if (mode !== "test") return "";
+  const legacyProvider = {
+    publishable: "stripePublishable",
+    secret: "stripeSecret",
+    webhook: "stripeWebhook",
+    portal: "stripePortal"
+  }[kind] as ApiKeyProvider;
+  return getProviderApiKey(legacyProvider);
+}
+
+export function stripeModeProvider(mode: StripeMode, kind: "publishable" | "secret" | "webhook" | "portal") {
+  return stripeModeProviders[mode][kind] as ApiKeyProvider;
+}
+
 export function configuredFromEnv(provider: ApiKeyProvider) {
   return Boolean(process.env[providerEnv[provider]]?.trim());
 }
@@ -77,6 +118,16 @@ export async function saveApiKeyOverride(provider: ApiKeyProvider, value: string
     if (existing) Object.assign(existing, next);
     else db.apiKeyOverrides.push(next);
     return { provider, updatedAt: now, updatedBy };
+  });
+}
+
+export async function deleteApiKeyOverrides(providers: ApiKeyProvider[]) {
+  return mutateDb((db) => {
+    db.apiKeyOverrides ||= [];
+    const selected = new Set(providers);
+    const before = db.apiKeyOverrides.length;
+    db.apiKeyOverrides = db.apiKeyOverrides.filter((item) => !selected.has(item.provider));
+    return { removed: before - db.apiKeyOverrides.length };
   });
 }
 

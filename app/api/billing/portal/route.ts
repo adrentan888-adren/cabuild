@@ -1,14 +1,19 @@
 import { NextResponse } from "next/server";
-import { getProviderApiKey } from "@/lib/apiKeyOverrides";
+import { getStripeModeKey } from "@/lib/apiKeyOverrides";
 import { currentUser } from "@/lib/session";
+import { readDb } from "@/lib/store";
 import { createStripePortalSession } from "@/lib/stripeBilling";
+import type { StripeMode } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   const user = await currentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!user.stripeCustomerId) {
+  const db = await readDb();
+  const mode: StripeMode = db.billingSettings.stripeMode === "live" ? "live" : "test";
+  const customerId = user.stripeCustomerIds?.[mode] || (mode === "test" ? user.stripeCustomerId : "");
+  if (!customerId) {
     return NextResponse.json({ error: "No Stripe customer exists yet. Start a checkout first, then the Customer Portal will be available." }, { status: 400 });
   }
   let body: Record<string, unknown> = {};
@@ -18,10 +23,10 @@ export async function POST(req: Request) {
     body = {};
   }
   const returnUrl = safeReturnUrl(String(body.returnUrl || ""), req.url);
-  const portalConfig = await getProviderApiKey("stripePortal");
+  const portalConfig = await getStripeModeKey(mode, "portal");
   try {
-    const session = await createStripePortalSession({
-      customer: user.stripeCustomerId,
+    const session = await createStripePortalSession(mode, {
+      customer: customerId,
       return_url: `${returnUrl}/?billing=portal`,
       configuration: portalConfig || undefined
     }, `portal:${user.id}:${Date.now()}`);

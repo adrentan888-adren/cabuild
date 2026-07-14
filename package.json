@@ -10,7 +10,9 @@
     "db:import-json": "node tools/postgres/import-json-to-postgres.mjs",
     "db:export-json": "node tools/postgres/export-postgres-json.mjs",
     "db:backup": "node tools/postgres/backup-postgres.mjs",
-    "db:restore": "node tools/postgres/restore-postgres-backup.mjs"
+    "db:restore": "node tools/postgres/restore-postgres-backup.mjs",
+    "test:stripe-phase10.5": "node tools/stripe/phase10-5-smoke.mjs",
+    "test:stripe-phase10.5-ui": "node tools/stripe/phase10-5-ui-smoke.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

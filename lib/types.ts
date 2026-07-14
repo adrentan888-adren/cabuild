@@ -19,6 +19,14 @@ export type PermissionKey =
   | "apiKeys.edit"
   | "billing.view"
   | "billing.manage"
+  | "stripe.view"
+  | "stripe.connectTest"
+  | "stripe.manageTestCatalogue"
+  | "stripe.connectLive"
+  | "stripe.manageLiveCatalogue"
+  | "stripe.migrateSubscriptions"
+  | "stripe.disconnect"
+  | "stripe.viewEvents"
   | "system.view"
   | "logs.view"
   | "settings.view"
@@ -34,6 +42,7 @@ export type User = {
   role: UserRole;
   workspaceId: string;
   stripeCustomerId?: string;
+  stripeCustomerIds?: Partial<Record<StripeMode, string>>;
   emailVerified?: boolean;
   emailVerificationCodeHash?: string;
   emailVerificationExpiresAt?: string;
@@ -402,7 +411,25 @@ export type AutomationSourceRun = {
   billingEstimatedCredits?: number;
 };
 
-export type ApiKeyProvider = "kie" | "apify" | "apifyBackup" | "uploadPost" | "stripePublishable" | "stripeSecret" | "stripeWebhook" | "stripePortal";
+export type StripeMode = "test" | "live";
+
+export type ApiKeyProvider =
+  | "kie"
+  | "apify"
+  | "apifyBackup"
+  | "uploadPost"
+  | "stripePublishable"
+  | "stripeSecret"
+  | "stripeWebhook"
+  | "stripePortal"
+  | "stripeTestPublishable"
+  | "stripeTestSecret"
+  | "stripeTestWebhook"
+  | "stripeTestPortal"
+  | "stripeLivePublishable"
+  | "stripeLiveSecret"
+  | "stripeLiveWebhook"
+  | "stripeLivePortal";
 
 export type ApiKeyOverride = {
   provider: ApiKeyProvider;
@@ -540,6 +567,109 @@ export type BillingPlan = {
   maxConcurrentGenerations?: number;
 };
 
+export type BillingStripeConnection = {
+  mode: StripeMode;
+  status: "disconnected" | "connected" | "error";
+  accountId?: string;
+  accountName?: string;
+  country?: string;
+  defaultCurrency?: string;
+  chargesEnabled?: boolean;
+  payoutsEnabled?: boolean;
+  webhookEndpointId?: string;
+  webhookUrl?: string;
+  webhookStatus?: "missing" | "configured" | "error";
+  checkoutEnabled: boolean;
+  lastValidatedAt?: string;
+  lastWebhookAt?: string;
+  catalogSyncedAt?: string;
+  error?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+};
+
+export type BillingStripeCatalogueMapping = {
+  id: string;
+  mode: StripeMode;
+  itemKind: "plan" | "package";
+  itemId: string;
+  productId: string;
+  priceId: string;
+  revisionId: string;
+  amountUsd: number;
+  currency: "usd";
+  interval?: "month";
+  active: boolean;
+  status: "synced" | "out_of_sync" | "archived" | "error";
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+};
+
+export type BillingStripeCatalogueRevision = {
+  id: string;
+  mode: StripeMode;
+  itemKind: "plan" | "package";
+  itemId: string;
+  itemName: string;
+  productId: string;
+  priceId: string;
+  amountUsd: number;
+  currency: "usd";
+  interval?: "month";
+  baseCredits: number;
+  bonusCredits: number;
+  bonusPercent: number;
+  totalCredits: number;
+  expiryDays?: number;
+  effectiveAt: string;
+  retiredAt?: string;
+  createdBy: string;
+  reason: string;
+};
+
+export type BillingCheckoutOrder = {
+  id: string;
+  mode: StripeMode;
+  userId: string;
+  workspaceId: string;
+  itemKind: "plan" | "package";
+  itemId: string;
+  itemName: string;
+  catalogueRevisionId: string;
+  stripePriceId: string;
+  amountUsd: number;
+  currency: "usd";
+  creditsPromised: number;
+  expiryDays?: number;
+  status: "pending" | "checkout_created" | "paid" | "failed" | "expired" | "refunded";
+  stripeCheckoutSessionId?: string;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  stripePaymentIntentId?: string;
+  stripeInvoiceId?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+  paidAt?: string;
+};
+
+export type BillingStripeSubscriptionMigration = {
+  id: string;
+  mode: StripeMode;
+  planId: string;
+  fromRevisionId?: string;
+  toRevisionId: string;
+  policy: "new_customers_only" | "next_renewal" | "change_now";
+  prorationBehavior?: "create_prorations" | "none";
+  affectedSubscriptions: number;
+  status: "recorded" | "pending" | "completed" | "partially_failed" | "failed";
+  createdBy: string;
+  createdAt: string;
+  completedAt?: string;
+  results?: { subscriptionId: string; status: "pending" | "completed" | "failed"; error?: string }[];
+};
+
 export type BillingCreditPackage = {
   id: string;
   name: string;
@@ -567,6 +697,7 @@ export type BillingSettings = {
   maxConcurrentGenerations?: number;
   failedGenerationRefundPolicy?: "release_only" | "refund_if_provider_failed" | "manual_review";
   stripeMode?: "test" | "live";
+  stripeCheckoutEnabled?: Partial<Record<StripeMode, boolean>>;
   allowNegativeBalance: false;
 };
 
@@ -599,6 +730,8 @@ export type BillingSubscriptionState = {
   planId: string;
   stripeCustomerId: string;
   stripeSubscriptionId: string;
+  stripeMode?: StripeMode;
+  catalogueRevisionId?: string;
   status: "active" | "trialing" | "past_due" | "canceled" | "unpaid" | "incomplete" | "incomplete_expired" | "paused" | "unknown";
   currentPeriodStart?: string;
   currentPeriodEnd?: string;
@@ -681,6 +814,11 @@ export type Database = {
   billingPricingAlerts: BillingPricingAlert[];
   billingSubscriptions: BillingSubscriptionState[];
   billingStripeEvents: BillingStripeEvent[];
+  billingStripeConnections: BillingStripeConnection[];
+  billingStripeCatalogueMappings: BillingStripeCatalogueMapping[];
+  billingStripeCatalogueRevisions: BillingStripeCatalogueRevision[];
+  billingCheckoutOrders: BillingCheckoutOrder[];
+  billingStripeSubscriptionMigrations: BillingStripeSubscriptionMigration[];
   promptTemplates: PromptTemplates;
   rolePermissions: RolePermissions;
 };

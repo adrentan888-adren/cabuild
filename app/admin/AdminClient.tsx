@@ -107,6 +107,27 @@ export default function AdminClient() {
     }
   }
 
+  async function runStripe(payload: Record<string, unknown>, message = "Stripe updated") {
+    try {
+      const res = await fetch("/api/admin/stripe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      if (!res.ok && res.status !== 207) throw new Error(json.error || "Stripe request failed");
+      await refresh();
+      setToast(message);
+      return json;
+    } catch (error) {
+      await refresh();
+      setToast(error instanceof Error ? error.message : "Stripe request failed");
+      return null;
+    } finally {
+      setTimeout(() => setToast(""), 3200);
+    }
+  }
+
   if (loading) return <div className="loading">Loading backend controls...</div>;
   if (!data) return <div className="loading">Redirecting to sign in...</div>;
 
@@ -122,7 +143,7 @@ export default function AdminClient() {
         </div>
       </header>
       <main className="admin-main">
-        <AdminPanel data={data} run={run} runAdmin={runAdmin} runBilling={runBilling} integrations={integrations} adminData={adminData} billingData={billingData} />
+        <AdminPanel data={data} run={run} runAdmin={runAdmin} runBilling={runBilling} runStripe={runStripe} integrations={integrations} adminData={adminData} billingData={billingData} />
       </main>
     </div>
   );

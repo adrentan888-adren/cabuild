@@ -7,7 +7,8 @@ import { mutatePostgresDb, postgresEnabled, readPostgresDb, writePostgresDb } fr
 import type { Database, PermissionKey, PersonaProfile, Platform, PromptTemplates, RolePermissions, UserRole } from "./types";
 
 const dataDir = path.join(process.cwd(), "data");
-const dataFile = path.join(dataDir, "app.json");
+const dataFile = process.env.DATA_STORE_LOCAL_FILE ? path.resolve(process.env.DATA_STORE_LOCAL_FILE) : path.join(dataDir, "app.json");
+const localDataDir = path.dirname(dataFile);
 const gcsBucket = process.env.DATA_STORE_GCS_BUCKET;
 const gcsObject = process.env.DATA_STORE_GCS_OBJECT || "app.json";
 
@@ -75,6 +76,14 @@ const allPermissionKeys: PermissionKey[] = [
   "apiKeys.edit",
   "billing.view",
   "billing.manage",
+  "stripe.view",
+  "stripe.connectTest",
+  "stripe.manageTestCatalogue",
+  "stripe.connectLive",
+  "stripe.manageLiveCatalogue",
+  "stripe.migrateSubscriptions",
+  "stripe.disconnect",
+  "stripe.viewEvents",
   "system.view",
   "logs.view",
   "settings.view",
@@ -99,6 +108,10 @@ export const defaultRolePermissions: RolePermissions = {
     "apiKeys.edit",
     "billing.view",
     "billing.manage",
+    "stripe.view",
+    "stripe.connectTest",
+    "stripe.manageTestCatalogue",
+    "stripe.viewEvents",
     "system.view",
     "logs.view",
     "settings.view",
@@ -111,6 +124,8 @@ export const defaultRolePermissions: RolePermissions = {
     "prompts.view",
     "apiKeys.view",
     "billing.view",
+    "stripe.view",
+    "stripe.viewEvents",
     "system.view",
     "logs.view",
     "settings.view"
@@ -243,6 +258,14 @@ export function seeded(): Database {
     billingPricingAlerts: [],
     billingSubscriptions: [],
     billingStripeEvents: [],
+    billingStripeConnections: [
+      { mode: "test", status: "disconnected", checkoutEnabled: false, webhookStatus: "missing" },
+      { mode: "live", status: "disconnected", checkoutEnabled: false, webhookStatus: "missing" }
+    ],
+    billingStripeCatalogueMappings: [],
+    billingStripeCatalogueRevisions: [],
+    billingCheckoutOrders: [],
+    billingStripeSubscriptionMigrations: [],
     promptTemplates: defaultPromptTemplates,
     rolePermissions: defaultRolePermissions
   };
@@ -261,6 +284,8 @@ export function normalizeDb(db: Database): Database {
     if (typeof user.emailVerified !== "boolean") user.emailVerified = true;
     if (!user.createdAt) user.createdAt = new Date().toISOString();
     if (!user.updatedAt) user.updatedAt = user.createdAt;
+    user.stripeCustomerIds ||= {};
+    if (user.stripeCustomerId && !user.stripeCustomerIds.test) user.stripeCustomerIds.test = user.stripeCustomerId;
   }
   db.competitorResults ||= [];
   db.researchScans ||= [];
@@ -276,6 +301,16 @@ export function normalizeDb(db: Database): Database {
   db.billingPricingAlerts ||= [];
   db.billingSubscriptions ||= [];
   db.billingStripeEvents ||= [];
+  db.billingStripeConnections ||= [];
+  for (const mode of ["test", "live"] as const) {
+    if (!db.billingStripeConnections.some((item) => item.mode === mode)) {
+      db.billingStripeConnections.push({ mode, status: "disconnected", checkoutEnabled: false, webhookStatus: "missing" });
+    }
+  }
+  db.billingStripeCatalogueMappings ||= [];
+  db.billingStripeCatalogueRevisions ||= [];
+  db.billingCheckoutOrders ||= [];
+  db.billingStripeSubscriptionMigrations ||= [];
   ensureBillingDefaults(db);
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
   const existingPermissions = (db as Database & { rolePermissions?: Partial<RolePermissions> }).rolePermissions || {};
@@ -311,7 +346,7 @@ export async function readDb(): Promise<Database> {
       console.warn(error instanceof Error ? error.message : "GCS data store read failed; falling back to local JSON store.");
     }
   }
-  await fs.mkdir(dataDir, { recursive: true });
+  await fs.mkdir(localDataDir, { recursive: true });
   try {
     return normalizeDb(JSON.parse(await fs.readFile(dataFile, "utf8")) as Database);
   } catch {
@@ -334,7 +369,7 @@ export async function writeDb(db: Database) {
       console.warn(error instanceof Error ? error.message : "GCS data store write failed; falling back to local JSON store.");
     }
   }
-  await fs.mkdir(dataDir, { recursive: true });
+  await fs.mkdir(localDataDir, { recursive: true });
   await fs.writeFile(dataFile, JSON.stringify(db, null, 2));
 }
 

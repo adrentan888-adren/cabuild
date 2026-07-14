@@ -5,7 +5,12 @@ import { id, mutateDb, readDb } from "@/lib/store";
 import { apiKeyStatus, saveApiKeyOverride } from "@/lib/apiKeyOverrides";
 import type { ApiKeyProvider } from "@/lib/types";
 
-const providers: ApiKeyProvider[] = ["kie", "apify", "apifyBackup", "uploadPost", "stripePublishable", "stripeSecret", "stripeWebhook", "stripePortal"];
+const providers: ApiKeyProvider[] = [
+  "kie", "apify", "apifyBackup", "uploadPost",
+  "stripePublishable", "stripeSecret", "stripeWebhook", "stripePortal",
+  "stripeTestPublishable", "stripeTestSecret", "stripeTestWebhook", "stripeTestPortal",
+  "stripeLivePublishable", "stripeLiveSecret", "stripeLiveWebhook", "stripeLivePortal"
+];
 
 async function requireAdmin(permission: "apiKeys.view" | "apiKeys.edit") {
   const user = await currentUser();

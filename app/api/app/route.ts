@@ -89,10 +89,14 @@ export async function GET() {
     .map(safeBillingEntry);
   const activeLedger = billingLedger.filter((entry) => !entry.expiresAt || new Date(entry.expiresAt).getTime() >= Date.now());
   const billingBalance = calculateCreditBalance(db, workspace.id);
+  const stripeMode = db.billingSettings.stripeMode === "live" ? "live" : "test";
+  const stripeConnection = db.billingStripeConnections.find((item) => item.mode === stripeMode);
+  const stripeCheckoutEnabled = Boolean(stripeConnection?.checkoutEnabled && db.billingSettings.stripeCheckoutEnabled?.[stripeMode]);
   const billingPlans = (db.billingPlans || []).filter((plan) => plan.active);
   const billingCreditPackages = (db.billingCreditPackages || []).filter((pkg) => pkg.active);
   const currentSubscription = (db.billingSubscriptions || [])
     .filter((item) => item.workspaceId === workspace.id)
+    .filter((item) => (item.stripeMode || "test") === stripeMode)
     .filter((item) => ["active", "trialing", "past_due"].includes(item.status))
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] || null;
   const currentPlan = billingPlans.find((plan) => plan.id === currentSubscription?.planId)
@@ -137,8 +141,16 @@ export async function GET() {
         currentPeriodEnd: currentSubscription.currentPeriodEnd,
         cancelAtPeriodEnd: currentSubscription.cancelAtPeriodEnd
       } : null,
-      plans: billingPlans,
-      creditPackages: billingCreditPackages,
+      stripeMode,
+      stripeCheckoutEnabled,
+      plans: billingPlans.map((plan) => ({
+        ...plan,
+        stripePriceId: stripeCheckoutEnabled ? db.billingStripeCatalogueMappings.find((mapping) => mapping.mode === stripeMode && mapping.itemKind === "plan" && mapping.itemId === plan.id && mapping.active && mapping.status === "synced")?.priceId : undefined
+      })),
+      creditPackages: billingCreditPackages.map((pkg) => ({
+        ...pkg,
+        stripePriceId: stripeCheckoutEnabled ? db.billingStripeCatalogueMappings.find((mapping) => mapping.mode === stripeMode && mapping.itemKind === "package" && mapping.itemId === pkg.id && mapping.active && mapping.status === "synced")?.priceId : undefined
+      })),
       ledger: billingLedger.slice(0, 200),
       paymentHistory,
       usageByModule: groupUsage(billingLedger, "module"),

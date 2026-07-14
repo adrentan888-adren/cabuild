@@ -25,6 +25,7 @@ export const defaultBillingSettings: BillingSettings = {
   maxConcurrentGenerations: 2,
   failedGenerationRefundPolicy: "refund_if_provider_failed",
   stripeMode: "test",
+  stripeCheckoutEnabled: { test: false, live: false },
   allowNegativeBalance: false
 };
 
@@ -103,6 +104,10 @@ function rate(
 export function ensureBillingDefaults(db: Database) {
   const previousSettings = db.billingSettings || {};
   db.billingSettings = { ...defaultBillingSettings, ...previousSettings };
+  db.billingSettings.stripeCheckoutEnabled = {
+    test: Boolean(previousSettings.stripeCheckoutEnabled?.test),
+    live: Boolean(previousSettings.stripeCheckoutEnabled?.live)
+  };
   if (!Object.prototype.hasOwnProperty.call(previousSettings, "automationDefaultMonthlyCap")) {
     db.billingSettings.automationDefaultMonthlyCap = defaultBillingSettings.automationDefaultMonthlyCap;
     if (!previousSettings.automationDefaultRunCap || previousSettings.automationDefaultRunCap <= 3500) {
@@ -113,6 +118,23 @@ export function ensureBillingDefaults(db: Database) {
   db.billingProviderMappings = mergeById(defaultBillingProviderMappings, db.billingProviderMappings || []);
   db.billingPlans = mergeById(defaultBillingPlans, db.billingPlans || []).map(recalculatePlanCredits);
   db.billingCreditPackages = mergeById(defaultBillingCreditPackages, db.billingCreditPackages || []).map(recalculatePackageCredits);
+  db.billingStripeCatalogueMappings ||= [];
+  db.billingStripeCatalogueRevisions ||= [];
+  db.billingCheckoutOrders ||= [];
+  db.billingStripeSubscriptionMigrations ||= [];
+  for (const mapping of db.billingStripeCatalogueMappings) {
+    if (!mapping.active) continue;
+    const item = mapping.itemKind === "plan"
+      ? db.billingPlans.find((plan) => plan.id === mapping.itemId)
+      : db.billingCreditPackages.find((pkg) => pkg.id === mapping.itemId);
+    if (!item) {
+      mapping.status = "error";
+      mapping.error = "The mapped Content Agent offer no longer exists.";
+      continue;
+    }
+    const expectedInterval = mapping.itemKind === "plan" ? "month" : undefined;
+    if (mapping.amountUsd !== item.priceUsd || mapping.interval !== expectedInterval) mapping.status = "out_of_sync";
+  }
   db.billingLedger ||= [];
   for (const workspace of db.workspaces || []) {
     const openingId = `cred_opening_${workspace.id}`;

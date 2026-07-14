@@ -16,7 +16,7 @@ async function requireBillingAdmin(permission: "billing.view" | "billing.manage"
   return { user, db };
 }
 
-function billingPayload(db: Database) {
+function billingPayload(db: Database, actor?: User) {
   const workspaceBalances = db.workspaces.map((workspace) => {
     const balance = calculateCreditBalance(db, workspace.id);
     return {
@@ -50,7 +50,14 @@ function billingPayload(db: Database) {
     pricingSyncRuns: (db.billingPricingSyncRuns || []).slice().sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()).slice(0, 50),
     pricingAlerts: (db.billingPricingAlerts || []).slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250),
     stripeSubscriptions: (db.billingSubscriptions || []).slice().sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 100),
-    stripeEvents: (db.billingStripeEvents || []).slice().sort((a, b) => new Date(b.processedAt).getTime() - new Date(a.processedAt).getTime()).slice(0, 100),
+    stripeEvents: actor && hasPermission(db, actor, "stripe.viewEvents") ? (db.billingStripeEvents || []).slice().sort((a, b) => new Date(b.processedAt).getTime() - new Date(a.processedAt).getTime()).slice(0, 100) : [],
+    stripeConnections: db.billingStripeConnections,
+    stripeCatalogueMappings: db.billingStripeCatalogueMappings.slice().sort((a, b) => Number(b.active) - Number(a.active) || new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
+    stripeCatalogueRevisions: db.billingStripeCatalogueRevisions.slice().sort((a, b) => new Date(b.effectiveAt).getTime() - new Date(a.effectiveAt).getTime()).slice(0, 100),
+    stripeCheckoutOrders: actor && hasPermission(db, actor, "stripe.viewEvents") ? db.billingCheckoutOrders.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 100) : [],
+    stripeSubscriptionMigrations: db.billingStripeSubscriptionMigrations.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 100),
+    stripePermissions: actor ? db.rolePermissions[actor.role] || [] : [],
+    stripeLiveSetupLocked: process.env.STRIPE_LIVE_SETUP_ENABLED !== "true",
     ledger: db.billingLedger.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 250)
   };
 }
@@ -73,7 +80,7 @@ function auditBillingChange(db: Database, actor: User, message: string, details?
 export async function GET() {
   const auth = await requireBillingAdmin("billing.view");
   if ("error" in auth) return auth.error;
-  return NextResponse.json(billingPayload(auth.db));
+  return NextResponse.json(billingPayload(auth.db, auth.user));
 }
 
 export async function POST(req: Request) {
@@ -93,6 +100,12 @@ export async function PATCH(req: Request) {
   if ("error" in auth) return auth.error;
   const body = await req.json() as Record<string, unknown>;
   const operation = String(body.operation || "");
+
+  if (operation === "updateSettings" && body.stripeMode === "live") {
+    if (process.env.STRIPE_LIVE_SETUP_ENABLED !== "true") return NextResponse.json({ error: "Live Stripe mode is locked until Phase 11." }, { status: 403 });
+    const live = auth.db.billingStripeConnections.find((item) => item.mode === "live");
+    if (!live?.checkoutEnabled || live.status !== "connected") return NextResponse.json({ error: "Connect, synchronize, and enable live Stripe Checkout before switching the frontend to live mode." }, { status: 400 });
+  }
 
   if (operation === "syncProviderPricing") {
     const provider = String(body.provider || "") as BillingProvider;
@@ -136,7 +149,7 @@ export async function PATCH(req: Request) {
       return { ok: true };
     });
     const db = await readDb();
-    return NextResponse.json({ ok: true, ...billingPayload(db) });
+    return NextResponse.json({ ok: true, ...billingPayload(db, auth.user) });
   }
 
   const result = await mutateDb((db) => {
@@ -267,7 +280,7 @@ export async function PATCH(req: Request) {
 
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
   const db = await readDb();
-  return NextResponse.json({ ok: true, ...billingPayload(db) });
+  return NextResponse.json({ ok: true, ...billingPayload(db, auth.user) });
 }
 
 function updateRateCard(card: BillingRateCard, body: Record<string, unknown>) {

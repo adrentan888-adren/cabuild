@@ -801,92 +801,555 @@ Phase 10 test checklist:
 
 
 ============================================================
-PHASE 11 - STRIPE PRODUCTION
+PHASE 10.5 - STRIPE ACCOUNT AND CATALOGUE MANAGEMENT
 ============================================================
 
 Goal:
-Enable real payments.
-
-Steps:
-
-1. Add production Stripe keys in backend
-- publishable key
-- secret key
-- webhook secret
-
-2. Configure production webhook endpoint
-
-3. Create production Stripe products/prices
-- Starter $20/mo
-- Growth $50/mo
-- Pro $100/mo
-- $5 top-up
-- $10 top-up
-- $50 top-up
-- $100 top-up
-- $200 top-up
-
-4. Map Stripe price IDs to backend plans/packages
-
-5. Production smoke test
-- buy $5 top-up
-- subscribe to $20 plan
-- verify credits granted
-- verify invoice history
-- verify webhook event stored
-- verify duplicate webhook protection
+Let an authorized Content Agent admin connect Stripe once and manage the
+Stripe product/price catalogue from the Content Agent backend. Complete the
+real Stripe test-mode acceptance work before any live payment rollout.
 
 
-Phase 11 test checklist:
-- Production Stripe checkout works.
-- Production webhook receives event.
-- Credits are granted correctly.
-- Invoices appear.
+Release boundary:
+- Build and deploy Phase 10.5 to staging first.
+- Do not enable live payments in this phase.
+- Do not replace or remove the Phase 10 webhook/ledger protections.
+- Phase 10.5 must pass its acceptance gate before Phase 11 starts.
+
+
+1. Separate test and live Stripe connections
+
+Replace the single shared Stripe configuration with isolated profiles:
+
+Test profile:
+- encrypted test secret key
+- optional test publishable key
+- Stripe account ID and display name
+- webhook endpoint ID
+- encrypted webhook signing secret
+- optional Customer Portal configuration ID
+- connection status and last validation time
+
+Live profile:
+- encrypted live secret key
+- optional live publishable key
+- Stripe account ID and display name
+- webhook endpoint ID
+- encrypted webhook signing secret
+- optional Customer Portal configuration ID
+- connection status and last validation time
+
+Rules:
+- Never display a complete secret after it is saved.
+- Never send a secret key or webhook secret to the browser.
+- Never store raw secrets in logs, GitHub, build output, or audit metadata.
+- Validate key mode and reject a test key in the live profile or vice versa.
+- Preserve environment-variable fallback for emergency recovery.
+- Migrate the existing single Stripe settings into the test profile without
+  deleting any existing value.
+
+
+2. Add Stripe connection management to the admin GUI
+
+Add Billing -> Stripe Connection with:
+- Test and Live profile cards.
+- Connected account name, account ID, mode, and validation status.
+- Connect/replace key action.
+- Validate connection action.
+- Disconnect action with a confirmation dialog.
+- Webhook status and last successful delivery.
+- Catalogue sync status and last sync time.
+- Link to the connected Stripe Dashboard account.
+- Explicit warning before any live-mode action.
+
+Connect Stripe workflow:
+1. Admin enters the secret key in a masked field.
+2. Backend validates it against the Stripe Account API.
+3. Backend confirms the key mode and account identity.
+4. Admin confirms the account shown.
+5. Backend encrypts and stores the key.
+6. Backend provisions or verifies the webhook endpoint.
+7. Backend stores the returned webhook signing secret encrypted.
+8. Backend configures or reuses the Customer Portal configuration.
+9. Backend records a secret-safe admin audit event.
+
+The publishable key remains optional while the product uses Stripe-hosted
+Checkout. It can be stored for a future embedded Stripe payment form.
+
+
+3. Isolate test and live webhooks
+
+Use separate endpoint paths:
+- /api/stripe/webhook/test
+- /api/stripe/webhook/live
+
+Each endpoint must:
+- use only its own mode's signing secret
+- reject events whose livemode value does not match the endpoint
+- store Stripe event IDs for idempotency
+- preserve raw request bytes for signature verification
+- return quickly and process retry-safe work
+- redact customer and secret data from logs
+
+Keep the existing /api/stripe/webhook endpoint temporarily as a compatibility
+route during migration. Remove it only after existing endpoints are migrated
+and verified.
+
+Required event types:
+- checkout.session.completed
+- invoice.paid
+- invoice.payment_failed
+- customer.subscription.updated
+- customer.subscription.deleted
+- charge.refunded
+
+
+4. Add backend-managed Stripe catalogue
+
+The Content Agent backend becomes the normal place to manage:
+- Starter monthly plan
+- Growth monthly plan
+- Pro monthly plan
+- all one-time credit top-up packages
+
+For each plan/package, store separate test and live mappings:
+- Stripe product ID
+- active Stripe price ID
+- price amount and currency
+- recurring interval when applicable
+- sync status
+- last synchronized time
+- catalogue revision ID
+
+Admin actions:
+- Create missing Stripe products/prices.
+- Sync Content Agent configuration to Stripe.
+- Compare Content Agent and Stripe values before applying changes.
+- Open the matching Product/Price in Stripe.
+- Archive an unused old price.
+- Retry a failed synchronization.
+- View prior price versions.
+
+Do not require the admin to manually paste Stripe Product or Price IDs during
+normal operation. Keep a restricted manual mapping repair action for recovery.
+
+
+5. Version every price and credit offer
+
+Stripe price amounts are immutable, so changing a price must:
+1. Create a new Stripe Price.
+2. Keep the previous Price available for historical records.
+3. Activate the new mapping only after Stripe confirms creation.
+4. Archive the old Price only when it is safe.
+5. Record who changed it and the before/after values.
+
+Create an immutable catalogue revision containing:
+- internal plan/package ID
+- Stripe mode
+- Stripe product and price IDs
+- charged amount and currency
+- base credits
+- bonus credits/percentage
+- total credits promised
+- effective start/end timestamps
+- admin actor and reason
+
+
+6. Snapshot checkout orders before redirecting to Stripe
+
+Create a persistent billing checkout order before opening Checkout:
+- user and workspace IDs
+- plan/package and catalogue revision IDs
+- test/live mode
+- Stripe price ID
+- exact amount/currency
+- exact credits promised
+- purchase kind
+- checkout session ID
+- pending/paid/expired/refunded status
+- created/paid timestamps
+
+Webhook credit grants must use this immutable order/revision snapshot. They
+must not use the plan/package's latest editable credit amount. This prevents an
+admin price edit during Checkout from changing what the customer receives.
+
+
+7. Handle subscription price changes explicitly
+
+When an admin changes a recurring plan price, require one choice:
+- New customers only: existing subscriptions keep their current Stripe price.
+- Next renewal: schedule existing subscriptions to move at renewal.
+- Change now: migrate selected subscriptions with an explicit proration choice.
+
+Before applying:
+- show affected subscriber count
+- show old/new price and credits
+- show the proration behavior
+- require a second confirmation for live mode
+
+Store a migration job with per-subscription result, retry state, and audit log.
+Never silently migrate existing subscribers.
+
+
+8. Permissions and operational safety
+
+Add detailed permissions:
+- stripe.view
+- stripe.connectTest
+- stripe.manageTestCatalogue
+- stripe.connectLive
+- stripe.manageLiveCatalogue
+- stripe.migrateSubscriptions
+- stripe.disconnect
+- stripe.viewEvents
+
+Owner/super-admin can receive all permissions. Other admin roles must be
+explicitly granted live Stripe permissions.
+
+Add safety controls:
+- Billing checkout kill switch per mode.
+- Confirmation phrase for disconnecting live Stripe.
+- Confirmation phrase for live catalogue or subscription changes.
+- Idempotency keys for all Stripe write operations.
+- Retry-safe catalogue synchronization.
+- No destructive deletion of Stripe Products/Prices.
+- Audit records for connection, sync, price, migration, and webhook changes.
+
+
+9. Complete real Stripe test-mode acceptance
+
+Configure the test connection and automatically create/sync:
+- Starter $20/month
+- Growth $50/month
+- Pro $100/month
+- $5, $10, $50, $100, and $200 top-ups
+
+Test all Phase 10 flows using Stripe test data:
+- each subscription plan
+- each top-up package
+- successful payment
+- failed payment
+- duplicate webhook resend
+- partial and full refund
+- subscription upgrade/downgrade
+- cancellation now/at period end
+- Customer Portal
+- price edit with new Price creation
+- new-customers-only price policy
+- checkout started before a price/credit edit
+- test/live mode isolation
+
+
+Phase 10.5 acceptance checklist:
+- Test Stripe account can be connected from the backend GUI.
+- Secret values stay masked and do not appear in logs or browser payloads.
+- Test webhook is provisioned and signature verification succeeds.
+- Products and prices can be created without opening Stripe Dashboard.
+- Admin price edits create a new Stripe Price and retain history.
+- Test and live mappings cannot overwrite each other.
+- Checkout grants the snapshotted credits exactly once.
+- Changing an offer during an open Checkout does not change promised credits.
+- Existing subscriber migration always requires an explicit policy.
+- All plans and top-ups pass test Checkout.
+- Failed payments grant no credits.
+- Refunds create correct ledger reversals.
 - Customer Portal works.
-- Failed payment does not grant credits.
-- Logs contain no raw secret keys.
+- Disconnect/reconnect preserves financial history.
+- Build, API, migration, and Playwright UI tests pass.
+
+
+Phase 10.5 exit gate:
+- Every acceptance item above passes in staging.
+- Stripe event history shows no unhandled required event.
+- Credit ledger reconciles exactly with test purchases/refunds.
+- Owner approves proceeding to live Stripe configuration.
 
 
 ============================================================
-PHASE 12 - REPORTING AND FINANCE AUDIT
+PHASE 11 - STRIPE PRODUCTION AND CONTROLLED LAUNCH
 ============================================================
 
 Goal:
-Give admin visibility into revenue, cost, margin, and credit liability.
+Connect the verified live Stripe account, provision the live catalogue, and
+enable real payments through a controlled and reversible rollout.
 
-Reports:
-- revenue by day/month
-- provider cost by day/month
-- gross margin by provider
-- gross margin by module
+
+Prerequisites:
+- Phase 10.5 exit gate passed.
+- Stripe account business/identity verification completed.
+- Payout bank account configured.
+- Business name, statement descriptor, support details, and branding reviewed.
+- Terms, privacy, refund, and cancellation policies published.
+- Payment methods and supported countries/currencies confirmed.
+- Stripe Tax decision documented and configured where required.
+- Production database backup and rollback point created.
+
+
+1. Connect the live Stripe account
+
+From Content Agent Billing -> Stripe Connection:
+- enter the live secret key
+- validate the Stripe account identity
+- require owner confirmation
+- provision /api/stripe/webhook/live
+- store the live signing secret encrypted
+- configure/reuse Customer Portal
+- verify webhook health before enabling Checkout
+
+The live profile must not modify the test profile.
+
+
+2. Provision and verify the live catalogue
+
+Create/sync the production catalogue from approved Content Agent offers:
+- Starter $20/month
+- Growth $50/month
+- Pro $100/month
+- $5, $10, $50, $100, and $200 top-ups
+
+Before activation, show a test-vs-live comparison:
+- product name
+- amount/currency
+- billing interval
+- credits promised
+- bonus credits
+- Stripe Product/Price IDs
+- active status
+
+Require approval of the complete live catalogue diff.
+
+
+3. Pre-launch production checks
+
+Verify:
+- live webhook signature and mode isolation
+- successful Stripe API health check
+- HTTPS return/cancel URLs
+- Customer Portal return URL
+- billing emails and receipts
+- ledger idempotency
+- refund behavior
+- checkout kill switch
+- admin audit trail
+- no raw secrets in logs, API payloads, or source control
+
+
+4. Controlled live smoke test
+
+Initially allow live Checkout only for an owner test account.
+
+Run:
+- one real $5 top-up
+- one real $20 monthly subscription
+- confirm Stripe charge and receipt
+- confirm credits exactly once
+- confirm payment and invoice history
+- open Customer Portal
+- cancel the test subscription
+- issue and verify a refund/credit reversal
+- resend a webhook and verify no duplicate grant
+
+Record the Stripe object IDs, Content Agent ledger IDs, expected credits, and
+actual credits in the launch report. Redact payment and secret data.
+
+
+5. Gradual launch
+
+Rollout stages:
+1. Owner account only.
+2. Internal/admin accounts.
+3. Small allowlisted user group.
+4. All verified users.
+
+Monitor during each stage:
+- Checkout completion rate
+- webhook failures/retries
+- duplicate/failed ledger entries
+- payment failures
+- refund accuracy
+- Stripe-to-ledger discrepancies
+- support reports
+
+Keep the live checkout kill switch available throughout rollout.
+
+
+6. Rollback procedure
+
+If a critical billing issue occurs:
+1. Disable new live Checkout using the kill switch.
+2. Keep webhooks enabled so existing payments/subscriptions remain recorded.
+3. Stop catalogue/subscription migrations.
+4. Reconcile pending Stripe events and checkout orders.
+5. Correct credits with audited adjustment/refund entries, never by deleting
+   financial records.
+6. Restore application code/configuration only after preserving new Stripe and
+   ledger data.
+
+
+Phase 11 acceptance checklist:
+- Live account is connected and isolated from test mode.
+- Live catalogue matches approved backend offers.
+- Live webhook receives and verifies required events.
+- Real top-up grants the correct credits exactly once.
+- Real subscription grants the correct credits exactly once.
+- Invoice/payment history appears correctly.
+- Customer Portal works.
+- Cancellation and refund states reconcile correctly.
+- Duplicate webhook protection works in live mode.
+- Live kill switch works without disabling webhook ingestion.
+- No secrets or payment details appear in logs/source/browser responses.
+- Controlled rollout report is approved before public activation.
+
+
+============================================================
+PHASE 12 - REPORTING, RECONCILIATION, AND FINANCE AUDIT
+============================================================
+
+Goal:
+Give admins reliable revenue, cost, margin, credit-liability, and Stripe
+reconciliation reporting based on immutable financial records.
+
+
+1. Define finance metrics precisely
+
+Document and calculate:
+- Gross sales: successful Stripe charges before refunds and fees.
+- Refunds: full and partial refunded amount.
+- Net sales: gross sales minus refunds.
+- Stripe fees: processing fees from Stripe balance transactions.
+- Net cash: Stripe net amount after refunds/fees.
+- Subscription revenue and top-up revenue separately.
+- Provider cost: actual provider cost where available; approved rate-card cost
+  otherwise.
+- Gross margin: net sales minus provider cost and configured direct costs.
+- Credits sold, granted, consumed, expired, refunded, and adjusted.
+- Credit face-value liability and estimated provider-cost liability.
+- MRR, active subscriptions, new subscriptions, upgrades, downgrades,
+  cancellations, and churn.
+
+Keep finance definitions visible in the admin report so numbers are auditable.
+
+
+2. Add Stripe reconciliation data
+
+Persist/synchronize references needed to reconcile:
+- Checkout Sessions
+- PaymentIntents and Charges
+- Invoices and Subscriptions
+- Refunds
+- Stripe Balance Transactions and fees
+- Payout IDs/status where needed
+- Content Agent checkout orders
+- Content Agent credit ledger entries
+
+Add a scheduled reconciliation job that compares Stripe with Content Agent and
+creates discrepancy alerts. It must not automatically rewrite financial data.
+
+Discrepancy examples:
+- Stripe payment succeeded but no credit grant exists.
+- Credit grant exists but Stripe payment is not paid.
+- Amount/price/currency mismatch.
+- Duplicate credit grant.
+- Refund without matching credit reversal.
+- Subscription status mismatch.
+- Unprocessed or repeatedly failing webhook.
+
+
+3. Admin reporting dashboards
+
+Add date range and test/live filters to:
+- Revenue overview by day/week/month.
+- Subscription versus top-up revenue.
+- Stripe fees, refunds, and net cash.
+- Provider cost by provider/model/action.
+- Gross margin by provider, module, model, and user segment.
+- Credit movement and active liability.
+- Automation spend and margin.
+- Failed generation cost and refund/release totals.
+- High-spend and high-cost users.
+- Subscription MRR/churn and plan distribution.
+- Stripe webhook and reconciliation health.
+
+All report totals must drill down to the underlying immutable rows.
+
+
+4. User and transaction audit views
+
+Allow an authorized admin to trace one transaction end-to-end:
+Stripe payment -> checkout order -> catalogue revision -> credit grant ->
+feature reservation -> provider call -> final charge/release/refund -> balance.
+
+User audit should show:
+- purchases/subscriptions
+- granted/bonus credits
+- usage by module/provider
+- refunds/adjustments/expiry
+- current calculated balance
+- Stripe and provider references
+- admin actions affecting the account
+
+
+5. Exports and finance operations
+
+Add permission-controlled CSV exports for:
+- credit ledger
+- sales and refunds
+- invoices/subscriptions
+- provider costs
+- margin report
 - credit liability
-- subscription revenue
-- top-up revenue
-- refunds
-- failed payments
-- automation spend
-- high-spend users
-- provider failure cost
+- reconciliation discrepancies
+
+Exports must:
+- respect selected date range/mode/filters
+- include report generation timestamp and currency
+- redact secrets and sensitive payment/customer fields
+- record an audit event identifying the exporting admin
 
 
-Important metrics:
-- total credits sold
-- total credits consumed
-- total credits expired
-- total active liability
-- average cost per generation
-- average revenue per generation
-- failed generation refund amount
-- automation cost by user
+6. Alerts and scheduled controls
+
+Create alerts for:
+- failed or delayed Stripe webhooks
+- unreconciled successful payments
+- duplicate ledger candidates
+- negative or inconsistent balance attempts
+- margin below configurable threshold
+- provider cost spikes
+- high refund/payment-failure rates
+- credit liability above configurable threshold
+
+Show alerts in Admin and optionally email critical alerts through Brevo.
 
 
-Phase 12 test checklist:
-- Admin can see revenue report.
-- Admin can see provider cost report.
-- Admin can see margin report.
-- Admin can see credit liability.
-- Admin can export ledger CSV.
-- Admin can audit one user from purchase to usage to balance.
+7. Data integrity and close procedure
+
+Add a repeatable daily/monthly close report:
+- opening credit liability
+- credits sold/granted/consumed/expired/refunded/adjusted
+- closing credit liability
+- Stripe gross sales/refunds/fees/net
+- provider cost and gross margin
+- unresolved discrepancy count/value
+
+Closed periods remain immutable. Corrections use dated adjustment entries with
+an actor, reason, and link to the original record.
+
+
+Phase 12 acceptance checklist:
+- Revenue totals reconcile to Stripe for a selected period.
+- Stripe fees and refunds are included correctly.
+- Provider cost and margin reports drill down to source rows.
+- Credit liability can be independently recalculated from the ledger.
+- Subscription MRR/churn values match subscription records.
+- Admin can audit one user and one payment end-to-end.
+- Reconciliation detects intentionally created missing/duplicate test records.
+- Reconciliation never silently changes financial records.
+- CSV exports match displayed filters and totals.
+- Export and adjustment actions are permission-controlled and audited.
+- Test/live data are clearly separated in every report.
+- Daily/monthly close report balances correctly.
+- Build, API, calculation, migration, and Playwright UI tests pass.
 
 
 ============================================================

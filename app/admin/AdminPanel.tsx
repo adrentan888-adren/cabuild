@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowUpDown, CreditCard, KeyRound, Save, Server, Settings, ShieldCheck, Trash2, UserPlus, Users, WandSparkles, X } from "lucide-react";
+import { ArrowUpDown, CheckCircle2, CreditCard, ExternalLink, KeyRound, Link2, RefreshCcw, Save, Server, Settings, ShieldCheck, Trash2, Unplug, UserPlus, Users, WandSparkles, X } from "lucide-react";
 import { Fragment, useState } from "react";
-import type { Asset, BillingCreditPackage, BillingLedgerEntry, BillingPlan, BillingPricingAlert, BillingPricingSyncRun, BillingProviderMapping, BillingRateCard, BillingSettings, BillingStripeEvent, BillingSubscriptionState, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
+import type { Asset, BillingCheckoutOrder, BillingCreditPackage, BillingLedgerEntry, BillingPlan, BillingPricingAlert, BillingPricingSyncRun, BillingProviderMapping, BillingRateCard, BillingSettings, BillingStripeCatalogueMapping, BillingStripeCatalogueRevision, BillingStripeConnection, BillingStripeEvent, BillingStripeSubscriptionMigration, BillingSubscriptionState, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, StripeMode, Workspace } from "@/lib/types";
 
 export type AdminAppData = {
   user: { id: string; email: string; name: string; role: string };
@@ -94,12 +94,20 @@ export type AdminBillingData = {
   pricingAlerts: BillingPricingAlert[];
   stripeSubscriptions: BillingSubscriptionState[];
   stripeEvents: BillingStripeEvent[];
+  stripeConnections: BillingStripeConnection[];
+  stripeCatalogueMappings: BillingStripeCatalogueMapping[];
+  stripeCatalogueRevisions: BillingStripeCatalogueRevision[];
+  stripeCheckoutOrders: BillingCheckoutOrder[];
+  stripeSubscriptionMigrations: BillingStripeSubscriptionMigration[];
+  stripePermissions: string[];
+  stripeLiveSetupLocked: boolean;
   ledger: BillingLedgerEntry[];
 };
 
 type RunAction = (a: string, p?: Record<string, unknown>, m?: string) => Promise<unknown>;
 type RunAdminAction = (method: "POST" | "PATCH", payload: Record<string, unknown>, message?: string) => Promise<unknown>;
 type RunBillingAction = (method: "POST" | "PATCH", payload: Record<string, unknown>, message?: string) => Promise<unknown>;
+type RunStripeAction = (payload: Record<string, unknown>, message?: string) => Promise<unknown>;
 type AdminTab = "users" | "permissions" | "prompts" | "keys" | "billing" | "system";
 type AdminUser = AdminUserData["users"][number];
 type UserSortKey = "name" | "username" | "email" | "role" | "status" | "createdAt";
@@ -370,11 +378,7 @@ function ApiKeyManagementCard({ integrations, adminData, currentRole }: { integr
     { id: "kie", label: "Kie.ai", hint: "Used for Gemini/GPT prompt generation, Seedance, VEO, and image generation." },
     { id: "apify", label: "Apify primary", hint: "Used for Research, Source Watcher crawling, and persona crawling." },
     { id: "apifyBackup", label: "Apify backup", hint: "Used automatically when the primary Apify token hits quota/auth/rate-limit errors." },
-    { id: "uploadPost", label: "Upload-Post", hint: "Used to connect social accounts and publish approved content." },
-    { id: "stripePublishable", label: "Stripe publishable key", hint: "Used by the frontend checkout flow in Phase 10. Stored masked until checkout is enabled." },
-    { id: "stripeSecret", label: "Stripe secret key", hint: "Used server-side for Stripe Checkout, subscriptions, invoices, and portal sessions." },
-    { id: "stripeWebhook", label: "Stripe webhook secret", hint: "Used server-side to verify Stripe webhook events before granting credits." },
-    { id: "stripePortal", label: "Stripe portal configuration", hint: "Optional Customer Portal configuration ID for billing self-service." }
+    { id: "uploadPost", label: "Upload-Post", hint: "Used to connect social accounts and publish approved content." }
   ];
   async function saveKey(provider: string, form: FormData) {
     setMessage("");
@@ -424,6 +428,7 @@ function ApiKeyManagementCard({ integrations, adminData, currentRole }: { integr
           <div><b>Kie</b><span>{integrations?.kie?.configured ? "configured" : "missing"} {integrations?.kie?.baseUrl || "https://api.kie.ai"}</span></div>
           <div><b>Apify</b><span>{integrations?.apify?.configured ? "configured" : "missing"} {integrations?.apify?.actor || "apify/google-search-scraper"}</span></div>
           <div><b>Upload-Post</b><span>{integrations?.uploadPost?.ok ? "verified" : integrations?.uploadPost?.configured ? "configured" : "missing"}</span></div>
+          <div><b>Stripe</b><span>Managed from Billing, under Stripe Connection, with isolated test and live credentials.</span></div>
           <div><b>Display policy</b><span>Raw API keys are accepted for replacement only and are never returned to the browser.</span></div>
         </div>
       </PanelCard>
@@ -438,7 +443,7 @@ function formatUsd(value: number) {
   return `$${Number(value || 0).toFixed(4).replace(/\.?0+$/, "")}`;
 }
 
-function BillingManagementCard({ billingData, runBilling }: { billingData: AdminBillingData | null; runBilling: RunBillingAction }) {
+function BillingManagementCard({ billingData, runBilling, runStripe }: { billingData: AdminBillingData | null; runBilling: RunBillingAction; runStripe: RunStripeAction }) {
   const [activeBillingTab, setActiveBillingTab] = useState("plans");
   const [quoteResult, setQuoteResult] = useState<Record<string, unknown> | null>(null);
   const [ledgerModule, setLedgerModule] = useState("");
@@ -447,6 +452,8 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
   const [rateProvider, setRateProvider] = useState("");
   const [rateAction, setRateAction] = useState("");
   const [stripeMessage, setStripeMessage] = useState("");
+  const [stripeBusy, setStripeBusy] = useState("");
+  const [stripeViewMode, setStripeViewMode] = useState<StripeMode>("test");
   const [pricingMessage, setPricingMessage] = useState("");
   const [syncingProvider, setSyncingProvider] = useState("");
   const firstUser = billingData?.users[0];
@@ -458,7 +465,7 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
     ["packages", "Credit Packages"],
     ["rates", "Rate Cards"],
     ["mapping", "Provider Mapping"],
-    ["stripe", "Stripe Settings"],
+    ["stripe", "Stripe Connection"],
     ["ledger", "Credit Ledger"],
     ["users", "User Billing"],
     ["rules", "Billing Rules"],
@@ -483,6 +490,13 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
   const pricingRuns = billingData?.pricingSyncRuns || [];
+  const stripePermissions = new Set(billingData?.stripePermissions || []);
+  const stripeCan = (permission: string) => stripePermissions.has(permission);
+  const stripeOffers = billingData ? [
+    ...billingData.plans.map((item) => ({ id: item.id, name: item.name, kind: "plan" as const, priceUsd: item.priceUsd, totalCredits: item.totalCredits })),
+    ...billingData.creditPackages.map((item) => ({ id: item.id, name: item.name, kind: "package" as const, priceUsd: item.priceUsd, totalCredits: item.totalCredits }))
+  ] : [];
+  const activeStripeMappings = (billingData?.stripeCatalogueMappings || []).filter((item) => item.active);
 
   async function adjustCredits(form: FormData) {
     await runBilling("PATCH", {
@@ -557,7 +571,6 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
       baseCredits: form.get("baseCredits"),
       bonusPercent: form.get("bonusPercent"),
       expiryDays: form.get("expiryDays"),
-      stripePriceId: form.get("stripePriceId"),
       active: form.get("active") === "on",
       automationAllowed: form.get("automationAllowed") === "on",
       maxConcurrentGenerations: form.get("maxConcurrentGenerations"),
@@ -573,31 +586,17 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
       baseCredits: form.get("baseCredits"),
       bonusPercent: form.get("bonusPercent"),
       bonusCredits: form.get("bonusCredits"),
-      stripePriceId: form.get("stripePriceId"),
       active: form.get("active") === "on",
       expiresAfterDays: form.get("expiresAfterDays"),
       maxPurchasesPerMonth: form.get("maxPurchasesPerMonth")
     }, "Credit package saved");
   }
-  async function saveStripeKey(provider: string, form: FormData) {
+  async function stripeAction(key: string, payload: Record<string, unknown>, success: string) {
     setStripeMessage("");
-    const value = String(form.get("value") || "").trim();
-    if (!value) {
-      setStripeMessage("Paste a value before saving.");
-      return;
-    }
-    try {
-      const res = await fetch("/api/admin/api-keys", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, value })
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Could not save Stripe setting.");
-      setStripeMessage("Stripe setting saved. Raw values remain hidden.");
-    } catch (error) {
-      setStripeMessage(error instanceof Error ? error.message : "Could not save Stripe setting.");
-    }
+    setStripeBusy(key);
+    const result = await runStripe(payload, success) as { message?: string; error?: string } | null;
+    setStripeMessage(result?.message || (result ? success : "Stripe action failed. Review the notification or logs."));
+    setStripeBusy("");
   }
   async function syncProviderPricing(provider: string) {
     setPricingMessage("");
@@ -651,7 +650,6 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
                   <label>Credit expiry days<input name="expiryDays" type="number" step="1" defaultValue={plan.expiryDays} /></label>
                   <label>Monthly usage limit<input name="monthlyUsageLimitCredits" type="number" step="1" defaultValue={plan.monthlyUsageLimitCredits || ""} placeholder="Optional" /></label>
                   <label>Max concurrent generations<input name="maxConcurrentGenerations" type="number" step="1" defaultValue={plan.maxConcurrentGenerations || 1} /></label>
-                  <label>Stripe price ID<input name="stripePriceId" defaultValue={plan.stripePriceId || ""} placeholder="price_..." /></label>
                 </div>
                 <div className="row-actions">
                   <label className="checkline"><input name="automationAllowed" type="checkbox" defaultChecked={Boolean(plan.automationAllowed)} />Automation allowed</label>
@@ -681,7 +679,6 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
                   <label>Bonus credits<input name="bonusCredits" type="number" step="1" defaultValue={pkg.bonusCredits} /></label>
                   <label>Expires after days<input name="expiresAfterDays" type="number" step="1" defaultValue={pkg.expiresAfterDays || ""} placeholder="No expiry" /></label>
                   <label>Max purchases / month<input name="maxPurchasesPerMonth" type="number" step="1" defaultValue={pkg.maxPurchasesPerMonth || ""} placeholder="Unlimited" /></label>
-                  <label>Stripe price ID<input name="stripePriceId" defaultValue={pkg.stripePriceId || ""} placeholder="price_..." /></label>
                 </div>
                 <button><Save size={14} />Save package</button>
               </form>
@@ -748,13 +745,14 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
       )}
 
       {activeBillingTab === "stripe" && (
-        <div className="admin-tab-grid billing-grid">
-          <PanelCard title="Stripe settings">
-            <form className="brand-form" action={saveSettings}>
-              <label>Stripe mode
+        <div className="stripe-admin-stack">
+          {stripeMessage && <div className="provider-error inline">{stripeMessage}</div>}
+          <PanelCard title="Payment environment" action={<span className={`status ${billingData.settings.stripeMode === "live" ? "pending" : "done"}`}>{billingData.settings.stripeMode === "live" ? "LIVE" : "TEST"}</span>}>
+            <form className="stripe-mode-row" action={saveSettings}>
+              <label>Frontend Checkout environment
                 <select name="stripeMode" defaultValue={billingData.settings.stripeMode || "test"}>
                   <option value="test">Test mode</option>
-                  <option value="live">Live mode</option>
+                  <option value="live" disabled={billingData.stripeLiveSetupLocked}>Live mode{billingData.stripeLiveSetupLocked ? " - Phase 11 locked" : ""}</option>
                 </select>
               </label>
               <input type="hidden" name="defaultMarkupMultiplier" value={billingData.settings.defaultMarkupMultiplier} />
@@ -766,27 +764,92 @@ function BillingManagementCard({ billingData, runBilling }: { billingData: Admin
               <input type="hidden" name="monthlySpendLimitCredits" value={billingData.settings.monthlySpendLimitCredits || 0} />
               <input type="hidden" name="maxConcurrentGenerations" value={billingData.settings.maxConcurrentGenerations || 1} />
               <input type="hidden" name="failedGenerationRefundPolicy" value={billingData.settings.failedGenerationRefundPolicy || "refund_if_provider_failed"} />
-              <button className="primary"><Save size={14} />Save Stripe mode</button>
+              <button><Save size={14} />Save environment</button>
             </form>
-            <p className="muted compact">Checkout and Customer Portal are enabled in test mode when Stripe keys and price IDs are configured. Configure the Stripe webhook endpoint as <code>/api/stripe/webhook</code>.</p>
+            <p className="muted compact">Test and live credentials, webhooks, customers, and Price mappings are isolated. Live setup stays locked until the Phase 10.5 test acceptance gate passes.</p>
           </PanelCard>
-          <PanelCard title="Stripe credentials">
-            {stripeMessage && <div className="provider-error inline">{stripeMessage}</div>}
-            <div className="api-key-editor-list">
-              {[
-                ["stripePublishable", "Publishable key"],
-                ["stripeSecret", "Secret key"],
-                ["stripeWebhook", "Webhook secret"],
-                ["stripePortal", "Customer Portal config ID"]
-              ].map(([provider, label]) => (
-                <form className="api-key-editor" key={provider} action={(form) => saveStripeKey(provider, form)}>
-                  <div><b>{label}</b><span>Paste a new value to replace the saved Stripe setting. Existing values stay hidden.</span></div>
-                  <input name="value" type="password" placeholder="Paste new Stripe value" />
-                  <button>Save</button>
+
+          <div className="stripe-connection-grid">
+            {(["test", "live"] as StripeMode[]).map((mode) => {
+              const connection = billingData.stripeConnections.find((item) => item.mode === mode) || { mode, status: "disconnected", checkoutEnabled: false, webhookStatus: "missing" as const };
+              const locked = mode === "live" && billingData.stripeLiveSetupLocked;
+              const canConnect = stripeCan(mode === "test" ? "stripe.connectTest" : "stripe.connectLive");
+              const canSync = stripeCan(mode === "test" ? "stripe.manageTestCatalogue" : "stripe.manageLiveCatalogue");
+              const connectForm = (
+                <form className="stripe-connect-form" action={(form) => stripeAction(`connect:${mode}`, {
+                  operation: "connect",
+                  mode,
+                  secretKey: form.get("secretKey"),
+                  publishableKey: form.get("publishableKey")
+                }, `Stripe ${mode} account connected`)}>
+                  <label>Secret key<input name="secretKey" type="password" required placeholder={mode === "test" ? "sk_test_..." : "sk_live_..."} autoComplete="off" disabled={locked || !canConnect || Boolean(stripeBusy)} /></label>
+                  <label>Publishable key <span>optional</span><input name="publishableKey" type="password" placeholder={mode === "test" ? "pk_test_..." : "pk_live_..."} autoComplete="off" disabled={locked || !canConnect || Boolean(stripeBusy)} /></label>
+                  <button className="primary" disabled={locked || !canConnect || Boolean(stripeBusy)}><Link2 size={14} />{stripeBusy === `connect:${mode}` ? "Connecting..." : connection.status === "connected" ? "Replace connection" : "Connect Stripe"}</button>
                 </form>
-              ))}
+              );
+              return (
+                <section className={`stripe-connection-panel ${mode}`} key={mode}>
+                  <div className="stripe-connection-head">
+                    <div><span className="stripe-mode-label">{mode}</span><h3>{mode === "test" ? "Test account" : "Live account"}</h3></div>
+                    <span className={`status ${connection.status === "connected" ? "done" : connection.status === "error" ? "failed" : "pending"}`}>{locked ? "Locked" : connection.status}</span>
+                  </div>
+                  {connection.status === "connected" ? (
+                    <>
+                      <div className="stripe-account-summary">
+                        <div><span>Account</span><b>{connection.accountName || connection.accountId}</b><small>{connection.accountId}</small></div>
+                        <div><span>Region</span><b>{connection.country || "Unknown"}</b><small>{(connection.defaultCurrency || "usd").toUpperCase()}</small></div>
+                        <div><span>Webhook</span><b>{connection.webhookStatus || "missing"}</b><small>{connection.lastWebhookAt ? `Last event ${new Date(connection.lastWebhookAt).toLocaleString()}` : "No event received yet"}</small></div>
+                        <div><span>Checkout</span><b>{connection.checkoutEnabled ? "Enabled" : "Disabled"}</b><small>{connection.catalogSyncedAt ? `Synced ${new Date(connection.catalogSyncedAt).toLocaleString()}` : "Catalogue not synced"}</small></div>
+                      </div>
+                      {connection.error && <div className="provider-error inline">{connection.error}</div>}
+                      <div className="row-actions stripe-actions">
+                        <a className="asset-link" href={mode === "test" ? "https://dashboard.stripe.com/test" : "https://dashboard.stripe.com"} target="_blank" rel="noreferrer"><ExternalLink size={13} />Stripe Dashboard</a>
+                        <button type="button" disabled={Boolean(stripeBusy)} onClick={() => stripeAction(`validate:${mode}`, { operation: "validate", mode }, `Stripe ${mode} validated`)}><CheckCircle2 size={14} />{stripeBusy === `validate:${mode}` ? "Validating..." : "Validate"}</button>
+                        <button type="button" disabled={locked || !canSync || Boolean(stripeBusy)} onClick={() => stripeAction(`sync:${mode}`, { operation: "syncCatalogue", mode, subscriptionPolicy: "new_customers_only", reason: "Admin synchronized Content Agent billing offers." }, `Stripe ${mode} catalogue synchronized`)}><RefreshCcw size={14} />{stripeBusy === `sync:${mode}` ? "Synchronizing..." : "Sync catalogue"}</button>
+                        <button className={connection.checkoutEnabled ? "danger-btn" : "primary"} type="button" disabled={locked || !canSync || Boolean(stripeBusy)} onClick={() => stripeAction(`checkout:${mode}`, { operation: "toggleCheckout", mode, enabled: !connection.checkoutEnabled, confirmation: mode === "live" && !connection.checkoutEnabled ? "ENABLE LIVE CHECKOUT" : "" }, `${mode} Checkout ${connection.checkoutEnabled ? "disabled" : "enabled"}`)}>{connection.checkoutEnabled ? "Disable Checkout" : "Enable Checkout"}</button>
+                      </div>
+                      {canConnect && <details className="stripe-replace"><summary>Replace account credentials</summary>{connectForm}</details>}
+                      {stripeCan("stripe.disconnect") && <button className="stripe-disconnect" type="button" disabled={Boolean(stripeBusy)} onClick={() => {
+                        const required = mode === "live" ? "DISCONNECT LIVE STRIPE" : "DISCONNECT TEST STRIPE";
+                        const confirmation = window.prompt(`Type ${required} to disconnect. Financial history will be retained.`);
+                        if (confirmation) stripeAction(`disconnect:${mode}`, { operation: "disconnect", mode, confirmation }, `Stripe ${mode} disconnected`);
+                      }}><Unplug size={13} />Disconnect {mode}</button>}
+                    </>
+                  ) : (
+                    <>
+                      <p className="muted">{locked ? "Live setup will unlock in Phase 11 after test-mode acceptance." : "Enter the Stripe secret key. Content Agent validates the account and creates the signed webhook automatically."}</p>
+                      {connectForm}
+                    </>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+
+          <PanelCard title="Stripe catalogue" action={<div className="stripe-segmented"><button className={stripeViewMode === "test" ? "on" : ""} onClick={() => setStripeViewMode("test")}>Test</button><button className={stripeViewMode === "live" ? "on" : ""} onClick={() => setStripeViewMode("live")}>Live</button></div>}>
+            <div className="admin-user-table-wrap">
+              <table className="admin-user-table billing-table">
+                <thead><tr><th><span>Offer</span></th><th><span>Type</span></th><th><span>Content Agent</span></th><th><span>Stripe status</span></th><th><span>Price ID</span></th></tr></thead>
+                <tbody>{stripeOffers.map((offer) => {
+                  const mapping = activeStripeMappings.find((item) => item.mode === stripeViewMode && item.itemKind === offer.kind && item.itemId === offer.id);
+                  return <tr key={`${offer.kind}:${offer.id}`}><td><b>{offer.name}</b></td><td>{offer.kind === "plan" ? "Monthly" : "Top-up"}</td><td>{formatUsd(offer.priceUsd)} | {formatCredits(offer.totalCredits)}</td><td><span className={`status ${mapping?.status === "synced" ? "done" : mapping?.status === "error" ? "failed" : "pending"}`}>{mapping?.status || "not synced"}</span></td><td><code>{mapping?.priceId || "Created during sync"}</code></td></tr>;
+                })}</tbody>
+              </table>
+            </div>
+            <p className="muted compact">Saving a changed plan or package marks its Stripe mapping out of sync. Syncing creates a new immutable Stripe Price and keeps the previous revision for audit.</p>
+          </PanelCard>
+
+          <PanelCard title="Checkout orders" action={<span className="admin-pill">{billingData.stripeCheckoutOrders.length} recent</span>}>
+            <div className="admin-user-table-wrap">
+              <table className="admin-user-table billing-table">
+                <thead><tr><th><span>Created</span></th><th><span>Mode</span></th><th><span>Offer</span></th><th><span>Promised</span></th><th><span>Status</span></th><th><span>Order</span></th></tr></thead>
+                <tbody>{billingData.stripeCheckoutOrders.slice(0, 20).map((order) => <tr key={order.id}><td>{new Date(order.createdAt).toLocaleString()}</td><td>{order.mode}</td><td>{order.itemName}<small>{formatUsd(order.amountUsd)}</small></td><td>{formatCredits(order.creditsPromised)}</td><td><span className={`status ${order.status === "paid" ? "done" : order.status === "failed" ? "failed" : "pending"}`}>{order.status}</span></td><td><code>{order.id}</code></td></tr>)}
+                  {billingData.stripeCheckoutOrders.length === 0 && <tr><td colSpan={6}>No Stripe Checkout orders recorded yet.</td></tr>}
+                </tbody>
+              </table>
             </div>
           </PanelCard>
+
           <PanelCard title="Stripe subscriptions">
             <div className="admin-user-table-wrap">
               <table className="admin-user-table billing-table">
@@ -992,7 +1055,7 @@ function SystemCard() {
   );
 }
 
-export default function AdminPanel({ data, run, runAdmin, runBilling, integrations, adminData, billingData }: { data: AdminAppData; run: RunAction; runAdmin: RunAdminAction; runBilling: RunBillingAction; integrations: IntegrationData | null; adminData: AdminUserData | null; billingData: AdminBillingData | null }) {
+export default function AdminPanel({ data, run, runAdmin, runBilling, runStripe, integrations, adminData, billingData }: { data: AdminAppData; run: RunAction; runAdmin: RunAdminAction; runBilling: RunBillingAction; runStripe: RunStripeAction; integrations: IntegrationData | null; adminData: AdminUserData | null; billingData: AdminBillingData | null }) {
   const [activeTab, setActiveTab] = useState<AdminTab>("users");
   const tabs = [
     { id: "users", label: "User Management", icon: Users },
@@ -1033,7 +1096,7 @@ export default function AdminPanel({ data, run, runAdmin, runBilling, integratio
         {activeTab === "permissions" && <PermissionCard adminData={adminData} runAdmin={runAdmin} />}
         {activeTab === "prompts" && <PromptAdminCard data={data} run={run} />}
         {activeTab === "keys" && <ApiKeyManagementCard integrations={integrations} adminData={adminData} currentRole={data.user.role} />}
-        {activeTab === "billing" && <BillingManagementCard billingData={billingData} runBilling={runBilling} />}
+        {activeTab === "billing" && <BillingManagementCard billingData={billingData} runBilling={runBilling} runStripe={runStripe} />}
         {activeTab === "system" && <SystemCard />}
       </section>
     </div>

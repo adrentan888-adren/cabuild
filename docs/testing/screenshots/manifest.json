@@ -1,0 +1,62 @@
+[
+  {
+    "file": "01_frontend_navigation.png",
+    "title": "Frontend modules"
+  },
+  {
+    "file": "02_create_content.png",
+    "title": "Create Content test area"
+  },
+  {
+    "file": "02b_create_content_generate.png",
+    "title": "Create Content final action"
+  },
+  {
+    "file": "03_research.png",
+    "title": "Research billing tests"
+  },
+  {
+    "file": "04_persona.png",
+    "title": "Persona crawl and AI mapping"
+  },
+  {
+    "file": "05_automation.png",
+    "title": "Automation billing controls"
+  },
+  {
+    "file": "06_user_billing.png",
+    "title": "User Billing dashboard"
+  },
+  {
+    "file": "07_admin_billing_modules.png",
+    "title": "Admin Billing modules"
+  },
+  {
+    "file": "08_admin_user_billing.png",
+    "title": "Manual credit adjustment"
+  },
+  {
+    "file": "09_billing_rules.png",
+    "title": "Rules and quote tester"
+  },
+  {
+    "file": "10_pricing_sync.png",
+    "title": "Provider pricing review"
+  },
+  {
+    "file": "11_stripe_connection.png",
+    "title": "Stripe test-mode setup"
+  },
+  {
+    "file": "12_live_launch.png",
+    "title": "Controlled live launch"
+  },
+  {
+    "file": "13_credit_ledger.png",
+    "title": "Ledger verification"
+  },
+  {
+    "file": "14_finance.png",
+    "title": "Finance and reconciliation"
+  }
+]

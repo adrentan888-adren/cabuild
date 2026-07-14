@@ -29,11 +29,11 @@ const stripeServer = http.createServer(async (req, res) => {
   if (req.method === "POST" && path === "/v1/customers") return json(res, 200, { id: "cus_phase12" });
   if (req.method === "POST" && path === "/v1/checkout/sessions") return json(res, 200, { id: "cs_phase12", url: "https://checkout.stripe.test/phase12" });
   if (req.method === "GET" && path === "/v1/balance_transactions") return json(res, 200, { data: [
-    { id: "txn_phase12_charge", amount: 500, fee: 45, net: 455, currency: "usd", type: "charge", reporting_category: "charge", status: "available", source: "ch_phase12", created, available_on: created + 86400 },
-    { id: "txn_phase12_refund", amount: -500, fee: 0, net: -500, currency: "usd", type: "refund", reporting_category: "refund", status: "available", source: "re_phase12", created: created + 2, available_on: created + 86400 }
+    { id: "txn_phase12_charge", amount: 2041, fee: 184, net: 1857, currency: "myr", exchange_rate: 4.082, type: "charge", reporting_category: "charge", status: "available", source: "ch_phase12", created, available_on: created + 86400 },
+    { id: "txn_phase12_refund", amount: -2041, fee: 0, net: -2041, currency: "myr", exchange_rate: 4.082, type: "refund", reporting_category: "refund", status: "available", source: "re_phase12", created: created + 2, available_on: created + 86400 }
   ], has_more: false });
-  if (req.method === "GET" && path === "/v1/charges/ch_phase12") return json(res, 200, { id: "ch_phase12", payment_intent: "pi_phase12" });
-  if (req.method === "GET" && path === "/v1/refunds/re_phase12") return json(res, 200, { id: "re_phase12", charge: "ch_phase12", payment_intent: "pi_phase12" });
+  if (req.method === "GET" && path === "/v1/charges/ch_phase12") return json(res, 200, { id: "ch_phase12", payment_intent: "pi_phase12", amount: 500, currency: "usd" });
+  if (req.method === "GET" && path === "/v1/refunds/re_phase12") return json(res, 200, { id: "re_phase12", charge: "ch_phase12", payment_intent: "pi_phase12", amount: 500, currency: "usd" });
   return json(res, 404, { error: { message: `Unhandled mock Stripe route: ${req.method} ${url.pathname}${url.search}` } });
 });
 await listen(stripeServer, stripePort);
@@ -74,7 +74,8 @@ try {
   const reconciled = await api("/api/admin/finance", cookie, { operation: "reconcile", mode: "test", from, to });
   assert(reconciled.transactions.length === 2, "Expected two synchronized balance transactions.");
   assert(reconciled.metrics.grossSalesUsd === 5 && reconciled.metrics.refundsUsd === 5, "Gross sale/refund accounting is incorrect.");
-  assert(reconciled.metrics.stripeFeesUsd === 0.45 && reconciled.metrics.netCashUsd === -0.45, "Stripe fee/net cash accounting is incorrect.");
+  assert(reconciled.metrics.stripeFeesUsd === 0.45 && reconciled.metrics.netCashUsd === -0.45, "Stripe fee/net cash FX normalization is incorrect.");
+  assert(reconciled.transactions.every((item) => item.currency === "usd" && item.settlementCurrency === "myr"), "Settlement currency audit fields are missing.");
   assert(reconciled.dataSource === "stripe_balance_transactions", "Finance report did not prefer Stripe balance transactions.");
 
   step("Injecting controlled discrepancies and confirming reconciliation never edits the ledger");

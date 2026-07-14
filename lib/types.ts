@@ -777,6 +777,12 @@ export type BillingStripeBalanceTransaction = {
   feeUsd: number;
   netUsd: number;
   currency: string;
+  settlementCurrency: string;
+  settlementAmount: number;
+  settlementFee: number;
+  settlementNet: number;
+  exchangeRate?: number;
+  sourceCurrency?: string;
   type: string;
   reportingCategory: string;
   status: string;

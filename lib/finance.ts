@@ -233,14 +233,20 @@ async function normalizeStripeTransaction(mode: StripeMode, raw: Record<string, 
   let chargeId = sourceId.startsWith("ch_") ? sourceId : "";
   let refundId = sourceId.startsWith("re_") ? sourceId : "";
   let paymentIntentId = "";
+  let sourceCurrency = "";
+  let sourceAmountUsd = 0;
   try {
     if (chargeId) {
       const charge = await stripeRequestForMode<Record<string, unknown>>(mode, "GET", `/charges/${encodeURIComponent(chargeId)}`);
       paymentIntentId = objectId(charge.payment_intent);
+      sourceCurrency = String(charge.currency || "").toLowerCase();
+      if (sourceCurrency === "usd") sourceAmountUsd = Math.abs(cents(charge.amount));
     } else if (refundId) {
       const refund = await stripeRequestForMode<Record<string, unknown>>(mode, "GET", `/refunds/${encodeURIComponent(refundId)}`);
       chargeId = objectId(refund.charge);
       paymentIntentId = objectId(refund.payment_intent);
+      sourceCurrency = String(refund.currency || "").toLowerCase();
+      if (sourceCurrency === "usd") sourceAmountUsd = -Math.abs(cents(refund.amount));
       if (!paymentIntentId && chargeId) {
         const charge = await stripeRequestForMode<Record<string, unknown>>(mode, "GET", `/charges/${encodeURIComponent(chargeId)}`);
         paymentIntentId = objectId(charge.payment_intent);
@@ -248,10 +254,24 @@ async function normalizeStripeTransaction(mode: StripeMode, raw: Record<string, 
     }
   } catch { /* Keep the accounting transaction even when a restricted key cannot expand its source. */ }
   const createdAt = stripeTimestampToIso(raw.created) || new Date().toISOString();
+  const settlementCurrency = String(raw.currency || "usd").toLowerCase();
+  const settlementAmount = cents(raw.amount);
+  const settlementFee = cents(raw.fee);
+  const settlementNet = cents(raw.net);
+  const exchangeRate = Number(raw.exchange_rate || 0);
+  const amountUsd = settlementCurrency === "usd"
+    ? settlementAmount
+    : sourceAmountUsd || (exchangeRate > 0 ? round(settlementAmount / exchangeRate) : 0);
+  const feeUsd = settlementCurrency === "usd"
+    ? settlementFee
+    : exchangeRate > 0
+      ? round(settlementFee / exchangeRate)
+      : settlementAmount && amountUsd ? round(Math.abs(settlementFee / settlementAmount * amountUsd)) : 0;
   return {
     id: `sbt_${mode}_${String(raw.id || crypto.randomBytes(6).toString("hex"))}`,
     stripeBalanceTransactionId: String(raw.id || ""), mode,
-    amountUsd: cents(raw.amount), feeUsd: cents(raw.fee), netUsd: cents(raw.net), currency: String(raw.currency || "usd").toLowerCase(),
+    amountUsd, feeUsd, netUsd: round(amountUsd - feeUsd), currency: "usd", settlementCurrency, settlementAmount, settlementFee, settlementNet,
+    exchangeRate: exchangeRate > 0 ? exchangeRate : undefined, sourceCurrency: sourceCurrency || undefined,
     type: String(raw.type || "unknown"), reportingCategory: String(raw.reporting_category || "unknown"), status: String(raw.status || "unknown"),
     sourceId: sourceId || undefined, chargeId: chargeId || undefined, paymentIntentId: paymentIntentId || undefined,
     refundId: refundId || undefined, payoutId: sourceId.startsWith("po_") ? sourceId : undefined,

@@ -44,7 +44,14 @@ export function middleware(req: NextRequest) {
 
   if (mode === "admin") {
     if (pathname === "/" || pathname === "/login" || pathname === "/register" || pathname === "/verify-email") {
-      if (pathname === "/") return NextResponse.redirect(new URL("/admin", req.url));
+      if (pathname === "/") {
+        const frontendUrl = process.env.FRONTEND_URL;
+        if (frontendUrl) {
+          const target = new URL("/", frontendUrl);
+          if (target.origin !== req.nextUrl.origin) return NextResponse.redirect(target);
+        }
+        return NextResponse.redirect(new URL("/admin", req.url));
+      }
       return NextResponse.next();
     }
     if (pathname.startsWith("/admin") || pathname.startsWith("/api") || pathname.startsWith("/_next") || PUBLIC_FILE.test(pathname)) {

@@ -16,7 +16,7 @@ async function post(action: string, payload: Record<string, unknown> = {}) {
   return res.json();
 }
 
-export default function AdminClient() {
+export default function AdminClient({ frontendUrl }: { frontendUrl: string }) {
   const router = useRouter();
   const [data, setData] = useState<AdminAppData | null>(null);
   const [adminData, setAdminData] = useState<AdminUserData | null>(null);
@@ -135,7 +135,7 @@ export default function AdminClient() {
     <div className="admin-shell">
       {toast && <div className="toast">{toast}</div>}
       <header className="admin-topbar">
-        <a href="/" className="asset-link">Open frontend</a>
+        <a href={frontendUrl} className="asset-link">Open frontend</a>
         <div className="topbar-right">
           <span className="credit-pill"><b>{data.user.name}</b> {data.user.role}</span>
           <button className="icon-btn" title="Refresh" onClick={refresh}><RefreshCcw size={15} /></button>

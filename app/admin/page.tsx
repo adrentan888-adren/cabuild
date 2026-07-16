@@ -10,5 +10,5 @@ export default async function AdminPage() {
   if (!user) redirect("/login");
   const db = await readDb();
   if (!hasPermission(db, user, "admin.access")) return <AdminAccessDenied />;
-  return <AdminClient />;
+  return <AdminClient frontendUrl={process.env.FRONTEND_URL || "/"} />;
 }

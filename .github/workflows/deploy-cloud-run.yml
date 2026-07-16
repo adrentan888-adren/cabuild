@@ -157,6 +157,15 @@ jobs:
           --no-invoker-iam-check
           --quiet
 
+      - name: Connect Admin root to Frontend
+        run: |
+          FRONTEND_URL=$(gcloud run services describe $FRONTEND_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
+          gcloud run services update $ADMIN_SERVICE \
+            --project=$PROJECT_ID \
+            --region=$REGION \
+            --update-env-vars="FRONTEND_URL=$FRONTEND_URL" \
+            --quiet
+
       - name: Restrict API CORS to production surfaces
         run: |
           FRONTEND_URL=$(gcloud run services describe $FRONTEND_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')

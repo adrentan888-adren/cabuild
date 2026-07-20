@@ -11,7 +11,7 @@ if (!email || !password) throw new Error("Set TEST_EMAIL and TEST_PASSWORD befor
 
 const outputDir = path.resolve("docs/testing/screenshots");
 await fs.mkdir(outputDir, { recursive: true });
-const npmRoot = execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["root", "-g"], { encoding: "utf8" }).trim();
+const npmRoot = globalNodeModulesPath();
 const { chromium } = await import(pathToFileURL(path.join(npmRoot, "playwright", "index.mjs")).href);
 const browser = await chromium.launch({ headless: true });
 const manifest = [];
@@ -182,4 +182,12 @@ async function addCallout(page, locator, label) {
 
 async function clearCallouts(page) {
   await page.evaluate(() => document.querySelectorAll('[data-test-guide-callout="true"]').forEach((item) => item.remove())).catch(() => undefined);
+}
+
+function globalNodeModulesPath() {
+  if (process.platform === "win32") {
+    const prefix = process.env.npm_config_prefix || path.join(process.env.APPDATA || "", "npm");
+    return path.join(prefix, "node_modules");
+  }
+  return execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim();
 }

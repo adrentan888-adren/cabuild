@@ -6,12 +6,21 @@ import { pathToFileURL } from "url";
 const appPort = 3107;
 const appBase = `http://127.0.0.1:${appPort}`;
 const testDataFile = ".next/phase12-ui-test-data.json";
-const npmRoot = execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["root", "-g"], { encoding: "utf8" }).trim();
+const npmRoot = globalNodeModulesPath();
 const { chromium } = await import(pathToFileURL(path.join(npmRoot, "playwright", "index.mjs")).href);
 await fs.rm(testDataFile, { force: true });
 const app = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-p", String(appPort)], { cwd: process.cwd(), env: { ...process.env, DATA_STORE_PROVIDER: "", DATA_STORE_GCS_BUCKET: "", DATA_STORE_LOCAL_FILE: testDataFile, APP_SECRET: "phase12-ui-secret", APP_SURFACE: "combined" }, stdio: ["ignore", "pipe", "pipe"] });
 let output = ""; app.stdout.on("data", (chunk) => { output += chunk.toString(); }); app.stderr.on("data", (chunk) => { output += chunk.toString(); });
 let browser;
+
+function globalNodeModulesPath() {
+  if (process.platform === "win32") {
+    const prefix = process.env.npm_config_prefix || path.join(process.env.APPDATA || "", "npm");
+    return path.join(prefix, "node_modules");
+  }
+  return execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim();
+}
+
 try {
   await waitFor(`${appBase}/api/healthz`);
   browser = await chromium.launch({ headless: true });

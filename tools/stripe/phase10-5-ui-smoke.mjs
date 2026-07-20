@@ -6,7 +6,7 @@ import { pathToFileURL } from "url";
 const appPort = 3103;
 const appBase = `http://127.0.0.1:${appPort}`;
 const testDataFile = ".next/phase10-5-ui-test-data.json";
-const npmRoot = execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["root", "-g"], { encoding: "utf8" }).trim();
+const npmRoot = globalNodeModulesPath();
 const { chromium } = await import(pathToFileURL(path.join(npmRoot, "playwright", "index.mjs")).href);
 
 await fs.rm(testDataFile, { force: true });
@@ -27,6 +27,14 @@ let output = "";
 app.stdout.on("data", (chunk) => { output += chunk.toString(); });
 app.stderr.on("data", (chunk) => { output += chunk.toString(); });
 let browser;
+
+function globalNodeModulesPath() {
+  if (process.platform === "win32") {
+    const prefix = process.env.npm_config_prefix || path.join(process.env.APPDATA || "", "npm");
+    return path.join(prefix, "node_modules");
+  }
+  return execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim();
+}
 
 try {
   await waitFor(`${appBase}/api/healthz`);

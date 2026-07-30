@@ -1,5 +1,10 @@
 # CABuild Project Handoff
 
+## 2026-07-30 current-build UAT planning
+
+- Added `docs/UAT_TEST_PLAN_CURRENT_BUILD.md` as the independent UAT specification for the current staging build. It covers frontend and admin modules, authentication, Social Audit, Persona, Research, Create Content, Product Video Studio, My Contents, raw/final/SRT video outputs, Automation, Billing/Stripe, publishing, logs, security, persistence, permissions, evidence, defect handling, paid-test approval gates, and exit criteria.
+- The future UAT agent is an independent executor and must not edit or deploy application code. It must request approval before paid, publishing, live-money, or destructive tests and hand defects back to the developer agent.
+
 ## 2026-07-30 staging video input update
 
 - Added in-browser voice recording to Persona media and Create Content video references. Recordings stop at 14 seconds and uploaded or recorded audio is converted to a first-14-second WAV when the browser can decode it.

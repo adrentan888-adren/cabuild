@@ -4,7 +4,7 @@ import { assertAutomationCanSpend, automationBillingPolicy, quoteBillingAction, 
 import type { Asset, AutomationSourceRun, AutomationSourceWatcher, CompetitorResult, Database, GenerationAssetReference, Platform, PublishItem } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
 import { scanSocialUrl } from "@/lib/providers/apify";
-import { generateImage, generateSeedanceVideo, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
+import { generateImage, generateSeedanceMiniVideo, generateSeedanceVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { publishPhotoPost, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 import { encodeUploadKey, saveGeneratedMediaFromUrl } from "@/lib/providers/uploads";
 import { runScheduledFinanceReconciliation } from "@/lib/finance";
@@ -107,7 +107,7 @@ function isKieImageModel(model: string) {
 }
 
 function modelForResolvedSourceWatcherKind(watcherModel: string, generationType: "video" | "image" | "text") {
-  if (generationType === "video") return ["veo-fast", "seedance-2.0"].includes(watcherModel) ? watcherModel : "veo-fast";
+  if (generationType === "video") return ["seedance-2.0-mini", "seedance-2.0"].includes(watcherModel) ? watcherModel : "seedance-2.0-mini";
   if (generationType === "image") return isKieImageModel(watcherModel) ? watcherModel : "gpt-image-2";
   return ["gemini-3.5-flash", "claude-opus-4.8"].includes(watcherModel) ? watcherModel : "gemini-3.5-flash";
 }
@@ -198,7 +198,7 @@ function enhanceVideoPromptForProvider(input: { prompt: string; model: string; d
   return [
     input.prompt,
     `Provider constraints: create one ${input.duration}s ${input.aspectRatio} video. Keep scene count tight and timed for the selected duration.`,
-    input.model === "veo-fast" ? "VEO Fast supports short clips; do not request a longer 25-30 second structure." : "",
+    input.model === "seedance-2.0-mini" ? "Seedance 2.0 Mini supports short clips; do not request a longer 25-30 second structure." : "",
     input.references.length ? "Use the uploaded references exactly where relevant and do not copy original source logos, people, or audio." : ""
   ].filter(Boolean).join("\n\n");
 }
@@ -486,7 +486,7 @@ async function pollReadyGenerations(origin: string, limit = 10) {
   for (const job of jobs) {
     try {
       const model = job.asset.generationModel || job.item.generationModel || "";
-      const isMarketTask = model === "seedance-2.0" || isKieImageModel(model) || job.asset.providerTaskId?.startsWith("task_");
+      const isMarketTask = model === "seedance-2.0" || model === "seedance-2.0-mini" || isKieImageModel(model) || job.asset.providerTaskId?.startsWith("task_");
       const done = isMarketTask
         ? { kind: "market" as const, status: await getMarketTask(job.asset.providerTaskId!) }
         : { kind: "veo" as const, status: await getVeoVideo(job.asset.providerTaskId!) };
@@ -785,7 +785,7 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
         ? await generateImage(result.asset.prompt || result.asset.title, { model, aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs })
         : model === "seedance-2.0"
           ? await generateSeedanceVideo(result.asset.prompt || result.asset.title, { duration: Number(settings.duration || 8), aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs })
-          : await generateVeoVideo(result.asset.prompt || result.asset.title, { duration: Number(settings.duration || 8), aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs });
+          : await generateSeedanceMiniVideo(result.asset.prompt || result.asset.title, { duration: Number(settings.duration || 8), aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs });
       await mutateDb((db) => {
         const asset = db.assets.find((item) => item.id === result.asset?.id && item.workspaceId === watcher.workspaceId);
         const pub = db.publishQueue.find((item) => item.id === result.publishItem?.id && item.workspaceId === watcher.workspaceId);

@@ -37,6 +37,7 @@ export const defaultPromptTemplates: PromptTemplates = {
   researchVideoRecreate: "Please analyse the attached video and write the prompt to recreate this video in JSON format in very detailed terms, no more than 3000 characters. Source video: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{durationLine}} {{assetInstruction}}\n\n{{personaContext}}",
   researchImageRecreate: "Please analyse the attached image/graphic and write the prompt to recreate this image in JSON format in very detailed terms, no more than 3000 characters. Source image: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{assetInstruction}}\n\n{{personaContext}}",
   researchTextRecreate: "Analyze this source post and write a new high-conversion text post in the same strategic style without copying it. Source: {{sourceUrl}}. Source title: {{sourceTitle}}. Source description: {{sourceDescription}}. Keep the final post original, platform-native, and ready for social publishing.\n\n{{personaContext}}",
+  videoGenerationGuardrails: `Generate clean video imagery only. Do not render captions, subtitles, overlays, letters, words, numbers, URLs, signs, labels, interface text, or readable documents inside the generated video. Spoken dialogue and audio are allowed. The only permitted readable text is text already contained inside an uploaded logo reference; preserve that exact logo without retyping or inventing it. Leave sufficient clean negative space for captions to be added accurately during post-production.`,
   researchVideoPromptRefine: `You are ContentAgent's senior video prompt engineer.
 
 Convert the user's research recreation instruction into ONE final provider-ready video generation prompt.
@@ -53,6 +54,8 @@ Rules:
 - If no matching user attachment is provided, instruct the model to remove the original logo, change the person, and change or replace the audio.
 - Optimize for high-conversion social media output: strong 0-3 second hook, clear USP, platform-native pacing, readable mobile framing, CTA, and compliance-safe wording.
 - Do not copy protected identity, exact creator likeness, original brand/logo, or original audio unless the user explicitly provided replacement references.
+- Do not ask the video model to render captions, subtitles, words, numbers, URLs, labels, signs, or CTA text. The only permitted readable text is text already present inside an uploaded logo.
+- Keep caption and CTA wording outside the visual-generation prompt so ContentAgent can add it accurately during post-production.
 
 User instruction to transform:
 {{prompt}}`

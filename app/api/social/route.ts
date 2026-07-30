@@ -5,7 +5,7 @@ import { defaultPersonaProfile, id, mutateDb, readDb } from "@/lib/store";
 import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, Brief, CompetitorResult, GenerationAssetReference, PersonaMediaAsset, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext, normalizePersonaProfile } from "@/lib/persona";
 import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl, startKeywordScanRun, startSocialUrlScanRun } from "@/lib/providers/apify";
-import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceVideo, generateTextContentWithKie, generateVeoVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
+import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceMiniVideo, generateSeedanceVideo, generateTextContentWithKie, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishPhotoPost, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 import { assertAutomationCanSpend, quoteBillingAction, reserveBillingCredits, releaseBillingReservation, settleBillingReservation } from "@/lib/billing";
 import { encodeUploadKey, saveGeneratedMediaFromUrl } from "@/lib/providers/uploads";
@@ -453,17 +453,18 @@ function enhanceVideoPromptForProvider(input: {
   duration?: number;
   aspectRatio?: string;
   references?: GenerationAssetReference[];
+  guardrails?: string;
 }) {
-  if (input.model !== "seedance-2.0" && input.model !== "veo-fast") return input.prompt;
+  if (input.model !== "seedance-2.0" && input.model !== "seedance-2.0-mini") return input.prompt;
   if (input.prompt.includes("Provider-specific video prompt guidance")) return input.prompt;
   const duration = Math.max(4, Math.min(15, Math.round(Number(input.duration || 8))));
   const aspectRatio = input.aspectRatio === "16:9" ? "16:9 landscape" : "9:16 vertical";
-  const provider = input.model === "seedance-2.0" ? "Seedance 2.0" : "VEO Fast";
+  const provider = input.model === "seedance-2.0" ? "Seedance 2.0" : "Seedance 2.0 Mini";
   const refs = input.references || [];
   const refRoles = refs.length
     ? refs.map((ref, index) => `- Reference ${index + 1} (${ref.role}, ${ref.fileName}${ref.url ? `, URL: ${ref.url}` : ""}): use only for its stated role; keep logos/products visually clear and avoid inventing replacement branding.${ref.role === "logo" ? " This is the exact logo image; reproduce this logo, not a placeholder or generic wordmark." : ""}${ref.role === "audio" ? " This is an audio direction/reference; do not send it as visual branding, use it only for audio/voice style guidance if supported." : ""}`).join("\n")
     : "- No uploaded visual references are attached.";
-  const seedanceSpecific = input.model === "seedance-2.0"
+  const seedanceSpecific = input.model === "seedance-2.0" || input.model === "seedance-2.0-mini"
     ? [
       "Seedance-specific requirements:",
       "- Use clear timed scene segments and physically plausible motion.",
@@ -488,10 +489,11 @@ function enhanceVideoPromptForProvider(input: {
     "",
     "Rewrite/interpret the video as a structured social ad:",
     "- 0-3s: thumb-stopping hook with a clear visual problem, bold motion, and immediate attention cue.",
-    `- 3-${Math.max(4, duration - 2)}s: main value/USP scenes with specific actions, camera movement, transitions, and readable mobile text overlays.`,
-    `- ${Math.max(4, duration - 2)}-${duration}s: brand/CTA ending with logo or company name, concise call to action, and compliance-safe wording.`,
+    `- 3-${Math.max(4, duration - 2)}s: main value/USP scenes with specific actions, camera movement, transitions, and clean mobile framing.`,
+    `- ${Math.max(4, duration - 2)}-${duration}s: brand ending with the exact uploaded logo when present and a visually clear closing action.`,
     "- Specify shot sizes and camera movements such as close-up, medium shot, push in, pan, track, orbit, or whip pan where useful.",
-    "- Include sound design: music mood, notification hits, transition sounds, voiceover or text-only direction.",
+    "- Include sound design: music mood, notification hits, transition sounds, and voiceover direction.",
+    "- Do not render captions, subtitles, overlays, letters, words, numbers, URLs, signs, labels, interface text, or readable documents. Text already contained in an uploaded logo is the only exception.",
     "- Maintain high-conversion social media pacing, professional lighting, and strong mobile readability.",
     "- Avoid unrealistic financial claims, guaranteed approval, cash piles, luxury promises, or misleading before/after outcomes.",
     "",
@@ -510,7 +512,10 @@ function enhanceVideoPromptForProvider(input: {
       ? "Audio reference enforcement: replace the original source audio. If the provider cannot clone or use the uploaded audio directly, create a new royalty-safe voice/music/sound direction inspired by the uploaded audio reference metadata and prompt notes."
       : "",
     "",
-    seedanceSpecific
+    seedanceSpecific,
+    "",
+    "Mandatory visual text policy:",
+    input.guardrails || "Do not render captions, subtitles, overlays, letters, words, numbers, URLs, signs, labels, interface text, or readable documents. Text already contained in an uploaded logo is the only exception."
   ].filter(Boolean).join("\n");
 }
 
@@ -690,7 +695,7 @@ function automationKindFromContentType(contentType: string): "video" | "image" |
 
 function defaultAutomationModel(contentType: string) {
   const kind = automationKindFromContentType(contentType);
-  if (kind === "video") return "veo-fast";
+  if (kind === "video") return "seedance-2.0-mini";
   if (kind === "image") return "gpt-image-2";
   if (kind === "text") return "gemini-3.5-flash";
   return "auto";
@@ -700,12 +705,12 @@ function normalizeAutomationModel(contentType: string, value: unknown) {
   const model = String(value || "").trim();
   const kind = automationKindFromContentType(contentType);
   const valid = kind === "video"
-    ? ["veo-fast", "seedance-2.0"]
+    ? ["seedance-2.0-mini", "seedance-2.0"]
     : kind === "image"
       ? ["gpt-image-2", "nanobanana-pro"]
       : kind === "text"
         ? ["gemini-3.5-flash", "claude-opus-4.8"]
-        : ["auto", "veo-fast", "seedance-2.0", "gpt-image-2", "nanobanana-pro", "gemini-3.5-flash", "claude-opus-4.8"];
+        : ["auto", "seedance-2.0-mini", "seedance-2.0", "gpt-image-2", "nanobanana-pro", "gemini-3.5-flash", "claude-opus-4.8"];
   return valid.includes(model) ? model : defaultAutomationModel(contentType);
 }
 
@@ -719,7 +724,7 @@ function normalizeAutomationAspectRatio(contentType: string, value: unknown) {
 }
 
 function modelForResolvedSourceWatcherKind(watcherModel: string, generationType: "video" | "image" | "text") {
-  if (generationType === "video") return ["veo-fast", "seedance-2.0"].includes(watcherModel) ? watcherModel : "veo-fast";
+  if (generationType === "video") return ["seedance-2.0-mini", "seedance-2.0"].includes(watcherModel) ? watcherModel : "seedance-2.0-mini";
   if (generationType === "image") return isKieImageModel(watcherModel) ? watcherModel : "gpt-image-2";
   return ["gemini-3.5-flash", "claude-opus-4.8"].includes(watcherModel) ? watcherModel : "gemini-3.5-flash";
 }
@@ -1071,7 +1076,7 @@ function defaultDuration(format: string) {
 }
 
 function durationOptionsForGenerationModel(model: string) {
-  if (model === "veo-fast") return [8];
+  if (model === "seedance-2.0-mini") return Array.from({ length: 12 }, (_, index) => index + 4);
   if (model === "seedance-2.0") return [4, 5, 6, 7, 8, 9, 10, 12, 15];
   return [8];
 }
@@ -1154,7 +1159,7 @@ function defaultPromptForBrief(brief: Brief, generationType: "video" | "image" |
   if (existing.trim()) return existing;
   if (generationType === "image") return `Create a polished social carousel or image post about "${brief.topic}". Use clean SME business visuals, strong headline hierarchy, practical examples, brand-safe composition, and a clear final takeaway.`;
   if (generationType === "text") return `Write a founder-led social post about "${brief.topic}". Make it practical, specific, concise, and useful for SME owners. Start with a strong hook, explain the insight, give an example, and close with a clear takeaway.`;
-  return `Create a ${brief.format || "short-form video"} about "${brief.topic}". Use a direct opening hook, practical SME automation example, clean office or screen-recording visuals, concise text overlays, natural pacing, and a clear CTA.`;
+  return `Create a ${brief.format || "short-form video"} about "${brief.topic}". Use a direct opening hook, practical SME automation example, clean office or screen-recording visuals, natural pacing, and a visually clear ending. Do not generate readable text; captions and CTA copy are added in post-production.`;
 }
 
 function defaultCaptionForBrief(brief: Brief) {
@@ -1300,7 +1305,7 @@ export async function POST(req: Request) {
         if (!asset?.providerTaskId) throw new Error("Asset has no provider task to poll.");
         const publishItems = db.publishQueue.filter((item) => item.assetId === asset.id && item.workspaceId === workspaceId);
         const generationModel = asset.generationModel || publishItems.find((item) => item.generationModel)?.generationModel || "";
-        const isMarketTask = generationModel === "seedance-2.0" || isKieImageModel(generationModel) || asset.providerTaskId.startsWith("task_");
+        const isMarketTask = generationModel === "seedance-2.0" || generationModel === "seedance-2.0-mini" || isKieImageModel(generationModel) || asset.providerTaskId.startsWith("task_");
         if (isMarketTask) {
           const status = await getMarketTask(asset.providerTaskId);
           if (status.state === "success" && status.assetUrl) {
@@ -2137,7 +2142,7 @@ export async function POST(req: Request) {
         format: sourceFormat,
         platforms: [result.platform],
         description: `Recreate the winning angle from "${result.title}" for ${context}.`,
-        videoPrompt: `Vertical founder-led social video about ${result.title}. Open with a clear pain point, show a practical example for ${context}, use clean visuals, add concise text overlays, and end with a practical CTA.`,
+        videoPrompt: `Vertical founder-led social video about ${result.title}. Open with a clear pain point, show a practical example for ${context}, use clean visuals, and end with a visually clear action. Do not generate readable text; captions are added in post-production.`,
         duration: 8,
         hooks: [
           "Most audiences miss the simple lesson behind this.",
@@ -2146,7 +2151,7 @@ export async function POST(req: Request) {
         ],
         outline: ["Open with the core tension", "Show the source angle", "Give a brand-relevant example", "End with a practical CTA"],
         shotList: ["Hook to camera", "Problem visual", "Brand-relevant example", "CTA close-up with branded caption"],
-        creativeNotes: "Keep pacing practical and direct. Use clear captions, specific examples, and a clean visual style.",
+        creativeNotes: "Keep pacing practical and direct, use specific examples and a clean visual style. Captions are applied after video generation.",
         caption: `This angle works because it makes the topic concrete for ${context}.`,
         hashtags: ["#ContentStrategy", "#SocialMedia", "#Creator"],
         optimalTime: "Thu 10:00 AM",
@@ -2278,7 +2283,7 @@ export async function POST(req: Request) {
     const requestedFormatRaw = String(body.requestedFormat || "").trim();
     const requestedFormat = contentPlanFormats.includes(requestedFormatRaw) ? requestedFormatRaw : "";
     const requestedModel = String(body.requestedModel || "");
-    const requestedDuration = requestedFormat.toLowerCase().includes("video") ? closestVideoDuration(body.requestedDuration, requestedModel || "veo-fast") : undefined;
+    const requestedDuration = requestedFormat.toLowerCase().includes("video") ? closestVideoDuration(body.requestedDuration, requestedModel || "seedance-2.0-mini") : undefined;
     const workspace = await mutateDb((db) => db.workspaces.find((item) => item.id === workspaceId) || null);
     const niche = workspace?.niche?.trim() || "";
     const personaContext = await mutateDb((db) => buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId)));
@@ -2309,7 +2314,7 @@ export async function POST(req: Request) {
       const format = requestedFormat || String(plan.format || "Short video 9:16");
       const resolvedFormat = contentPlanFormats.includes(format) ? format : "Short video 9:16";
       const resolvedKind = contentKindFromFormat(resolvedFormat);
-      const normalizedDuration = resolvedKind === "video" ? closestVideoDuration(requestedDuration || plan.duration || defaultDuration(resolvedFormat), requestedModel || "veo-fast", defaultDuration(resolvedFormat) || 8) : "";
+      const normalizedDuration = resolvedKind === "video" ? closestVideoDuration(requestedDuration || plan.duration || defaultDuration(resolvedFormat), requestedModel || "seedance-2.0-mini", defaultDuration(resolvedFormat) || 8) : "";
       const durationNote = resolvedKind === "video"
         ? `\n\nDuration constraint: create exactly ${normalizedDuration} seconds for ${requestedModel || "the selected video model"}. Keep scenes short and do not request longer runtime.`
         : "";
@@ -2440,14 +2445,14 @@ export async function POST(req: Request) {
       const asset = db.assets.find((item) => item.id === assetId && item.workspaceId === workspaceId);
       if (!asset) throw new Error("Asset not found.");
       if (asset.provider !== "kie") throw new Error("Asset is not a Kie generation.");
-      if (asset.providerTaskId) return { asset, alreadyStarted: true };
+      if (asset.providerTaskId) return { asset, alreadyStarted: true, videoGuardrails: db.promptTemplates.videoGenerationGuardrails };
       const publishItem = db.publishQueue.find((item) => item.assetId === asset.id && item.workspaceId === workspaceId);
-      return { asset, publishItem, alreadyStarted: false };
+      return { asset, publishItem, alreadyStarted: false, videoGuardrails: db.promptTemplates.videoGenerationGuardrails };
     });
     if (snapshot.alreadyStarted) return NextResponse.json(snapshot.asset);
     const asset = snapshot.asset;
     const settings = (asset.generationSettings || snapshot.publishItem?.generationSettings || {}) as Record<string, unknown>;
-    const model = asset.generationModel || String(body.generationModel || "veo-fast");
+    const model = asset.generationModel || String(body.generationModel || "seedance-2.0-mini");
     const generationType: "video" | "image" | "text" = String(snapshot.publishItem?.generationType || asset.type) === "text"
       ? "text"
       : isKieImageModel(model) ? "image" : "video";
@@ -2460,7 +2465,8 @@ export async function POST(req: Request) {
         model,
         duration,
         aspectRatio,
-        references
+        references,
+        guardrails: snapshot.videoGuardrails
       })
       : asset.prompt || asset.title;
     let billing;
@@ -2581,7 +2587,7 @@ export async function POST(req: Request) {
         ? await generateImage(prompt, { model, aspectRatio: String(settings.aspectRatio || ""), references })
         : model === "seedance-2.0"
           ? await generateSeedanceVideo(prompt, { duration, aspectRatio, references })
-          : await generateVeoVideo(prompt, { duration, aspectRatio, references });
+          : await generateSeedanceMiniVideo(prompt, { duration, aspectRatio, references });
       const updated = await mutateDb((db) => {
         const existing = db.assets.find((item) => item.id === asset.id && item.workspaceId === workspaceId);
         if (!existing) return asset;
@@ -2838,14 +2844,16 @@ export async function POST(req: Request) {
     const image = String(body.researchImageRecreate || "").trim();
     const refine = String(body.researchVideoPromptRefine || "").trim();
     const text = String(body.researchTextRecreate || "").trim();
-    if (!video || !image || !refine || !text) return NextResponse.json({ error: "Research video, image, text, and final video prompt templates are required." }, { status: 400 });
+    const videoGuardrails = String(body.videoGenerationGuardrails || "").trim();
+    if (!video || !image || !refine || !text || !videoGuardrails) return NextResponse.json({ error: "Research video, image, text, final video prompt, and video guardrail templates are required." }, { status: 400 });
     const templates = await mutateDb((db) => {
       db.promptTemplates = {
         ...(db.promptTemplates || {}),
         researchVideoRecreate: video,
         researchImageRecreate: image,
         researchVideoPromptRefine: refine,
-        researchTextRecreate: text
+        researchTextRecreate: text,
+        videoGenerationGuardrails: videoGuardrails
       };
       db.activity.push({ id: id("act"), workspaceId, message: "Prompt templates updated by admin.", createdAt: new Date().toISOString() });
       return db.promptTemplates;
@@ -3014,11 +3022,11 @@ export async function POST(req: Request) {
       const references = sourceWatcherReferences(watcher);
       const basePrompt = sourceWatcherPrompt({ watcher, candidate: selected, generationType, personaContext });
       const prompt = generationType === "video"
-        ? enhanceVideoPromptForProvider({ prompt: enrichPromptWithAssetReferences(basePrompt, generationType, references), model, duration: watcher.duration || selected.duration || 8, aspectRatio: watcher.aspectRatio, references })
+        ? enhanceVideoPromptForProvider({ prompt: enrichPromptWithAssetReferences(basePrompt, generationType, references), model, duration: watcher.duration || selected.duration || 8, aspectRatio: watcher.aspectRatio, references, guardrails: db.promptTemplates.videoGenerationGuardrails })
         : enrichPromptWithAssetReferences(basePrompt, generationType, references);
       const caption = selected.description || `Inspired by a high-performing ${selected.platform} source: ${selected.title}`;
       const hashtags = ["#ContentAgent", `#${selected.platform.replace(/\s+/g, "")}`];
-      const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
+      const isKieVideo = generationType === "video" && (model === "seedance-2.0-mini" || model === "seedance-2.0");
       const isKieImage = generationType === "image" && isKieImageModel(model);
       const isKieGeneration = isKieVideo || isKieImage;
       const now = new Date().toISOString();
@@ -3153,7 +3161,7 @@ export async function POST(req: Request) {
           ? await generateImage(result.asset.prompt || result.asset.title, { model, aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs })
           : model === "seedance-2.0"
             ? await generateSeedanceVideo(result.asset.prompt || result.asset.title, { duration: Number(settings.duration || 8), aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs })
-            : await generateVeoVideo(result.asset.prompt || result.asset.title, { duration: Number(settings.duration || 8), aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs });
+            : await generateSeedanceMiniVideo(result.asset.prompt || result.asset.title, { duration: Number(settings.duration || 8), aspectRatio: String(settings.aspectRatio || watcher.aspectRatio), references: refs });
         const updated = await mutateDb((db) => {
           const asset = db.assets.find((item) => item.id === result.asset?.id && item.workspaceId === workspaceId);
           if (asset) {
@@ -3351,7 +3359,7 @@ export async function POST(req: Request) {
         contentType,
         model,
         aspectRatio,
-        duration: contentType === "video" || contentType === "auto" ? closestVideoDuration(body.duration || 8, model === "auto" ? "veo-fast" : model) : undefined,
+        duration: contentType === "video" || contentType === "auto" ? closestVideoDuration(body.duration || 8, model === "auto" ? "seedance-2.0-mini" : model) : undefined,
         minViews: clampNumber(body.minViews, 0, 0, 1000000000),
         rankingMode: (["balanced", "views", "engagement", "recent"].includes(String(body.rankingMode)) ? String(body.rankingMode) : "balanced") as AutomationSourceWatcher["rankingMode"],
         frequency,
@@ -3678,7 +3686,7 @@ export async function POST(req: Request) {
       const brief = db.briefs.find((item) => item.id === body.id && item.workspaceId === workspaceId);
       if (!brief) return null;
       const generationType = (String(body.generationType || contentKindFromFormat(brief.format)) as "video" | "image" | "text");
-      const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "gpt-image-2" : "gemini-3.5-flash"));
+      const model = String(body.generationModel || (generationType === "video" ? "seedance-2.0-mini" : generationType === "image" ? "gpt-image-2" : "gemini-3.5-flash"));
       const duration = generationType === "video" ? closestVideoDuration(body.duration || brief.duration || defaultDuration(brief.format) || 8, model) : undefined;
       const assetReferences = parseAssetReferences(body.assetReferences);
       const personaContext = buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId));
@@ -3698,7 +3706,7 @@ export async function POST(req: Request) {
         : basePrompt;
       const now = new Date().toISOString();
       const type: Asset["type"] = generationType === "video" ? "video" : generationType === "image" ? "image" : "text";
-      const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
+      const isKieVideo = generationType === "video" && (model === "seedance-2.0-mini" || model === "seedance-2.0");
       const isKieImage = generationType === "image" && isKieImageModel(model);
       const isKieText = generationType === "text" && isKieTextModel(model);
       const isKieGeneration = isKieVideo || isKieImage || isKieText;
@@ -3759,7 +3767,7 @@ export async function POST(req: Request) {
 
     if (action === "generateDirectContent") {
       const generationType = (String(body.generationType || "video") as "video" | "image" | "text");
-      const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "gpt-image-2" : "gemini-3.5-flash"));
+      const model = String(body.generationModel || (generationType === "video" ? "seedance-2.0-mini" : generationType === "image" ? "gpt-image-2" : "gemini-3.5-flash"));
       const duration = generationType === "video" ? closestVideoDuration(body.duration || 8, model) : undefined;
       const assetReferences = parseAssetReferences(body.assetReferences);
       const workspace = db.workspaces.find((entry) => entry.id === workspaceId);
@@ -3787,7 +3795,7 @@ export async function POST(req: Request) {
       const sourceThumbnailUrl = String(body.sourceThumbnailUrl || "");
       const sourceMediaUrl = String(body.sourceMediaUrl || "");
       const sourceMediaType = String(body.sourceMediaType || "") as "video" | "image" | "unknown";
-      const isKieVideo = generationType === "video" && (model === "veo-fast" || model === "seedance-2.0");
+      const isKieVideo = generationType === "video" && (model === "seedance-2.0-mini" || model === "seedance-2.0");
       const isKieImage = generationType === "image" && isKieImageModel(model);
       const isKieText = generationType === "text" && isKieTextModel(model);
       const isKieGeneration = isKieVideo || isKieImage || isKieText;
@@ -3883,7 +3891,7 @@ export async function POST(req: Request) {
       const product = String(body.product || "UGC video");
       const sellingPoints = String(body.sellingPoints || "");
       const style = String(body.style || "Talking Head");
-      const prompt = `${style} UGC vertical social video for ${product}. Selling points: ${sellingPoints}. Natural creator tone, clear captions, product benefit demonstration.`;
+      const prompt = `${style} UGC vertical social video for ${product}. Selling points: ${sellingPoints}. Natural creator tone and product benefit demonstration. Do not generate readable text; captions are added in post-production.`;
       const asset = { id: id("ast"), workspaceId, briefId: "ugc", title: product, type: "ugc" as const, status: "queued" as const, progress: 10, createdAt: new Date().toISOString(), provider: "kie" as const, prompt };
       db.assets.push(asset);
       activity(`Queued UGC video generation for ${asset.title}.`);
@@ -3926,7 +3934,7 @@ export async function POST(req: Request) {
     });
   }
   if ((action === "renderAsset" || action === "generateUgc") && generatedAsset?.provider === "kie") {
-    const model = generatedAsset.generationModel || String(body.generationModel || "veo-fast");
+    const model = generatedAsset.generationModel || String(body.generationModel || "seedance-2.0-mini");
     let billing;
     try {
       billing = await reservePaidAction({
@@ -3957,12 +3965,14 @@ export async function POST(req: Request) {
     }
     try {
       const references = generatedAsset.assetReferences || parseAssetReferences(body.assetReferences);
+      const videoGuardrails = await mutateDb((db) => db.promptTemplates.videoGenerationGuardrails);
       const prompt = enhanceVideoPromptForProvider({
         prompt: generatedAsset.prompt || generatedAsset.title,
         model,
         duration: Number(body.duration || generatedAsset.generationSettings?.duration || 8),
         aspectRatio: String(body.aspectRatio || generatedAsset.generationSettings?.aspectRatio || "9:16"),
-        references
+        references,
+        guardrails: videoGuardrails
       });
       await debugLog(workspaceId, {
         action,
@@ -3982,7 +3992,7 @@ export async function POST(req: Request) {
         ? await generateImage(prompt, { model, aspectRatio: String(body.aspectRatio || ""), references })
         : model === "seedance-2.0"
           ? await generateSeedanceVideo(prompt, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16"), references })
-          : await generateVeoVideo(prompt, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16"), references });
+          : await generateSeedanceMiniVideo(prompt, { duration: Number(body.duration || 8), aspectRatio: String(body.aspectRatio || "9:16"), references });
       const updated = await mutateDb((db) => {
         const asset = db.assets.find((item) => item.id === generatedAsset.id && item.workspaceId === workspaceId);
         if (!asset) return data;

@@ -48,7 +48,7 @@ export const defaultBillingCreditPackages: BillingCreditPackage[] = [
 ];
 
 const defaultBillingProviderMappingSeeds: Omit<BillingProviderMapping, "active">[] = [
-  { id: "map_veo_fast", uiKey: "veo-fast", provider: "kie", providerModelOrActorId: "veo3_fast", actionType: "video_generation", label: "VEO Fast" },
+  { id: "map_seedance_2_mini", uiKey: "seedance-2.0-mini", provider: "kie", providerModelOrActorId: "bytedance/seedance-2-mini", actionType: "video_generation", label: "Seedance 2.0 Mini" },
   { id: "map_seedance_2", uiKey: "seedance-2.0", provider: "kie", providerModelOrActorId: "bytedance/seedance-2", actionType: "video_generation", label: "Seedance 2.0" },
   { id: "map_gpt_image_2", uiKey: "gpt-image-2", provider: "kie", providerModelOrActorId: "gpt-image-2", actionType: "image_generation", label: "GPT Image 2" },
   { id: "map_nanobanana_pro", uiKey: "nanobanana-pro", provider: "kie", providerModelOrActorId: "nano-banana-pro", actionType: "image_generation", label: "Nano Banana Pro" },
@@ -67,7 +67,7 @@ const defaultBillingProviderMappingSeeds: Omit<BillingProviderMapping, "active">
 export const defaultBillingProviderMappings: BillingProviderMapping[] = defaultBillingProviderMappingSeeds.map((mapping) => ({ ...mapping, active: true }));
 
 export const defaultBillingRateCards: BillingRateCard[] = [
-  rate("rate_kie_veo_fast_720p", "kie", "video_generation", "veo3_fast", "VEO Fast 720p video", "per_action", 0.30, 2, 1, { resolution: "720p" }),
+  rate("rate_kie_seedance_2_mini_720p", "kie", "video_generation", "bytedance/seedance-2-mini", "Seedance 2.0 Mini 720p", "per_second", 0.205, 2, 1, { resolution: "720p", editableEstimate: true }),
   rate("rate_kie_seedance_2_720p", "kie", "video_generation", "bytedance/seedance-2", "Seedance 2.0 720p", "per_second", 0.205, 2, 1, { resolution: "720p" }),
   rate("rate_kie_gpt_image_2_1k", "kie", "image_generation", "gpt-image-2:1k", "GPT Image 2 1K", "per_image", 0.03, 2, 1, { model: "gpt-image-2", resolution: "1K" }),
   rate("rate_kie_gpt_image_2_2k", "kie", "image_generation", "gpt-image-2:2k", "GPT Image 2 2K", "per_image", 0.05, 2, 1, { model: "gpt-image-2", resolution: "2K" }),
@@ -120,6 +120,8 @@ export function ensureBillingDefaults(db: Database) {
   }
   db.billingRateCards = mergeById(defaultBillingRateCards, db.billingRateCards || []);
   db.billingProviderMappings = mergeById(defaultBillingProviderMappings, db.billingProviderMappings || []);
+  db.billingProviderMappings = db.billingProviderMappings.map((mapping) => mapping.uiKey === "veo-fast" ? { ...mapping, active: false } : mapping);
+  db.billingRateCards = db.billingRateCards.map((card) => card.modelOrActorId === "veo3_fast" ? { ...card, active: false } : card);
   db.billingPlans = mergeById(defaultBillingPlans, db.billingPlans || []).map(recalculatePlanCredits);
   db.billingCreditPackages = mergeById(defaultBillingCreditPackages, db.billingCreditPackages || []).map(recalculatePackageCredits);
   db.billingStripeCatalogueMappings ||= [];
@@ -481,7 +483,7 @@ function inferModule(action: string) {
 
 function defaultModelForAction(action: string, generationType: string) {
   if (generationType === "image") return "gpt-image-2";
-  if (generationType === "video") return "veo-fast";
+  if (generationType === "video") return "seedance-2.0-mini";
   if (generationType === "text") return "gemini-3.5-flash";
   if (action.includes("persona") || action.includes("prompt") || action.includes("ai")) return "gpt-5-5";
   return "gemini-3.5-flash";

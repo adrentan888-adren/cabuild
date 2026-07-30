@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -26,6 +26,7 @@ import {
   RefreshCcw,
   Search,
   Settings,
+  Square,
   Sparkles,
   UserRound,
   Wand2
@@ -256,7 +257,7 @@ function withSelectedVideoDuration(prompt: string, kind: GenerationKind, duratio
 function createInitialFromResearchResult(item: CompetitorResult, templates: PromptTemplates, persona?: PersonaProfile): CreateContentInitial {
   const kind = researchResultKind(item);
   const sourceMediaUrl = item.mediaUrl || item.thumbnailUrl || item.url;
-  const model = kind === "image" ? "gpt-image-2" : kind === "text" ? "gemini-3.5-flash" : "veo-fast";
+  const model = kind === "image" ? "gpt-image-2" : kind === "text" ? "gemini-3.5-flash" : "seedance-2.0-mini";
   const duration = kind === "video" ? closestDuration(item.duration || 8, durationOptionsForModel(model)) : undefined;
   const template = kind === "image" ? templates.researchImageRecreate : kind === "text" ? templates.researchTextRecreate : templates.researchVideoRecreate;
   const personaContext = buildPersonaContext(persona);
@@ -844,19 +845,138 @@ function PersonaChips({ items }: { items?: string[] }) {
 }
 
 async function uploadReferenceFile(role: ReferenceRole, file: File): Promise<GenerationAssetReference> {
+  const preparedFile = role === "audio" ? await trimAudioReference(file, 14) : await normalizeReferenceImage(file);
   const form = new FormData();
   form.set("role", role);
-  form.set("file", file);
+  form.set("file", preparedFile);
   const res = await fetch("/api/uploads", { method: "POST", body: form });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error || `Upload failed for ${file.name}`);
   return {
     role,
-    fileName: String(json.fileName || file.name),
+    fileName: String(json.fileName || preparedFile.name),
     url: String(json.url || ""),
     storageKey: String(json.storageKey || ""),
-    contentType: String(json.contentType || file.type || "")
+    contentType: String(json.contentType || preparedFile.type || "")
   };
+}
+
+async function trimAudioReference(file: File, seconds: number) {
+  const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextClass) return file;
+  const context = new AudioContextClass();
+  try {
+    const decoded = await context.decodeAudioData(await file.arrayBuffer());
+    const frameCount = Math.min(decoded.length, Math.floor(decoded.sampleRate * seconds));
+    if (frameCount === decoded.length && file.type === "audio/wav") return file;
+    const channels = Math.min(2, decoded.numberOfChannels);
+    const bytesPerSample = 2;
+    const output = new ArrayBuffer(44 + frameCount * channels * bytesPerSample);
+    const view = new DataView(output);
+    const write = (offset: number, value: string) => [...value].forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)));
+    write(0, "RIFF"); view.setUint32(4, output.byteLength - 8, true); write(8, "WAVE"); write(12, "fmt ");
+    view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, channels, true);
+    view.setUint32(24, decoded.sampleRate, true); view.setUint32(28, decoded.sampleRate * channels * bytesPerSample, true);
+    view.setUint16(32, channels * bytesPerSample, true); view.setUint16(34, 16, true); write(36, "data");
+    view.setUint32(40, output.byteLength - 44, true);
+    const channelData = Array.from({ length: channels }, (_, index) => decoded.getChannelData(index));
+    let offset = 44;
+    for (let frame = 0; frame < frameCount; frame += 1) {
+      for (let channel = 0; channel < channels; channel += 1) {
+        const sample = Math.max(-1, Math.min(1, channelData[channel][frame]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+        offset += bytesPerSample;
+      }
+    }
+    return new File([output], `${file.name.replace(/\.[^.]+$/, "")}-first-14s.wav`, { type: "audio/wav" });
+  } catch {
+    return file;
+  } finally {
+    await context.close();
+  }
+}
+
+async function normalizeReferenceImage(file: File) {
+  const bitmap = await createImageBitmap(file);
+  const minSide = 300;
+  const maxSide = 4096;
+  let width = bitmap.width;
+  let height = bitmap.height;
+  const shrink = Math.min(1, maxSide / Math.max(width, height));
+  width = Math.max(1, Math.round(width * shrink));
+  height = Math.max(1, Math.round(height * shrink));
+  const grow = Math.max(1, minSide / Math.min(width, height));
+  width = Math.round(width * grow);
+  height = Math.round(height * grow);
+  let canvasWidth = width;
+  let canvasHeight = height;
+  if (width / height > 2.5) canvasHeight = Math.ceil(width / 2.5);
+  if (width / height < 0.4) canvasWidth = Math.ceil(height * 0.4);
+  const canvas = document.createElement("canvas");
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("This browser could not prepare the reference image.");
+  context.clearRect(0, 0, canvasWidth, canvasHeight);
+  context.drawImage(bitmap, Math.floor((canvasWidth - width) / 2), Math.floor((canvasHeight - height) / 2), width, height);
+  bitmap.close();
+  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Image preparation failed.")), "image/png"));
+  return new File([blob], `${file.name.replace(/\.[^.]+$/, "")}-prepared.png`, { type: "image/png" });
+}
+
+function VoiceRecorder({ onRecorded, compact = false }: { onRecorded: (file: File) => void; compact?: boolean }) {
+  const [recording, setRecording] = useState(false);
+  const [seconds, setSeconds] = useState(0);
+  const [error, setError] = useState("");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  useEffect(() => {
+    if (!recording) return;
+    const timer = window.setInterval(() => setSeconds((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [recording]);
+  useEffect(() => {
+    if (recording && seconds >= 14) recorderRef.current?.stop();
+  }, [recording, seconds]);
+  useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), []);
+  const start = async () => {
+    setError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferred = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, preferred ? { mimeType: preferred } : undefined);
+      streamRef.current = stream;
+      recorderRef.current = recorder;
+      chunksRef.current = [];
+      setSeconds(0);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const type = recorder.mimeType || "audio/webm";
+        const extension = type.includes("mp4") ? "m4a" : "webm";
+        const blob = new Blob(chunksRef.current, { type });
+        onRecorded(new File([blob], `voice-recording-${Date.now()}.${extension}`, { type }));
+        stream.getTracks().forEach((track) => track.stop());
+        setRecording(false);
+      };
+      recorder.start();
+      setRecording(true);
+    } catch {
+      setError("Microphone access was not granted. Allow microphone permission and try again.");
+    }
+  };
+  const stop = () => recorderRef.current?.state === "recording" && recorderRef.current.stop();
+  return (
+    <div className={`voice-recorder ${compact ? "compact" : ""}`}>
+      <button type="button" className={recording ? "recording" : ""} onClick={recording ? stop : start}>
+        {recording ? <Square size={14} /> : <Mic size={14} />}
+        {recording ? `Stop ${seconds}s` : "Record voice"}
+      </button>
+      {error && <small>{error}</small>}
+    </div>
+  );
 }
 
 function PersonaMediaLibrary({ assets, onChange }: { assets: PersonaMediaAsset[]; onChange: (assets: PersonaMediaAsset[]) => void }) {
@@ -897,6 +1017,7 @@ function PersonaMediaLibrary({ assets, onChange }: { assets: PersonaMediaAsset[]
           </label>
         ))}
       </div>
+      <VoiceRecorder compact onRecorded={(file) => void addAsset("audio", file)} />
       <div className="persona-media-list">
         {assets.map((asset) => (
           <div className="persona-media-item" key={asset.id}>
@@ -1419,7 +1540,7 @@ const contentFormatOptions = [
 
 const generationModels = {
   video: [
-    ["veo-fast", "Veo Fast", "$0.05-0.12/sec est."],
+    ["seedance-2.0-mini", "Seedance 2.0 Mini", "$0.04-0.10/sec est."],
     ["seedance-2.0", "Seedance 2.0", "$0.04-0.10/sec est."]
   ],
   image: [
@@ -1480,14 +1601,14 @@ function preferredFormatForKind(kind: GenerationKind, aspectRatio?: string) {
 }
 
 function durationOptionsForModel(model: string) {
-  if (model === "veo-fast") return [8];
+  if (model === "seedance-2.0-mini") return Array.from({ length: 12 }, (_, index) => index + 4);
   if (model === "seedance-2.0") return Array.from({ length: 12 }, (_, index) => index + 4);
   return [];
 }
 
 const automationModelOptions = {
   video: [
-    { value: "veo-fast", label: "VEO Fast" },
+    { value: "seedance-2.0-mini", label: "Seedance 2.0 Mini" },
     { value: "seedance-2.0", label: "Seedance 2.0" }
   ],
   image: [
@@ -1500,7 +1621,7 @@ const automationModelOptions = {
   ],
   auto: [
     { value: "auto", label: "Auto by selected source" },
-    { value: "veo-fast", label: "VEO Fast for video" },
+    { value: "seedance-2.0-mini", label: "Seedance 2.0 Mini for video" },
     { value: "gpt-image-2", label: "GPT Image 2 for image" },
     { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash for text" }
   ]
@@ -1578,7 +1699,7 @@ function sourceWatcherQuoteInput(watcher: AutomationSourceWatcher): Record<strin
   }
   const kind = automationKindFromContentType(watcher.contentType);
   const normalizedKind = kind === "auto" ? "video" : kind;
-  const model = watcher.model && watcher.model !== "auto" ? watcher.model : normalizedKind === "image" ? "gpt-image-2" : normalizedKind === "text" ? "gpt-5-5" : "veo-fast";
+  const model = watcher.model && watcher.model !== "auto" ? watcher.model : normalizedKind === "image" ? "gpt-image-2" : normalizedKind === "text" ? "gpt-5-5" : "seedance-2.0-mini";
   return {
     action: "automation.source_watcher_generate",
     module: "automation",
@@ -1613,7 +1734,7 @@ function defaultGenerationPrompt(brief: Brief, kind = planContentKind(brief.form
   if (kind === "text") {
     return `Write a founder-led social post about "${brief.topic}". Make it practical, specific, concise, and useful for SME owners. Start with a strong hook, explain the insight, give an example, and close with a clear takeaway.`;
   }
-  return `Create a ${brief.format || "short-form video"} about "${brief.topic}". Use a direct opening hook, practical SME automation example, clean office or screen-recording visuals, concise text overlays, natural pacing, and a clear CTA.`;
+  return `Create a ${brief.format || "short-form video"} about "${brief.topic}". Use a direct opening hook, practical SME automation example, clean office or screen-recording visuals, natural pacing, and a visually clear ending. Do not generate readable text; captions and CTA copy are added in post-production.`;
 }
 
 function defaultCaption(brief: Brief) {
@@ -1636,19 +1757,7 @@ function defaultPlatformForKind(kind: GenerationKind): Platform {
 async function uploadAssetReferences(refs: AssetReference[]): Promise<GenerationAssetReference[]> {
   const uploaded: GenerationAssetReference[] = [];
   for (const ref of refs) {
-    const form = new FormData();
-    form.set("role", ref.role);
-    form.set("file", ref.file);
-    const res = await fetch("/api/uploads", { method: "POST", body: form });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error || `Upload failed for ${ref.fileName}`);
-    uploaded.push({
-      role: ref.role,
-      fileName: ref.fileName,
-      url: String(json.url || ""),
-      storageKey: String(json.storageKey || ""),
-      contentType: String(json.contentType || ref.file.type || "")
-    });
+    uploaded.push(await uploadReferenceFile(ref.role, ref.file));
   }
   return uploaded;
 }
@@ -2175,12 +2284,15 @@ function AssetUploadBox({ icon, title, helper, role, refs, onChange }: { icon: R
   const selected = refs.find((item) => item.role === role);
   const accept = role === "audio" ? "audio/*" : "image/*";
   return (
-    <label className={`upbox ${selected ? "selected" : ""}`}>
-      <input type="file" accept={accept} onChange={(event) => onChange(role, event.currentTarget.files?.[0])} />
-      {selected && selected.file.type.startsWith("image/") ? <img className="upload-thumb" src={selected.previewUrl} alt={`${title} preview`} /> : icon}
-      <b>{title}</b>
-      <span>{selected?.fileName || helper}</span>
-    </label>
+    <div className="asset-upload-stack">
+      <label className={`upbox ${selected ? "selected" : ""}`}>
+        <input type="file" accept={accept} onChange={(event) => onChange(role, event.currentTarget.files?.[0])} />
+        {selected && selected.file.type.startsWith("image/") ? <img className="upload-thumb" src={selected.previewUrl} alt={`${title} preview`} /> : icon}
+        <b>{title}</b>
+        <span>{selected?.fileName || helper}</span>
+      </label>
+      {role === "audio" && <VoiceRecorder compact onRecorded={(file) => onChange(role, file)} />}
+    </div>
   );
 }
 
@@ -3312,6 +3424,8 @@ function PromptAdminCard({ data, run }: { data: AppData; run: (a: string, p?: Re
           <p className="muted compact">Variables: <code>{"{{sourceMediaUrl}}"}</code>, <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>, <code>{"{{durationLine}}"}</code>, <code>{"{{assetInstruction}}"}</code>, <code>{"{{personaContext}}"}</code>.</p>
           <label><span className="prompt-step">Step 2 - Edited prompt to final G01 JSON</span><textarea name="researchVideoPromptRefine" defaultValue={data.promptTemplates.researchVideoPromptRefine} /></label>
           <p className="muted compact">Variable: <code>{"{{prompt}}"}</code>. Persona context is attached to the source prompt before this step runs.</p>
+          <label><span className="prompt-step">Video generation guardrails</span><textarea name="videoGenerationGuardrails" defaultValue={data.promptTemplates.videoGenerationGuardrails} /></label>
+          <p className="muted compact">Appended to provider video prompts. Keep visual text disabled here so captions can be handled reliably after generation.</p>
         </section>
         <section className="prompt-module">
           <div className="prompt-module-head">

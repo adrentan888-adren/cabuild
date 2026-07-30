@@ -163,6 +163,8 @@ function PromptAdminCard({ data, run }: { data: AdminAppData; run: RunAction }) 
           <p className="muted compact">Variables: <code>{"{{sourceMediaUrl}}"}</code>, <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>, <code>{"{{durationLine}}"}</code>, <code>{"{{assetInstruction}}"}</code>, <code>{"{{personaContext}}"}</code>.</p>
           <label><span className="prompt-step">Step 2 - Edited prompt to final G01 JSON</span><textarea name="researchVideoPromptRefine" defaultValue={data.promptTemplates.researchVideoPromptRefine} /></label>
           <p className="muted compact">Variable: <code>{"{{prompt}}"}</code>. Persona context is attached to the source prompt before this step runs.</p>
+          <label><span className="prompt-step">Video generation guardrails</span><textarea name="videoGenerationGuardrails" defaultValue={data.promptTemplates.videoGenerationGuardrails} /></label>
+          <p className="muted compact">Appended to every provider video prompt. Use this to prevent generated text and reserve captions for post-production.</p>
         </section>
         <section className="prompt-module">
           <div className="prompt-module-head">
@@ -1128,7 +1130,7 @@ function BillingManagementCard({ billingData, runBilling, runStripe }: { billing
                 <label>Action<input name="action" defaultValue="create_content.generate" /></label>
                 <label>Module<input name="module" defaultValue="create_content" /></label>
                 <label>Provider<select name="provider" defaultValue="kie"><option value="kie">Kie</option><option value="apify">Apify</option><option value="upload-post">Upload-Post</option></select></label>
-                <label>Model / actor<input name="model" defaultValue="veo-fast" /></label>
+                <label>Model / actor<input name="model" defaultValue="seedance-2.0-mini" /></label>
                 <label>Generation type<select name="generationType" defaultValue="video"><option value="video">Video</option><option value="image">Image</option><option value="text">Text</option><option value="">N/A</option></select></label>
                 <label>Duration<input name="duration" type="number" defaultValue="8" /></label>
                 <label>Platform<input name="platform" placeholder="Instagram" /></label>

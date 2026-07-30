@@ -88,6 +88,13 @@ function referenceUrls(refs?: KieReferenceAsset[]) {
     .filter((url): url is string => Boolean(url));
 }
 
+function audioReferenceUrls(refs?: KieReferenceAsset[]) {
+  return (refs || [])
+    .filter((ref) => ref.role === "audio" || ref.contentType?.startsWith("audio/"))
+    .map((ref) => ref.url?.trim())
+    .filter((url): url is string => Boolean(url));
+}
+
 export async function generateVeoVideo(prompt: string, options: { duration?: number; aspectRatio?: string; references?: KieReferenceAsset[] } = {}) {
   const apiToken = await token();
   if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
@@ -143,6 +150,41 @@ export async function generateSeedanceVideo(prompt: string, options: { duration?
   const json = (await res.json()) as KieMarketTaskResponse;
   if (!res.ok || json.code !== 200 || !json.data?.taskId) {
     throw new Error(json.msg || `Kie Seedance generation failed with HTTP ${res.status}.`);
+  }
+  return json.data.taskId;
+}
+
+export async function generateSeedanceMiniVideo(prompt: string, options: { duration?: number; aspectRatio?: string; references?: KieReferenceAsset[] } = {}) {
+  const apiToken = await token();
+  if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
+  const duration = Math.max(4, Math.min(15, Math.round(options.duration || 8)));
+  const imageUrls = referenceUrls(options.references).slice(0, 2);
+  const audioUrls = audioReferenceUrls(options.references).slice(0, 1);
+  const audioUrls = audioReferenceUrls(options.references).slice(0, 1);
+  const res = await fetch(`${baseUrl}/api/v1/jobs/createTask`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "bytedance/seedance-2-mini",
+      input: {
+        prompt,
+        ...(imageUrls.length ? { reference_image_urls: imageUrls } : {}),
+        ...(audioUrls.length ? { reference_audio_urls: audioUrls } : {}),
+        ...(audioUrls.length ? { reference_audio_urls: audioUrls } : {}),
+        generate_audio: true,
+        resolution: "720p",
+        aspect_ratio: options.aspectRatio || "9:16",
+        duration,
+        web_search: false
+      }
+    })
+  });
+  const json = (await res.json()) as KieMarketTaskResponse;
+  if (!res.ok || json.code !== 200 || !json.data?.taskId) {
+    throw new Error(json.msg || `Kie Seedance Mini generation failed with HTTP ${res.status}.`);
   }
   return json.data.taskId;
 }

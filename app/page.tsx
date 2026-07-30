@@ -456,6 +456,7 @@ export default function Home() {
     ["audit", "Social Audit", BarChart3],
     ["persona", "Persona", UserRound],
     ["research", "Research", Radar],
+    ["product-video", "Product Video", Film],
     ["create", "Create Content", Wand2],
     ["publish", "My Contents", CalendarDays],
     ["automation", "Automation", RefreshCcw],
@@ -524,6 +525,7 @@ export default function Home() {
           {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
           {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={setDirectCreateInitial} />}
+          {screen === "product-video" && <ProductVideoStudio />}
           {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
           {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
@@ -549,7 +551,7 @@ export default function Home() {
 }
 
 function title(screen: string) {
-  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", create: "Create Content", publish: "My Contents", automation: "Automation", billing: "Billing", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
+  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", "product-video": "Product Video Studio", create: "Create Content", publish: "My Contents", automation: "Automation", billing: "Billing", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
 }
 
 function AnimatedDots({ label }: { label: string }) {
@@ -2437,6 +2439,172 @@ function ResearchGenerateModal({ initial, personaAssets, run, onClose, setScreen
           <CreateContentModule initial={initial} personaAssets={personaAssets} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing G01" : "Sending to Publish"} creditBalance={creditBalance} onSubmit={prepareGeneration} />
         )}
       </section>
+    </div>
+  );
+}
+
+type ProductVideoScene = { id: number; title: string; duration: number; prompt: string };
+type ProductVideoResult = { sceneId: number; taskId: string; state: string; assetUrl?: string; error?: string };
+
+async function directProductVideoPost(payload: Record<string, unknown>) {
+  const response = await fetch("/api/product-video/direct", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(json.error || "Direct KIE request failed.");
+  return json;
+}
+
+function ProductVideoStudio() {
+  const [productName, setProductName] = useState("");
+  const [sellingPoints, setSellingPoints] = useState("");
+  const [audience, setAudience] = useState("");
+  const [style, setStyle] = useState("UGC product demo");
+  const [language, setLanguage] = useState("Malay");
+  const [duration, setDuration] = useState(20);
+  const [productFile, setProductFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [scenes, setScenes] = useState<ProductVideoScene[]>([]);
+  const [results, setResults] = useState<ProductVideoResult[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  useEffect(() => {
+    if (!results.some((item) => !["success", "fail"].includes(item.state))) return;
+    const timer = window.setInterval(async () => {
+      const next = await Promise.all(results.map(async (item) => {
+        if (["success", "fail"].includes(item.state)) return item;
+        try {
+          const status = await directProductVideoPost({ action: "status", taskId: item.taskId });
+          return { ...item, state: status.state, assetUrl: status.assetUrl, error: status.error };
+        } catch (error) {
+          return { ...item, error: error instanceof Error ? error.message : "Status check failed." };
+        }
+      }));
+      setResults(next);
+      if (next.every((item) => ["success", "fail"].includes(item.state))) {
+        setMessage(next.every((item) => item.state === "success") ? "All Seedance 2.0 scenes are ready." : "Scene generation finished with errors. Review the results below.");
+      }
+    }, 8000);
+    return () => window.clearInterval(timer);
+  }, [results]);
+
+  const chooseProduct = (file?: File | null) => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setProductFile(file || null);
+    setPreviewUrl(file ? URL.createObjectURL(file) : "");
+  };
+
+  const buildStoryboard = async () => {
+    if (!productFile || !productName.trim()) {
+      setMessage("Add one product image and the product name first.");
+      return;
+    }
+    setBusy(true);
+    setMessage("GPT-5.5 is preparing the storyboard...");
+    const count = duration <= 10 ? 2 : duration <= 20 ? 4 : 6;
+    const sceneDuration = Math.max(4, Math.min(8, Math.round(duration / count)));
+    const points = sellingPoints.trim() || "show the product clearly and communicate its most useful benefit";
+    const target = audience.trim() || "the product's ideal customer";
+    const beats = [
+      ["Hook", `Open with a thumb-stopping problem experienced by ${target}. Reveal ${productName} immediately as the solution.`],
+      ["Problem and benefit", `Demonstrate the problem naturally, then show how ${productName} helps. Key points: ${points}.`],
+      ["Product demonstration", `Show a close, believable hands-on demonstration of ${productName}. Keep its design, packaging, colours and proportions identical to the reference image.`],
+      ["Proof and reaction", `Show a natural positive reaction and a concrete product benefit for ${target}. Avoid exaggerated or unverifiable claims.`],
+      ["Lifestyle payoff", `Show the improved outcome after using ${productName}, with the product still clearly visible and visually consistent.`],
+      ["Call to action", `Finish with a clean hero shot of ${productName} and a spoken call to action. Leave clean space for captions added in post-production.`]
+    ];
+    try {
+      const response = await directProductVideoPost({ action: "plan", productName, audience: target, sellingPoints: points, language, style, duration });
+      const draft = response.plan as PlanDraft;
+      const outline = Array.isArray(draft.outline) ? draft.outline.map(String) : String(draft.outline || "").split(/\n|,\s*/).filter(Boolean);
+      const shots = Array.isArray(draft.shotList) ? draft.shotList.map(String) : String(draft.shotList || "").split(/\n|,\s*/).filter(Boolean);
+      setScenes(beats.slice(0, count).map(([title, fallback], index) => {
+        const action = [outline[index], shots[index]].filter(Boolean).join(" Camera direction: ") || fallback;
+        return {
+          id: index + 1,
+          title: String(outline[index] || title).slice(0, 80),
+          duration: sceneDuration,
+          prompt: `${style}, vertical 9:16 social product video, scene ${index + 1} of ${count}. ${action} Spoken dialogue is in ${language}. Natural motion, realistic lighting and platform-native pacing. Do not render captions, subtitles, labels, invented logos, watermarks or readable text.`
+        };
+      }));
+      setMessage("GPT-5.5 storyboard ready. Review every scene before starting paid Seedance 2.0 generation.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "GPT-5.5 storyboard generation failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updateScene = (id: number, prompt: string) => setScenes((current) => current.map((scene) => scene.id === id ? { ...scene, prompt } : scene));
+
+  const generateScenes = async () => {
+    if (!productFile || !scenes.length) return;
+    setBusy(true);
+    setMessage("Uploading the product reference...");
+    try {
+      const reference = await uploadReferenceFile("product photo", productFile);
+      const started: ProductVideoResult[] = [];
+      for (let index = 0; index < scenes.length; index++) {
+        const scene = scenes[index];
+        setMessage(`Starting scene ${index + 1} of ${scenes.length}...`);
+        const result = await directProductVideoPost({
+          action: "start",
+          duration: scene.duration,
+          prompt: `${scene.prompt}\n\nContinuity lock: use the attached product as the sole source of truth. Preserve the exact product identity in every shot.`,
+          referenceUrl: reference.url
+        });
+        started.push({ sceneId: scene.id, taskId: result.taskId, state: "waiting" });
+        setResults([...started]);
+      }
+      setMessage(`${scenes.length} direct KIE scenes are generating. This does not use CA credits.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Scene generation failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="product-video-page">
+      <section className="product-video-hero">
+        <div><span>Product-to-video workflow</span><h2>Turn one product image into a scene-based video</h2><p>Prepare the creative direction, review the storyboard, then generate only the approved scenes.</p></div>
+        <div className="product-video-flow"><b>1</b><span>Product</span><b>2</b><span>Storyboard</span><b>3</b><span>Generate</span></div>
+      </section>
+      <section className="product-video-grid">
+        <div className="product-video-card">
+          <div className="step-label"><span>1</span>Add the product</div>
+          <label className={`product-drop ${previewUrl ? "selected" : ""}`}>
+            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => chooseProduct(event.target.files?.[0])} />
+            {previewUrl ? <img src={previewUrl} alt="Product preview" /> : <><Film size={28} /><b>Choose product image</b><small>PNG, JPG or WebP</small></>}
+          </label>
+          <label>Product name<input value={productName} onChange={(event) => setProductName(event.target.value)} placeholder="Example: Melaka Wireless Headphones" /></label>
+          <label>Key selling points<textarea value={sellingPoints} onChange={(event) => setSellingPoints(event.target.value)} placeholder="Comfortable, clear microphone, 30-hour battery..." /></label>
+          <label>Target audience<input value={audience} onChange={(event) => setAudience(event.target.value)} placeholder="Remote workers, gamers, students..." /></label>
+        </div>
+        <div className="product-video-card">
+          <div className="step-label"><span>2</span>Choose the direction</div>
+          <label>Video style<select value={style} onChange={(event) => setStyle(event.target.value)}>
+            <option>UGC product demo</option><option>Problem–solution ad</option><option>Cinematic product ad</option><option>Talking-head review</option><option>Stop motion</option><option>Unboxing</option>
+          </select></label>
+          <label>Dialogue language<select value={language} onChange={(event) => setLanguage(event.target.value)}><option>Malay</option><option>English</option><option>Mandarin</option></select></label>
+          <label>Total target duration<select value={duration} onChange={(event) => setDuration(Number(event.target.value))}><option value={8}>8 seconds</option><option value={20}>20 seconds</option><option value={30}>30 seconds</option></select></label>
+          <button className="primary" type="button" disabled={busy} onClick={() => void buildStoryboard()}><Sparkles size={15} />{busy ? <AnimatedDots label="GPT-5.5 planning" /> : "Build with GPT-5.5"}</button>
+          <p className="step-helper">Storyboard preparation does not start paid video generation.</p>
+        </div>
+      </section>
+      {message && <div className="generation-notice">{message}</div>}
+      {scenes.length > 0 && <section className="product-video-card storyboard-section">
+        <div className="storyboard-head"><div><div className="step-label"><span>3</span>Review storyboard</div><p>Edit any scene before generating.</p></div><button className="primary" type="button" disabled={busy} onClick={() => void generateScenes()}><Wand2 size={15} />{busy ? <AnimatedDots label="Starting scenes" /> : `Generate ${scenes.length} scenes`}</button></div>
+        <div className="storyboard-grid">{scenes.map((scene) => <article className="storyboard-card" key={scene.id}><div className="storyboard-placeholder"><span>Scene {scene.id}</span><Film size={26} /></div><div><b>{scene.title}</b><small>{scene.duration} seconds · 9:16</small></div><textarea value={scene.prompt} onChange={(event) => updateScene(scene.id, event.target.value)} /></article>)}</div>
+      </section>}
+      {results.length > 0 && <section className="product-video-card storyboard-section">
+        <div className="step-label"><span>4</span>Generated scenes</div>
+        <div className="storyboard-grid">{results.map((result) => <article className="storyboard-card" key={result.taskId}>{result.assetUrl ? <video src={result.assetUrl} controls playsInline /> : <div className="storyboard-placeholder"><Film size={26} /><span>Scene {result.sceneId}</span></div>}<div><b>Scene {result.sceneId}</b><small>{result.state}{result.error ? ` · ${result.error}` : ""}</small></div></article>)}</div>
+      </section>}
     </div>
   );
 }

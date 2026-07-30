@@ -8,7 +8,7 @@ import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWi
 import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceMiniVideo, generateSeedanceVideo, generateTextContentWithKie, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishPhotoPost, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 import { assertAutomationCanSpend, quoteBillingAction, reserveBillingCredits, releaseBillingReservation, settleBillingReservation } from "@/lib/billing";
-import { encodeUploadKey, saveGeneratedMediaFromUrl } from "@/lib/providers/uploads";
+import { encodeUploadKey, saveCaptionedGeneratedVideo, saveGeneratedMediaFromUrl } from "@/lib/providers/uploads";
 
 const allowedPlatforms: Platform[] = ["TikTok", "Instagram", "YouTube", "LinkedIn", "Facebook", "X"];
 
@@ -64,8 +64,29 @@ function preferredGeneratedContentType(asset: Pick<Asset, "type">) {
   return "image/png";
 }
 
-async function persistGeneratedAssetUrl(input: { origin: string; workspaceId: string; asset: Pick<Asset, "id" | "type" | "title">; providerUrl: string }) {
+async function persistGeneratedAssetUrl(input: { origin: string; workspaceId: string; asset: Pick<Asset, "id" | "type" | "title">; providerUrl: string; caption?: string; duration?: number }) {
   try {
+    if (input.asset.type === "video" || input.asset.type === "ugc") {
+      const stored = await saveCaptionedGeneratedVideo({
+        workspaceId: input.workspaceId,
+        assetId: input.asset.id,
+        sourceUrl: input.providerUrl,
+        caption: input.caption,
+        duration: input.duration
+      });
+      return {
+        assetUrl: `${input.origin}/api/public-uploads/${encodeUploadKey(stored.final.key)}`,
+        rawAssetUrl: `${input.origin}/api/public-uploads/${encodeUploadKey(stored.raw.key)}`,
+        subtitleUrl: `${input.origin}/api/public-uploads/${encodeUploadKey(stored.subtitles.key)}`,
+        providerUrl: input.providerUrl,
+        storageKey: stored.final.key,
+        rawStorageKey: stored.raw.key,
+        subtitleStorageKey: stored.subtitles.key,
+        contentType: stored.final.contentType,
+        size: stored.final.size,
+        storageError: ""
+      };
+    }
     const stored = await saveGeneratedMediaFromUrl({
       workspaceId: input.workspaceId,
       assetId: input.asset.id,
@@ -74,8 +95,12 @@ async function persistGeneratedAssetUrl(input: { origin: string; workspaceId: st
     });
     return {
       assetUrl: `${input.origin}/api/public-uploads/${encodeUploadKey(stored.key)}`,
+      rawAssetUrl: "",
+      subtitleUrl: "",
       providerUrl: input.providerUrl,
       storageKey: stored.key,
+      rawStorageKey: "",
+      subtitleStorageKey: "",
       contentType: stored.contentType,
       size: stored.size,
       storageError: ""
@@ -83,8 +108,12 @@ async function persistGeneratedAssetUrl(input: { origin: string; workspaceId: st
   } catch (error) {
     return {
       assetUrl: input.providerUrl,
+      rawAssetUrl: input.providerUrl,
+      subtitleUrl: "",
       providerUrl: input.providerUrl,
       storageKey: "",
+      rawStorageKey: "",
+      subtitleStorageKey: "",
       contentType: preferredGeneratedContentType(input.asset),
       size: 0,
       storageError: error instanceof Error ? error.message : "Generated media storage failed."
@@ -1309,7 +1338,8 @@ export async function POST(req: Request) {
         if (isMarketTask) {
           const status = await getMarketTask(asset.providerTaskId);
           if (status.state === "success" && status.assetUrl) {
-            const persisted = await persistGeneratedAssetUrl({ origin, workspaceId, asset, providerUrl: status.assetUrl });
+            const publishContext = publishItems[0];
+            const persisted = await persistGeneratedAssetUrl({ origin, workspaceId, asset, providerUrl: status.assetUrl, caption: publishContext?.caption, duration: publishContext?.duration || Number(asset.generationSettings?.duration || 8) });
             storageEvents.push({ assetId: asset.id, title: asset.title, ...persisted });
             asset.status = "ready";
             asset.progress = 100;
@@ -1318,7 +1348,11 @@ export async function POST(req: Request) {
             asset.generationSettings = {
               ...(asset.generationSettings || {}),
               providerAssetUrl: persisted.providerUrl,
+              rawAssetUrl: persisted.rawAssetUrl,
+              subtitleUrl: persisted.subtitleUrl,
               generatedStorageKey: persisted.storageKey,
+              rawStorageKey: persisted.rawStorageKey,
+              subtitleStorageKey: persisted.subtitleStorageKey,
               generatedStorageContentType: persisted.contentType,
               generatedStorageSize: persisted.size,
               generatedStorageError: persisted.storageError
@@ -1330,7 +1364,11 @@ export async function POST(req: Request) {
               item.generationSettings = {
                 ...(item.generationSettings || {}),
                 providerAssetUrl: persisted.providerUrl,
+                rawAssetUrl: persisted.rawAssetUrl,
+                subtitleUrl: persisted.subtitleUrl,
                 generatedStorageKey: persisted.storageKey,
+                rawStorageKey: persisted.rawStorageKey,
+                subtitleStorageKey: persisted.subtitleStorageKey,
                 generatedStorageContentType: persisted.contentType,
                 generatedStorageSize: persisted.size,
                 generatedStorageError: persisted.storageError
@@ -1351,7 +1389,8 @@ export async function POST(req: Request) {
         } else {
           const status = await getVeoVideo(asset.providerTaskId);
           if (status.successFlag === 1 && status.assetUrl) {
-            const persisted = await persistGeneratedAssetUrl({ origin, workspaceId, asset, providerUrl: status.assetUrl });
+            const publishContext = publishItems[0];
+            const persisted = await persistGeneratedAssetUrl({ origin, workspaceId, asset, providerUrl: status.assetUrl, caption: publishContext?.caption, duration: publishContext?.duration || Number(asset.generationSettings?.duration || 8) });
             storageEvents.push({ assetId: asset.id, title: asset.title, ...persisted });
             asset.status = "ready";
             asset.progress = 100;
@@ -1360,7 +1399,11 @@ export async function POST(req: Request) {
             asset.generationSettings = {
               ...(asset.generationSettings || {}),
               providerAssetUrl: persisted.providerUrl,
+              rawAssetUrl: persisted.rawAssetUrl,
+              subtitleUrl: persisted.subtitleUrl,
               generatedStorageKey: persisted.storageKey,
+              rawStorageKey: persisted.rawStorageKey,
+              subtitleStorageKey: persisted.subtitleStorageKey,
               generatedStorageContentType: persisted.contentType,
               generatedStorageSize: persisted.size,
               generatedStorageError: persisted.storageError
@@ -1372,7 +1415,11 @@ export async function POST(req: Request) {
               item.generationSettings = {
                 ...(item.generationSettings || {}),
                 providerAssetUrl: persisted.providerUrl,
+                rawAssetUrl: persisted.rawAssetUrl,
+                subtitleUrl: persisted.subtitleUrl,
                 generatedStorageKey: persisted.storageKey,
+                rawStorageKey: persisted.rawStorageKey,
+                subtitleStorageKey: persisted.subtitleStorageKey,
                 generatedStorageContentType: persisted.contentType,
                 generatedStorageSize: persisted.size,
                 generatedStorageError: persisted.storageError

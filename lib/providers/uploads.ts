@@ -1,6 +1,8 @@
 import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
+import os from "os";
+import { spawn } from "child_process";
 
 const localUploadDir = path.join(process.cwd(), "data", "uploads");
 const gcsBucket = process.env.UPLOADS_GCS_BUCKET || process.env.DATA_STORE_GCS_BUCKET;
@@ -63,6 +65,81 @@ export async function saveGeneratedMediaFromUrl(input: { workspaceId: string; as
   return saveUpload(key, buffer, contentType);
 }
 
+export async function saveCaptionedGeneratedVideo(input: { workspaceId: string; assetId: string; sourceUrl: string; caption?: string; duration?: number }) {
+  const media = await downloadGeneratedMedia(input.sourceUrl, "video/mp4");
+  const rawKey = generatedMediaKey(input.workspaceId, `${input.assetId}-raw`, input.sourceUrl, media.contentType);
+  const raw = await saveUpload(rawKey, media.buffer, media.contentType);
+  const srtText = buildSrt(input.caption || "", input.duration || 8);
+  const subtitleKey = generatedMediaKey(input.workspaceId, `${input.assetId}-captions`, "captions.srt", "application/x-subrip");
+  const subtitles = await saveUpload(subtitleKey, Buffer.from(srtText, "utf8"), "application/x-subrip");
+  if (!srtText.trim()) return { final: raw, raw, subtitles };
+
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "contentagent-caption-"));
+  const inputPath = path.join(tempDir, "raw.mp4");
+  const subtitlePath = path.join(tempDir, "captions.srt");
+  const outputPath = path.join(tempDir, "final.mp4");
+  try {
+    await fs.writeFile(inputPath, media.buffer);
+    await fs.writeFile(subtitlePath, srtText, "utf8");
+    await runFfmpeg(inputPath, subtitlePath, outputPath);
+    const finalBuffer = await fs.readFile(outputPath);
+    const finalKey = generatedMediaKey(input.workspaceId, `${input.assetId}-captioned`, "final.mp4", "video/mp4");
+    const final = await saveUpload(finalKey, finalBuffer, "video/mp4");
+    return { final, raw, subtitles };
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function downloadGeneratedMedia(sourceUrl: string, fallbackContentType: string) {
+  const res = await fetch(sourceUrl, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to fetch generated media: HTTP ${res.status}`);
+  const contentLength = Number(res.headers.get("content-length") || 0);
+  if (contentLength > maxGeneratedMediaBytes) throw new Error(`Generated media is too large to store (${contentLength} bytes).`);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (buffer.length > maxGeneratedMediaBytes) throw new Error(`Generated media is too large to store (${buffer.length} bytes).`);
+  const contentType = res.headers.get("content-type")?.split(";")[0].toLowerCase() || fallbackContentType;
+  return { buffer, contentType: contentType === "application/octet-stream" ? fallbackContentType : contentType };
+}
+
+function buildSrt(caption: string, duration: number) {
+  const clean = caption.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const words = clean.split(" ");
+  const chunks: string[] = [];
+  for (let index = 0; index < words.length; index += 8) chunks.push(words.slice(index, index + 8).join(" "));
+  const safeDuration = Math.max(1, Number(duration) || 8);
+  const cueDuration = safeDuration / chunks.length;
+  return chunks.map((text, index) => {
+    const start = index * cueDuration;
+    const end = Math.min(safeDuration, (index + 1) * cueDuration);
+    return `${index + 1}\n${srtTime(start)} --> ${srtTime(end)}\n${text}\n`;
+  }).join("\n");
+}
+
+function srtTime(seconds: number) {
+  const milliseconds = Math.max(0, Math.round(seconds * 1000));
+  const hours = Math.floor(milliseconds / 3600000);
+  const minutes = Math.floor((milliseconds % 3600000) / 60000);
+  const secs = Math.floor((milliseconds % 60000) / 1000);
+  const millis = milliseconds % 1000;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")},${String(millis).padStart(3, "0")}`;
+}
+
+function runFfmpeg(inputPath: string, subtitlePath: string, outputPath: string) {
+  const escapedSubtitlePath = subtitlePath.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+  const filter = `subtitles='${escapedSubtitlePath}':force_style='FontName=DejaVu Sans,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=42'`;
+  return new Promise<void>((resolve, reject) => {
+    const process = spawn("ffmpeg", ["-y", "-i", inputPath, "-vf", filter, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", outputPath]);
+    let errorOutput = "";
+    process.stderr.on("data", (chunk) => {
+      errorOutput = `${errorOutput}${chunk}`.slice(-4000);
+    });
+    process.on("error", reject);
+    process.on("close", (code) => code === 0 ? resolve() : reject(new Error(`FFmpeg caption rendering failed (${code}): ${errorOutput.slice(-500)}`)));
+  });
+}
+
 export async function readUpload(key: string) {
   if (!key.startsWith("uploads/") && !key.startsWith("generated/")) throw new Error("Invalid upload key.");
   if (gcsBucket) {
@@ -88,6 +165,7 @@ function contentTypeFromName(name: string) {
   if (lower.endsWith(".mov")) return "video/quicktime";
   if (lower.endsWith(".mp3")) return "audio/mpeg";
   if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".srt")) return "application/x-subrip";
   if (lower.endsWith(".txt")) return "text/plain";
   return "image/png";
 }
@@ -102,9 +180,10 @@ function extensionForGeneratedMedia(sourceUrl: string, contentType?: string) {
   if (normalized.includes("image/gif")) return "gif";
   if (normalized.includes("image/png")) return "png";
   if (normalized.includes("text/plain")) return "txt";
+  if (normalized.includes("subrip")) return "srt";
   try {
     const ext = path.extname(new URL(sourceUrl).pathname).replace(/^\./, "").toLowerCase();
-    if (/^(mp4|webm|mov|jpg|jpeg|png|webp|gif|txt)$/.test(ext)) return ext === "jpeg" ? "jpg" : ext;
+    if (/^(mp4|webm|mov|jpg|jpeg|png|webp|gif|txt|srt)$/.test(ext)) return ext === "jpeg" ? "jpg" : ext;
   } catch {
     // Fall through to a conservative default.
   }

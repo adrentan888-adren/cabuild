@@ -6,6 +6,7 @@
 - Added client-side reference image preparation before upload: images are scaled into the provider's valid size range and transparently padded when needed to remain within a 0.40-2.50 aspect ratio. This prevents Seedance reference errors such as `Height must be between 300px and 6000px` without cropping the user's logo or photo.
 - Removed VEO Fast from active video choices and defaults. Added Kie Market model `bytedance/seedance-2-mini` as `seedance-2.0-mini`, including 4-15 second durations, image/audio references, Market task polling, automation support, and billing mapping/rate card. Legacy VEO billing entries are retained only as inactive history.
 - Added an admin-editable `videoGenerationGuardrails` prompt template. Provider video prompts prohibit generated words, numbers, subtitles, captions, URLs, and signage, except text already embedded in an uploaded logo. Social captions remain separate publish metadata; reliable burn-in captions are reserved for a dedicated post-production step.
+- Added the staging caption post-production step. Completed provider videos are retained as raw MP4 files, the publish caption is converted into an evenly timed SRT track, and FFmpeg creates the captioned final MP4 shown in My Contents. The preview modal provides separate downloads for the final MP4, raw MP4, and `.srt` file. Cloud Run installs FFmpeg and DejaVu fonts in the runtime image.
 
 Last updated: 2026-06-25
 

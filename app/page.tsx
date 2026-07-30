@@ -2637,7 +2637,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
                   {item.hashtags?.length ? <small>{item.hashtags.join(" ")}</small> : null}
                   {item.status === "generating" && <small className="generation-help">Provider generation is running. You can switch tabs; Publish will keep polling automatically.</small>}
                   {sourceMedia && <button type="button" className="asset-link asset-button-link" onClick={() => setSourcePreview(sourceMedia)}><Eye size={14} />View source media</button>}
-                  {videoUrl && <div className="asset-actions"><button type="button" onClick={() => asset && setPreviewAsset(asset)}><Film size={14} />Play video</button><a className="asset-link" href={`/api/assets/${asset?.id}/download`}>Download MP4</a></div>}
+                  {videoUrl && <div className="asset-actions"><button type="button" onClick={() => asset && setPreviewAsset(asset)}><Film size={14} />Play final video</button><a className="asset-link" href={`/api/assets/${asset?.id}/download`}>Download final MP4</a></div>}
                   {!isVideo && imageUrl && asset && <button type="button" className="asset-link asset-button-link" onClick={() => setPreviewAsset({ ...asset, assetUrl: imageUrl, type: "image" })}>Preview image</button>}
                   {item.error && <span className="provider-error inline">{item.error}</span>}
                 </div>
@@ -2696,7 +2696,9 @@ function SourceMediaModal({ source, onClose }: { source: SourceMediaPreview; onC
 
 function AssetPreviewModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
   const isImage = asset.type === "image" || asset.type === "carousel";
-  const downloadLabel = isImage ? "Download image" : "Download MP4";
+  const downloadLabel = isImage ? "Download image" : "Download final MP4";
+  const rawAssetUrl = String(asset.generationSettings?.rawAssetUrl || "");
+  const subtitleUrl = String(asset.generationSettings?.subtitleUrl || "");
   return (
     <div className="modal-backdrop video-backdrop">
       <section className="video-player-modal">
@@ -2710,6 +2712,8 @@ function AssetPreviewModal({ asset, onClose }: { asset: Asset; onClose: () => vo
         {isImage ? <img className="asset-preview-image" src={asset.assetUrl} alt={`${asset.title} generated preview`} /> : <video src={asset.assetUrl} controls autoPlay playsInline />}
         <div className="modal-actions">
           <a className="asset-link" href={`/api/assets/${asset.id}/download`}>{downloadLabel}</a>
+          {!isImage && rawAssetUrl && <a className="asset-link" href={rawAssetUrl} download={`${asset.title}-raw.mp4`}>Download raw MP4</a>}
+          {!isImage && subtitleUrl && <a className="asset-link" href={subtitleUrl} download={`${asset.title}-captions.srt`}>Download captions (.srt)</a>}
           <button type="button" onClick={onClose}>Close</button>
         </div>
       </section>

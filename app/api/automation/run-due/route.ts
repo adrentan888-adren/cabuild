@@ -6,7 +6,7 @@ import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
 import { scanSocialUrl } from "@/lib/providers/apify";
 import { generateImage, generateSeedanceMiniVideo, generateSeedanceVideo, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { publishPhotoPost, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
-import { encodeUploadKey, saveGeneratedMediaFromUrl } from "@/lib/providers/uploads";
+import { encodeUploadKey, saveCaptionedGeneratedVideo, saveGeneratedMediaFromUrl } from "@/lib/providers/uploads";
 import { runScheduledFinanceReconciliation } from "@/lib/finance";
 
 export const dynamic = "force-dynamic";
@@ -51,8 +51,23 @@ function preferredGeneratedContentType(asset: Pick<Asset, "type">) {
   return "image/png";
 }
 
-async function persistGeneratedAssetUrl(input: { origin: string; workspaceId: string; asset: Pick<Asset, "id" | "type" | "title">; providerUrl: string }) {
+async function persistGeneratedAssetUrl(input: { origin: string; workspaceId: string; asset: Pick<Asset, "id" | "type" | "title">; providerUrl: string; caption?: string; duration?: number }) {
   try {
+    if (input.asset.type === "video" || input.asset.type === "ugc") {
+      const stored = await saveCaptionedGeneratedVideo({ workspaceId: input.workspaceId, assetId: input.asset.id, sourceUrl: input.providerUrl, caption: input.caption, duration: input.duration });
+      return {
+        assetUrl: `${input.origin}/api/public-uploads/${encodeUploadKey(stored.final.key)}`,
+        rawAssetUrl: `${input.origin}/api/public-uploads/${encodeUploadKey(stored.raw.key)}`,
+        subtitleUrl: `${input.origin}/api/public-uploads/${encodeUploadKey(stored.subtitles.key)}`,
+        providerUrl: input.providerUrl,
+        storageKey: stored.final.key,
+        rawStorageKey: stored.raw.key,
+        subtitleStorageKey: stored.subtitles.key,
+        contentType: stored.final.contentType,
+        size: stored.final.size,
+        storageError: ""
+      };
+    }
     const stored = await saveGeneratedMediaFromUrl({
       workspaceId: input.workspaceId,
       assetId: input.asset.id,
@@ -61,8 +76,12 @@ async function persistGeneratedAssetUrl(input: { origin: string; workspaceId: st
     });
     return {
       assetUrl: `${input.origin}/api/public-uploads/${encodeUploadKey(stored.key)}`,
+      rawAssetUrl: "",
+      subtitleUrl: "",
       providerUrl: input.providerUrl,
       storageKey: stored.key,
+      rawStorageKey: "",
+      subtitleStorageKey: "",
       contentType: stored.contentType,
       size: stored.size,
       storageError: ""
@@ -70,8 +89,12 @@ async function persistGeneratedAssetUrl(input: { origin: string; workspaceId: st
   } catch (error) {
     return {
       assetUrl: input.providerUrl,
+      rawAssetUrl: input.providerUrl,
+      subtitleUrl: "",
       providerUrl: input.providerUrl,
       storageKey: "",
+      rawStorageKey: "",
+      subtitleStorageKey: "",
       contentType: preferredGeneratedContentType(input.asset),
       size: 0,
       storageError: error instanceof Error ? error.message : "Generated media storage failed."
@@ -494,7 +517,7 @@ async function pollReadyGenerations(origin: string, limit = 10) {
       const failed = done.kind === "market" ? done.status.state === "fail" : done.status.successFlag === 2 || done.status.successFlag === 3;
       if (success) {
         const providerUrl = String(done.status.assetUrl);
-        const persisted = await persistGeneratedAssetUrl({ origin, workspaceId: job.item.workspaceId, asset: job.asset, providerUrl });
+        const persisted = await persistGeneratedAssetUrl({ origin, workspaceId: job.item.workspaceId, asset: job.asset, providerUrl, caption: job.item.caption, duration: job.item.duration || Number(job.asset.generationSettings?.duration || 8) });
         await mutateDb((db) => {
           const asset = db.assets.find((asset) => asset.id === job.asset.id && asset.workspaceId === job.item.workspaceId);
           const item = db.publishQueue.find((item) => item.id === job.item.id && item.workspaceId === job.item.workspaceId);
@@ -506,7 +529,11 @@ async function pollReadyGenerations(origin: string, limit = 10) {
             asset.generationSettings = {
               ...(asset.generationSettings || {}),
               providerAssetUrl: persisted.providerUrl,
+              rawAssetUrl: persisted.rawAssetUrl,
+              subtitleUrl: persisted.subtitleUrl,
               generatedStorageKey: persisted.storageKey,
+              rawStorageKey: persisted.rawStorageKey,
+              subtitleStorageKey: persisted.subtitleStorageKey,
               generatedStorageContentType: persisted.contentType,
               generatedStorageSize: persisted.size,
               generatedStorageError: persisted.storageError
@@ -519,7 +546,11 @@ async function pollReadyGenerations(origin: string, limit = 10) {
             item.generationSettings = {
               ...(item.generationSettings || {}),
               providerAssetUrl: persisted.providerUrl,
+              rawAssetUrl: persisted.rawAssetUrl,
+              subtitleUrl: persisted.subtitleUrl,
               generatedStorageKey: persisted.storageKey,
+              rawStorageKey: persisted.rawStorageKey,
+              subtitleStorageKey: persisted.subtitleStorageKey,
               generatedStorageContentType: persisted.contentType,
               generatedStorageSize: persisted.size,
               generatedStorageError: persisted.storageError

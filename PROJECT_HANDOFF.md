@@ -4,6 +4,7 @@
 
 - Added `docs/UAT_TEST_PLAN_CURRENT_BUILD.md` as the independent UAT specification for the current staging build. It covers frontend and admin modules, authentication, Social Audit, Persona, Research, Create Content, Product Video Studio, My Contents, raw/final/SRT video outputs, Automation, Billing/Stripe, publishing, logs, security, persistence, permissions, evidence, defect handling, paid-test approval gates, and exit criteria.
 - The future UAT agent is an independent executor and must not edit or deploy application code. It must request approval before paid, publishing, live-money, or destructive tests and hand defects back to the developer agent.
+- Independent UAT review revision 2 expanded the plan from 111 to 170 unique tests. New coverage includes microphone lifecycle and codec fallbacks, stale-state/model quote changes, provider-to-FFmpeg completion states, final/raw/SRT integrity and idempotency, Product Video Studio scene ownership and partial failures, scheduler concurrency, provider-spend ledger bypass protection, generated-media token security, mixed Cloud Run revision detection, accessibility, and browser compatibility.
 
 ## 2026-07-30 staging video input update
 

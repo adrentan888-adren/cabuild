@@ -1,0 +1,22 @@
+Reference image normalization result
+Captured: 2026-07-30 (MYT)
+
+Input fixture:
+- filename: test-wide-3.70.png
+- dimensions: 370 x 100
+- aspect ratio: 3.70
+
+Prepared browser output:
+- dimensions: 1110 x 444
+- aspect ratio: 2.50
+- content type: image/png
+
+Visual/algorithm result:
+- proportional scaling was preserved
+- complete source remained visible
+- padding was added to reach the provider-safe ratio
+- no stretch or crop was applied
+
+The temporary Persona selection was removed without saving the shared profile.
+Static inspection also found that this preparation is client-side and is not
+enforced by the upload API.

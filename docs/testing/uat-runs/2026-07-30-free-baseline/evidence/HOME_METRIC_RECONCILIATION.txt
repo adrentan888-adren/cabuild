@@ -1,0 +1,27 @@
+ContentAgent Home metric reconciliation
+Captured: 2026-07-30 (MYT)
+
+Home:
+- high-priority gaps: 1
+- research scans: 0
+- ready assets: 7
+- scheduled posts: 0
+- tracked competitors: 4
+- credits: 249235
+- social audit score: 87/100
+
+Research:
+- tracked sources: 4
+- qualified results: 9
+- history entries: 2
+- active cached run message: Apify search completed
+
+My Contents:
+- Done drafts: 7
+
+Result:
+- Home ready-assets count reconciles with My Contents.
+- Home research-scans count does not reconcile with the two Research history
+  entries or the active cached result set.
+
+No paid scan or generation was started to collect this evidence.

@@ -1,0 +1,36 @@
+ContentAgent staging UAT deployment baseline
+Captured: 2026-07-30 (MYT, UTC+08:00)
+
+Test plan revision: 2
+Test plan cases: 170
+Local/remote staging branch HEAD:
+c54aa67de0342f6f9df6d733648e00fce9f86c79
+
+Deployed container image commit on all three staging services:
+77c267136abfcb707915f8d5c70b44eec98a18cf
+
+Frontend revision:
+contentagent-social-staging-00069-czq
+
+Admin revision:
+contentagent-admin-staging-00054-bls
+
+API revision:
+contentagent-api-staging-00100-f26
+
+Latest successful deployment workflow:
+https://github.com/adrentan888-adren/cabuild/actions/runs/30524341392
+Status: completed / success
+Started: 2026-07-30T07:51:11Z
+Finished: 2026-07-30T07:55:37Z
+
+Current branch application commits not present in the deployed image:
+253790e72042673de20f8a565e5742a57ffa7b63 - Add direct KIE product video studio
+b9cb15235fc55d3f69d5995f1f565cb2c4389a38 - Fix Cloud Build shell substitutions
+cfa1e5bb8345a9e448837de59db32d1a15cdf939 - Add standalone product video studio
+
+The two later documentation commits use [skip ci], so no deployment workflow
+was created for the branch tip. Product Video Studio is therefore absent from
+the deployed staging frontend.
+
+No credentials, cookies, provider tokens, or secret values are included here.

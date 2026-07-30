@@ -128,6 +128,7 @@ export async function generateSeedanceVideo(prompt: string, options: { duration?
   if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
   const duration = Math.max(4, Math.min(15, Math.round(options.duration || 8)));
   const imageUrls = referenceUrls(options.references).slice(0, 2);
+  const audioUrls = audioReferenceUrls(options.references).slice(0, 1);
   const res = await fetch(`${baseUrl}/api/v1/jobs/createTask`, {
     method: "POST",
     headers: {
@@ -139,6 +140,7 @@ export async function generateSeedanceVideo(prompt: string, options: { duration?
       input: {
         prompt,
         ...(imageUrls.length ? { reference_image_urls: imageUrls } : {}),
+        ...(audioUrls.length ? { reference_audio_urls: audioUrls } : {}),
         generate_audio: true,
         resolution: "720p",
         aspect_ratio: options.aspectRatio || "9:16",
@@ -160,7 +162,6 @@ export async function generateSeedanceMiniVideo(prompt: string, options: { durat
   const duration = Math.max(4, Math.min(15, Math.round(options.duration || 8)));
   const imageUrls = referenceUrls(options.references).slice(0, 2);
   const audioUrls = audioReferenceUrls(options.references).slice(0, 1);
-  const audioUrls = audioReferenceUrls(options.references).slice(0, 1);
   const res = await fetch(`${baseUrl}/api/v1/jobs/createTask`, {
     method: "POST",
     headers: {
@@ -172,7 +173,6 @@ export async function generateSeedanceMiniVideo(prompt: string, options: { durat
       input: {
         prompt,
         ...(imageUrls.length ? { reference_image_urls: imageUrls } : {}),
-        ...(audioUrls.length ? { reference_audio_urls: audioUrls } : {}),
         ...(audioUrls.length ? { reference_audio_urls: audioUrls } : {}),
         generate_audio: true,
         resolution: "720p",

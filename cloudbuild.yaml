@@ -14,12 +14,12 @@ steps:
         gcloud storage buckets describe gs://${_DATA_BUCKET} >/dev/null 2>&1 || \
           gcloud storage buckets create gs://${_DATA_BUCKET} --project=$PROJECT_ID --location=${_REGION} --uniform-bucket-level-access
         RUNTIME_SA=$(gcloud run services describe ${_SERVICE} --project=$PROJECT_ID --region=${_REGION} --format='value(spec.template.spec.serviceAccountName)' 2>/dev/null || true)
-        if [ -z "$RUNTIME_SA" ]; then
+        if [ -z "$${RUNTIME_SA}" ]; then
           PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
-          RUNTIME_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
+          RUNTIME_SA="$${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
         fi
         gcloud storage buckets add-iam-policy-binding gs://${_DATA_BUCKET} \
-          --member="serviceAccount:$RUNTIME_SA" \
+          --member="serviceAccount:$${RUNTIME_SA}" \
           --role="roles/storage.objectAdmin" >/dev/null 2>&1 || true
         gcloud storage objects describe gs://${_DATA_BUCKET}/${_DATA_OBJECT} >/dev/null 2>&1 || \
           gcloud storage cp data-seed/app.json gs://${_DATA_BUCKET}/${_DATA_OBJECT}

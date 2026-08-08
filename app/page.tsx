@@ -34,6 +34,7 @@ import {
 import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BillingCreditPackage, BillingPlan, BillingProvider, BillingQuote, BillingSettings, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 import type { PersonaMediaAsset, PersonaProfile } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
+import VideoTemplatePanel from "@/app/components/video-templates/VideoTemplatePanel";
 
 type AppData = {
   user: { id: string; email: string; name: string; role: string };
@@ -456,7 +457,7 @@ export default function Home() {
     ["audit", "Social Audit", BarChart3],
     ["persona", "Persona", UserRound],
     ["research", "Research", Radar],
-    ["product-video", "Product Video", Film],
+    ["video-template", "Video Template", Film],
     ["create", "Create Content", Wand2],
     ["publish", "My Contents", CalendarDays],
     ["automation", "Automation", RefreshCcw],
@@ -525,7 +526,7 @@ export default function Home() {
           {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
           {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={setDirectCreateInitial} />}
-          {screen === "product-video" && <ProductVideoStudio />}
+          {screen === "video-template" && <VideoTemplatePanel />}
           {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
           {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
@@ -551,7 +552,7 @@ export default function Home() {
 }
 
 function title(screen: string) {
-  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", "product-video": "Product Video Studio", create: "Create Content", publish: "My Contents", automation: "Automation", billing: "Billing", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
+  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", "video-template": "Video Template", create: "Create Content", publish: "My Contents", automation: "Automation", billing: "Billing", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
 }
 
 function AnimatedDots({ label }: { label: string }) {

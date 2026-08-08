@@ -2892,7 +2892,9 @@ export async function POST(req: Request) {
     const refine = String(body.researchVideoPromptRefine || "").trim();
     const text = String(body.researchTextRecreate || "").trim();
     const videoGuardrails = String(body.videoGenerationGuardrails || "").trim();
-    if (!video || !image || !refine || !text || !videoGuardrails) return NextResponse.json({ error: "Research video, image, text, final video prompt, and video guardrail templates are required." }, { status: 400 });
+    const ugcStoryboard = String(body.ugcStoryboard || "").trim();
+    const ugcSceneGeneration = String(body.ugcSceneGeneration || "").trim();
+    if (!video || !image || !refine || !text || !videoGuardrails || !ugcStoryboard || !ugcSceneGeneration) return NextResponse.json({ error: "All research, video guardrail, and UGC prompt templates are required." }, { status: 400 });
     const templates = await mutateDb((db) => {
       db.promptTemplates = {
         ...(db.promptTemplates || {}),
@@ -2900,7 +2902,9 @@ export async function POST(req: Request) {
         researchImageRecreate: image,
         researchVideoPromptRefine: refine,
         researchTextRecreate: text,
-        videoGenerationGuardrails: videoGuardrails
+        videoGenerationGuardrails: videoGuardrails,
+        ugcStoryboard,
+        ugcSceneGeneration
       };
       db.activity.push({ id: id("act"), workspaceId, message: "Prompt templates updated by admin.", createdAt: new Date().toISOString() });
       return db.promptTemplates;

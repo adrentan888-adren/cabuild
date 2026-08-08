@@ -38,6 +38,8 @@ export const defaultPromptTemplates: PromptTemplates = {
   researchImageRecreate: "Please analyse the attached image/graphic and write the prompt to recreate this image in JSON format in very detailed terms, no more than 3000 characters. Source image: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{assetInstruction}}\n\n{{personaContext}}",
   researchTextRecreate: "Analyze this source post and write a new high-conversion text post in the same strategic style without copying it. Source: {{sourceUrl}}. Source title: {{sourceTitle}}. Source description: {{sourceDescription}}. Keep the final post original, platform-native, and ready for social publishing.\n\n{{personaContext}}",
   videoGenerationGuardrails: `Generate clean video imagery only. Do not render captions, subtitles, overlays, letters, words, numbers, URLs, signs, labels, interface text, or readable documents inside the generated video. Spoken dialogue and audio are allowed. The only permitted readable text is text already contained inside an uploaded logo reference; preserve that exact logo without retyping or inventing it. Leave sufficient clean negative space for captions to be added accurately during post-production.`,
+  ugcStoryboard: `Create a conversion-focused UGC product video storyboard using only the supplied product facts and product image as sources of truth. Do not invent claims, certifications, ingredients, packaging text, guarantees, or performance results. Return valid JSON with concept, caption, hashtags, and scenes. Each scene must contain title, prompt, dialogue, and duration.`,
+  ugcSceneGeneration: `Create a vertical 9:16 UGC product-video scene. Preserve the uploaded product's exact packaging, logo, colours, shape, and proportions. Do not render captions, subtitles, overlays, letters, words, numbers, URLs, signs, labels, watermarks, interface text, or readable documents. Do not invent product claims, certifications, ingredients, packaging, or results. Spoken dialogue is allowed. Keep visual continuity with the complete storyboard.`,
   researchVideoPromptRefine: `You are ContentAgent's senior video prompt engineer.
 
 Convert the user's research recreation instruction into ONE final provider-ready video generation prompt.
@@ -290,6 +292,7 @@ export function seeded(): Database {
     billingReconciliationAlerts: [],
     billingFinanceCloseReports: [],
     promptTemplates: defaultPromptTemplates,
+    ugcVideoProjects: [],
     rolePermissions: defaultRolePermissions
   };
   ensureBillingDefaults(db);
@@ -341,6 +344,7 @@ export function normalizeDb(db: Database): Database {
   ensureStripeLaunchDefaults(db);
   ensureBillingDefaults(db);
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
+  db.ugcVideoProjects ||= [];
   const existingPermissions = (db as Database & { rolePermissions?: Partial<RolePermissions> }).rolePermissions || {};
   db.rolePermissions = allRoles.reduce((acc, role) => {
     const source = role === "owner" || role === "super_admin"

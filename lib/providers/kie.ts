@@ -485,6 +485,26 @@ export async function generateContentPlanWithGpt55(input: { idea: string; niche:
   return json;
 }
 
+export async function generateUgcStoryboardWithGpt55(input: {
+  productName: string;
+  sellingPoints: string;
+  audience: string;
+  style: string;
+  language: string;
+  duration: number;
+  template: string;
+}) {
+  const sceneCount = input.duration <= 8 ? 2 : input.duration <= 20 ? 4 : 6;
+  const prompt = `${input.template}\n\nProduct name: ${input.productName}\nProduct facts, selling points, and restrictions: ${input.sellingPoints || "Show only defensible benefits."}\nTarget audience: ${input.audience || "The product's intended customer."}\nStyle: ${input.style}\nDialogue language: ${input.language}\nTotal duration: ${input.duration} seconds\nRequired scene count: ${sceneCount}\n\nReturn ONLY valid JSON in this shape:\n{"concept":"...","caption":"...","hashtags":["#tag"],"scenes":[{"title":"...","prompt":"detailed visual and camera direction","dialogue":"spoken line or empty string","duration":4}]}`;
+  const result = await generateContentPlanWithGpt55({ idea: prompt, niche: "UGC product advertising", requestedFormat: "Short video 9:16", requestedDuration: input.duration, requestedModel: "seedance-2.0" }, prompt);
+  return result as {
+    concept?: string;
+    caption?: string;
+    hashtags?: string[];
+    scenes?: Array<{ title?: string; prompt?: string; dialogue?: string; duration?: number }>;
+  };
+}
+
 const fallbackVideoPromptRefineTemplate = `You are ContentAgent's senior video prompt engineer.
 
 Convert the user's research recreation instruction into ONE final provider-ready video generation prompt.

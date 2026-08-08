@@ -958,6 +958,66 @@ export type PromptTemplates = {
   researchVideoPromptRefine: string;
   researchTextRecreate: string;
   videoGenerationGuardrails: string;
+  ugcStoryboard: string;
+  ugcSceneGeneration: string;
+};
+
+export type UgcVideoSceneStatus = "draft" | "waiting" | "queued" | "generating" | "completed" | "cancelled" | "failed";
+
+export type UgcVideoScene = {
+  id: string;
+  order: number;
+  title: string;
+  prompt: string;
+  dialogue?: string;
+  duration: number;
+  status: UgcVideoSceneStatus;
+  progress: number;
+  providerTaskId?: string;
+  providerUrl?: string;
+  storageKey?: string;
+  outputUrl?: string;
+  error?: string;
+  retryCount: number;
+  estimatedCostUsd: number;
+  actualCostUsd?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UgcVideoProjectStatus = "draft" | "storyboard_ready" | "awaiting_confirmation" | "queued" | "generating" | "partially_failed" | "combining" | "completed" | "cancelled" | "failed";
+
+export type UgcVideoProject = {
+  id: string;
+  workspaceId: string;
+  ownerUserId: string;
+  productName: string;
+  sellingPoints: string;
+  audience: string;
+  style: string;
+  language: string;
+  targetDuration: number;
+  sourceImageUrl: string;
+  sourceImageStorageKey?: string;
+  concept?: string;
+  caption?: string;
+  hashtags?: string[];
+  model: "seedance-2.0";
+  aspectRatio: "9:16";
+  resolution: "720p";
+  status: UgcVideoProjectStatus;
+  scenes: UgcVideoScene[];
+  estimatedStoryboardCostUsd: number;
+  estimatedVideoCostUsd: number;
+  estimatedTotalCostUsd: number;
+  actualCostUsd?: number;
+  costRateSnapshot?: Record<string, number>;
+  generationIdempotencyKey?: string;
+  finalVideoStorageKey?: string;
+  finalVideoUrl?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type Database = {
@@ -1002,5 +1062,6 @@ export type Database = {
   billingReconciliationAlerts: BillingReconciliationAlert[];
   billingFinanceCloseReports: BillingFinanceCloseReport[];
   promptTemplates: PromptTemplates;
+  ugcVideoProjects: UgcVideoProject[];
   rolePermissions: RolePermissions;
 };

@@ -91,6 +91,39 @@ export async function saveCaptionedGeneratedVideo(input: { workspaceId: string; 
   }
 }
 
+export async function combineStoredVideos(input: { workspaceId: string; projectId: string; storageKeys: string[] }) {
+  if (!input.storageKeys.length) throw new Error("No completed scenes are available to combine.");
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "contentagent-ugc-"));
+  try {
+    const scenePaths: string[] = [];
+    for (let index = 0; index < input.storageKeys.length; index++) {
+      const media = await readUpload(input.storageKeys[index]);
+      const scenePath = path.join(tempDir, `scene-${String(index + 1).padStart(3, "0")}.mp4`);
+      await fs.writeFile(scenePath, media.buffer);
+      scenePaths.push(scenePath);
+    }
+    const listPath = path.join(tempDir, "scenes.txt");
+    const outputPath = path.join(tempDir, "combined.mp4");
+    await fs.writeFile(listPath, scenePaths.map((scenePath) => `file '${scenePath.replace(/'/g, "'\\''")}'`).join("\n"), "utf8");
+    await runFfmpegConcat(listPath, outputPath);
+    const buffer = await fs.readFile(outputPath);
+    const key = generatedMediaKey(input.workspaceId, `${input.projectId}-final`, "combined.mp4", "video/mp4");
+    return saveUpload(key, buffer, "video/mp4");
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+function runFfmpegConcat(listPath: string, outputPath: string) {
+  return new Promise<void>((resolve, reject) => {
+    const process = spawn("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-vf", "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,fps=30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", outputPath]);
+    let errorOutput = "";
+    process.stderr.on("data", (chunk) => { errorOutput = `${errorOutput}${chunk}`.slice(-4000); });
+    process.on("error", reject);
+    process.on("close", (code) => code === 0 ? resolve() : reject(new Error(`FFmpeg scene combination failed (${code}): ${errorOutput.slice(-500)}`)));
+  });
+}
+
 async function downloadGeneratedMedia(sourceUrl: string, fallbackContentType: string) {
   const res = await fetch(sourceUrl, { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to fetch generated media: HTTP ${res.status}`);

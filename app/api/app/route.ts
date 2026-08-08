@@ -166,7 +166,8 @@ export async function GET() {
     },
     activity: db.activity.filter((item) => item.workspaceId === workspace.id).slice(-10).reverse(),
     debugLogs: (db.debugLogs || []).filter((item) => item.workspaceId === workspace.id).slice(-200).reverse(),
-    promptTemplates: db.promptTemplates
+    promptTemplates: db.promptTemplates,
+    ugcVideoProjects: (db.ugcVideoProjects || []).filter((item) => item.workspaceId === workspace.id && item.ownerUserId === user.id)
   };
   return NextResponse.json(scoped);
 }

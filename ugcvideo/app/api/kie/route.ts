@@ -55,8 +55,8 @@ Audience: ${String(body.audience || "the product's ideal customer")}.
 Selling points and restrictions: ${String(body.sellingPoints || "Show only defensible product benefits")}.
 Dialogue language: ${String(body.language || "Malay")}.
 Return ONLY valid JSON:
-{"concept":"...","caption":"...","hashtags":["#tag"],"scenes":[{"title":"...","prompt":"provider-ready visual and spoken-dialogue direction"}]}
-Return exactly ${sceneCount} scenes. Use a strong hook, product demonstration, consistent product identity, natural dialogue, compliance-safe claims, and a clear CTA. Never request generated captions, overlays, labels, watermarks, or extra readable text.`;
+{"concept":"...","caption":"...","hashtags":["#tag"],"scenes":[{"title":"...","duration":4,"prompt":"provider-ready visual and spoken-dialogue direction"}]}
+Return exactly ${sceneCount} scenes with varied durations that add up to exactly 15 seconds. Each scene must be at least 1 second. Use a strong hook, product demonstration, consistent product identity, natural dialogue, compliance-safe claims, and a clear CTA. Design the scenes as one continuous 15-second video with clear transitions. Never request generated captions, overlays, labels, watermarks, or extra readable text.`;
   const response = await fetch(`${base}/codex/v1/responses`, {
     method: "POST",
     headers: { ...headers(), "Content-Type": "application/json" },
@@ -80,7 +80,7 @@ async function start(body: Record<string, unknown>) {
   const response = await fetch(`${base}/api/v1/jobs/createTask`, {
     method: "POST",
     headers: { ...headers(), "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "bytedance/seedance-2", input: { prompt, reference_image_urls: [referenceUrl], generate_audio: true, resolution: "720p", aspect_ratio: aspectRatio, duration: 5, web_search: false } })
+    body: JSON.stringify({ model: "bytedance/seedance-2", input: { prompt, reference_image_urls: [referenceUrl], generate_audio: true, resolution: "720p", aspect_ratio: aspectRatio, duration: 15, web_search: false } })
   });
   const json = await response.json().catch(() => ({}));
   if (!response.ok || json.code !== 200 || !json.data?.taskId) throw new Error(json.msg || `Seedance failed (${response.status}).`);

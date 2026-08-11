@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Scene = { title: string; prompt: string };
+type Scene = { title: string; duration: number; prompt: string };
 type Result = { scene: number; taskId: string; state: string; assetUrl?: string; error?: string };
 
 async function api(payload: Record<string, unknown>) {
@@ -27,6 +27,7 @@ export default function Page() {
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const completed = useMemo(() => results.filter((item) => item.state === "success").length, [results]);
+  const storyboardDuration = useMemo(() => scenes.reduce((total, scene) => total + (Number(scene.duration) || 0), 0), [scenes]);
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
   useEffect(() => {
@@ -42,7 +43,7 @@ export default function Page() {
         }
       }));
       setResults(next);
-      if (next.every((item) => ["success", "fail"].includes(item.state))) setMessage("Generation finished. Review the scenes below.");
+      if (next.every((item) => ["success", "fail"].includes(item.state))) setMessage("Generation finished. Review the complete video below.");
     }, 8000);
     return () => window.clearInterval(timer);
   }, [results]);
@@ -59,7 +60,12 @@ export default function Page() {
     setMessage("GPT-5.5 is creating the storyboard...");
     try {
       const response = await api({ action: "plan", productName, sellingPoints, audience, style, language, aspectRatio });
-      setScenes(Array.isArray(response.plan?.scenes) ? response.plan.scenes : []);
+      const plannedScenes = Array.isArray(response.plan?.scenes) ? response.plan.scenes : [];
+      setScenes(plannedScenes.map((scene: Scene, index: number) => ({
+        title: String(scene.title || `Scene ${index + 1}`),
+        duration: Number(scene.duration) > 0 ? Number(scene.duration) : 5,
+        prompt: String(scene.prompt || "")
+      })));
       setMessage("Storyboard ready. Edit any scene before starting Seedance 2.0.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Planning failed.");
@@ -70,6 +76,7 @@ export default function Page() {
 
   const generate = async () => {
     if (!file || !scenes.length) return;
+    if (Math.abs(storyboardDuration - duration) > 0.001) return setMessage(`Scene durations must total exactly ${duration} seconds. Current total: ${storyboardDuration} seconds.`);
     setBusy("video");
     try {
       setMessage("Uploading product reference to KIE...");
@@ -78,22 +85,23 @@ export default function Page() {
       const upload = await fetch("/api/kie", { method: "POST", body: form });
       const uploaded = await upload.json();
       if (!upload.ok) throw new Error(uploaded.error || "Upload failed.");
-      const sceneDuration = 5;
-      const started: Result[] = [];
-      for (let index = 0; index < scenes.length; index++) {
-        setMessage(`Starting scene ${index + 1} of ${scenes.length}...`);
-        const response = await api({
-          action: "start",
-          referenceUrl: uploaded.url,
-          duration: sceneDuration,
-          aspectRatio,
-          prompt: `${style}, ${aspectRatio} aspect ratio, scene ${index + 1} of ${scenes.length}. ${scenes[index].prompt}
-Dialogue language: ${language}. Use the attached product image as the sole source of truth. Preserve its exact packaging, logo, colors, shape and proportions. Natural movement and lighting. No generated captions, overlays, invented labels, watermarks, or extra readable text.`
-        });
-        started.push({ scene: index + 1, taskId: response.taskId, state: "waiting" });
-        setResults([...started]);
-      }
-      setMessage("All scenes were accepted by KIE and are generating.");
+      let elapsed = 0;
+      const timeline = scenes.map((scene, index) => {
+        const start = elapsed;
+        elapsed += Number(scene.duration);
+        return `Scene ${index + 1} — ${start.toFixed(1)}s to ${elapsed.toFixed(1)}s (${scene.duration}s) — ${scene.title}: ${scene.prompt}`;
+      }).join("\n");
+      setMessage("Starting one 15-second Seedance video...");
+      const response = await api({
+        action: "start",
+        referenceUrl: uploaded.url,
+        duration,
+        aspectRatio,
+        prompt: `${style}, ${aspectRatio} aspect ratio. Create one continuous 15-second product video following this exact time-coded storyboard:\n${timeline}
+Dialogue language: ${language}. Follow the scene timings and transitions precisely while maintaining visual continuity. Use the attached product image as the sole source of truth. Preserve its exact packaging, logo, colors, shape and proportions throughout the entire video. Natural movement and lighting. No generated captions, overlays, invented labels, watermarks, or extra readable text.`
+      });
+      setResults([{ scene: 1, taskId: response.taskId, state: "waiting" }]);
+      setMessage("The complete 15-second video was accepted by KIE and is generating.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Generation failed.");
     } finally {
@@ -103,7 +111,7 @@ Dialogue language: ${language}. Use the attached product image as the sole sourc
 
   return (
     <main>
-      <header><div className="logo">PV</div><div><span>DIRECT KIE WORKFLOW</span><h1>Product Video Studio</h1><p>Product image → GPT‑5.5 storyboard → Seedance 2.0 scenes</p></div></header>
+      <header><div className="logo">PV</div><div><span>DIRECT KIE WORKFLOW</span><h1>Product Video Studio</h1><p>Product image → GPT‑5.5 storyboard → one Seedance 2.0 video</p></div></header>
       <section className="progress"><div className="on"><b>1</b><span>Product</span></div><i /><div className={scenes.length ? "on" : ""}><b>2</b><span>Storyboard</span></div><i /><div className={results.length ? "on" : ""}><b>3</b><span>Generate</span></div><i /><div className={completed ? "on" : ""}><b>4</b><span>Review</span></div></section>
 
       <section className="setup">
@@ -129,13 +137,13 @@ Dialogue language: ${language}. Use the attached product image as the sole sourc
       {message && <div className="message">{message}</div>}
 
       {scenes.length > 0 && <section className="card wide">
-        <div className="sectionHead"><div className="step"><b>3</b><span>Review storyboard</span></div><button onClick={() => void generate()} disabled={Boolean(busy)}>{busy === "video" ? "Starting scenes…" : `Generate ${scenes.length} scenes`}</button></div>
-        <div className="sceneGrid">{scenes.map((scene, index) => <article className="scene" key={index}><div className="sceneTop"><b>Scene {index + 1}</b><span>5 seconds · {aspectRatio}</span></div><input value={scene.title} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, title: event.target.value } : item))} /><textarea value={scene.prompt} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, prompt: event.target.value } : item))} /></article>)}</div>
+        <div className="sectionHead"><div className="step"><b>3</b><span>Review storyboard · {storyboardDuration}/15 seconds</span></div><button onClick={() => void generate()} disabled={Boolean(busy) || Math.abs(storyboardDuration - duration) > 0.001}>{busy === "video" ? "Starting video…" : "Generate one 15-second video"}</button></div>
+        <div className="sceneGrid">{scenes.map((scene, index) => <article className="scene" key={index}><div className="sceneTop"><b>Scene {index + 1}</b><span>{aspectRatio}</span></div><input value={scene.title} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, title: event.target.value } : item))} /><label>Duration (seconds)<input type="number" min="1" max="13" step="0.5" value={scene.duration} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, duration: Number(event.target.value) } : item))} /></label><textarea value={scene.prompt} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, prompt: event.target.value } : item))} /></article>)}</div>
       </section>}
 
       {results.length > 0 && <section className="card wide">
-        <div className="step"><b>4</b><span>Generated scenes · {completed}/{results.length} ready</span></div>
-        <div className="sceneGrid">{results.map((result) => <article className="scene result" key={result.taskId}>{result.assetUrl ? <video src={result.assetUrl} controls playsInline /> : <div className="waiting">Scene {result.scene}<span>{result.state}</span></div>}<small>{result.error || result.taskId}</small></article>)}</div>
+        <div className="step"><b>4</b><span>Generated video · {completed}/{results.length} ready</span></div>
+        <div className="sceneGrid">{results.map((result) => <article className="scene result" key={result.taskId}>{result.assetUrl ? <video src={result.assetUrl} controls playsInline /> : <div className="waiting">Complete video<span>{result.state}</span></div>}<small>{result.error || result.taskId}</small></article>)}</div>
       </section>}
     </main>
   );

@@ -46,10 +46,11 @@ async function uploadProduct(request: Request) {
 async function plan(body: Record<string, unknown>) {
   const productName = String(body.productName || "").trim();
   if (!productName) return NextResponse.json({ error: "Product name is required." }, { status: 400 });
-  const duration = Math.max(8, Math.min(30, Number(body.duration) || 20));
-  const sceneCount = duration <= 8 ? 2 : duration <= 20 ? 4 : 6;
+  const duration = 15;
+  const sceneCount = 3;
+  const aspectRatio = validAspectRatio(body.aspectRatio);
   const instruction = `You are a senior product-video strategist.
-Create a ${duration}-second vertical 9:16 ${String(body.style || "UGC product demo")} for ${productName}.
+Create a ${duration}-second ${aspectRatio} ${String(body.style || "UGC product demo")} for ${productName}.
 Audience: ${String(body.audience || "the product's ideal customer")}.
 Selling points and restrictions: ${String(body.sellingPoints || "Show only defensible product benefits")}.
 Dialogue language: ${String(body.language || "Malay")}.
@@ -72,17 +73,23 @@ Return exactly ${sceneCount} scenes. Use a strong hook, product demonstration, c
 async function start(body: Record<string, unknown>) {
   const prompt = String(body.prompt || "").trim();
   const referenceUrl = String(body.referenceUrl || "").trim();
+  const aspectRatio = validAspectRatio(body.aspectRatio);
   if (prompt.length < 20 || !/^https?:\/\//i.test(referenceUrl)) {
     return NextResponse.json({ error: "A detailed prompt and uploaded product reference are required." }, { status: 400 });
   }
   const response = await fetch(`${base}/api/v1/jobs/createTask`, {
     method: "POST",
     headers: { ...headers(), "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "bytedance/seedance-2", input: { prompt, reference_image_urls: [referenceUrl], generate_audio: true, resolution: "720p", aspect_ratio: "9:16", duration: Math.max(4, Math.min(15, Number(body.duration) || 5)), web_search: false } })
+    body: JSON.stringify({ model: "bytedance/seedance-2", input: { prompt, reference_image_urls: [referenceUrl], generate_audio: true, resolution: "720p", aspect_ratio: aspectRatio, duration: 5, web_search: false } })
   });
   const json = await response.json().catch(() => ({}));
   if (!response.ok || json.code !== 200 || !json.data?.taskId) throw new Error(json.msg || `Seedance failed (${response.status}).`);
   return NextResponse.json({ taskId: json.data.taskId });
+}
+
+function validAspectRatio(value: unknown) {
+  const aspectRatio = String(value || "9:16");
+  return ["9:16", "16:9", "1:1"].includes(aspectRatio) ? aspectRatio : "9:16";
 }
 
 async function status(body: Record<string, unknown>) {

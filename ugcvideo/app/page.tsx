@@ -20,7 +20,8 @@ export default function Page() {
   const [audience, setAudience] = useState("");
   const [style, setStyle] = useState("UGC product demo");
   const [language, setLanguage] = useState("Malay");
-  const [duration, setDuration] = useState(20);
+  const [aspectRatio, setAspectRatio] = useState("9:16");
+  const duration = 15;
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [results, setResults] = useState<Result[]>([]);
   const [busy, setBusy] = useState("");
@@ -57,7 +58,7 @@ export default function Page() {
     setBusy("plan");
     setMessage("GPT-5.5 is creating the storyboard...");
     try {
-      const response = await api({ action: "plan", productName, sellingPoints, audience, style, language, duration });
+      const response = await api({ action: "plan", productName, sellingPoints, audience, style, language, aspectRatio });
       setScenes(Array.isArray(response.plan?.scenes) ? response.plan.scenes : []);
       setMessage("Storyboard ready. Edit any scene before starting Seedance 2.0.");
     } catch (error) {
@@ -77,7 +78,7 @@ export default function Page() {
       const upload = await fetch("/api/kie", { method: "POST", body: form });
       const uploaded = await upload.json();
       if (!upload.ok) throw new Error(uploaded.error || "Upload failed.");
-      const sceneDuration = Math.max(4, Math.min(15, Math.round(duration / scenes.length)));
+      const sceneDuration = 5;
       const started: Result[] = [];
       for (let index = 0; index < scenes.length; index++) {
         setMessage(`Starting scene ${index + 1} of ${scenes.length}...`);
@@ -85,7 +86,8 @@ export default function Page() {
           action: "start",
           referenceUrl: uploaded.url,
           duration: sceneDuration,
-          prompt: `${style}, vertical 9:16, scene ${index + 1} of ${scenes.length}. ${scenes[index].prompt}
+          aspectRatio,
+          prompt: `${style}, ${aspectRatio} aspect ratio, scene ${index + 1} of ${scenes.length}. ${scenes[index].prompt}
 Dialogue language: ${language}. Use the attached product image as the sole source of truth. Preserve its exact packaging, logo, colors, shape and proportions. Natural movement and lighting. No generated captions, overlays, invented labels, watermarks, or extra readable text.`
         });
         started.push({ scene: index + 1, taskId: response.taskId, state: "waiting" });
@@ -116,7 +118,8 @@ Dialogue language: ${language}. Use the attached product image as the sole sourc
           <div className="step"><b>2</b><span>Creative direction</span></div>
           <label>Style<select value={style} onChange={(event) => setStyle(event.target.value)}><option>UGC product demo</option><option>Problem–solution ad</option><option>Cinematic product ad</option><option>Talking-head review</option><option>Unboxing</option><option>Stop motion</option></select></label>
           <label>Dialogue language<select value={language} onChange={(event) => setLanguage(event.target.value)}><option>Malay</option><option>English</option><option>Mandarin</option></select></label>
-          <label>Target duration<select value={duration} onChange={(event) => setDuration(Number(event.target.value))}><option value={8}>8 seconds</option><option value={20}>20 seconds</option><option value={30}>30 seconds</option></select></label>
+          <label>Video duration<input value="15 seconds" disabled /></label>
+          <label>Video dimensions<select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}><option value="9:16">9:16 · Portrait</option><option value="16:9">16:9 · Landscape</option><option value="1:1">1:1 · Square</option></select></label>
           <div className="model"><span>Planner</span><b>GPT‑5.5</b><span>Video</span><b>Seedance 2.0</b></div>
           <button onClick={() => void buildPlan()} disabled={Boolean(busy)}>{busy === "plan" ? "GPT‑5.5 is planning…" : "Build storyboard with GPT‑5.5"}</button>
           <small className="note">KIE is called directly. No ContentAgent credits are used.</small>
@@ -127,7 +130,7 @@ Dialogue language: ${language}. Use the attached product image as the sole sourc
 
       {scenes.length > 0 && <section className="card wide">
         <div className="sectionHead"><div className="step"><b>3</b><span>Review storyboard</span></div><button onClick={() => void generate()} disabled={Boolean(busy)}>{busy === "video" ? "Starting scenes…" : `Generate ${scenes.length} scenes`}</button></div>
-        <div className="sceneGrid">{scenes.map((scene, index) => <article className="scene" key={index}><div className="sceneTop"><b>Scene {index + 1}</b><span>{Math.round(duration / scenes.length)} seconds</span></div><input value={scene.title} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, title: event.target.value } : item))} /><textarea value={scene.prompt} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, prompt: event.target.value } : item))} /></article>)}</div>
+        <div className="sceneGrid">{scenes.map((scene, index) => <article className="scene" key={index}><div className="sceneTop"><b>Scene {index + 1}</b><span>5 seconds · {aspectRatio}</span></div><input value={scene.title} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, title: event.target.value } : item))} /><textarea value={scene.prompt} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, prompt: event.target.value } : item))} /></article>)}</div>
       </section>}
 
       {results.length > 0 && <section className="card wide">

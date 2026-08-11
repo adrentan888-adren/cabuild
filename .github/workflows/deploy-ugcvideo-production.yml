@@ -1,0 +1,61 @@
+name: Deploy Product Video Production
+
+on:
+  push:
+    branches:
+      - codex/ugcvideo-15s-staging
+    paths:
+      - ".github/workflows/deploy-ugcvideo-production.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: content-agent-2-499616
+  REGION: asia-southeast1
+  SERVICE: product-video-studio
+  AR_REPO: cloud-run-source-deploy
+  IMAGE: product-video-studio-production
+  WORKLOAD_IDENTITY_PROVIDER: projects/340047797097/locations/global/workloadIdentityPools/github-contentagent/providers/github-cabuild
+  SERVICE_ACCOUNT: github-cloud-run-deployer@content-agent-2-499616.iam.gserviceaccount.com
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
+
+      - name: Build image
+        run: docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$IMAGE:$GITHUB_SHA ./ugcvideo
+
+      - name: Push image
+        run: docker push $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$IMAGE:$GITHUB_SHA
+
+      - name: Deploy production service
+        run: >
+          gcloud run deploy $SERVICE
+          --project=$PROJECT_ID
+          --region=$REGION
+          --platform=managed
+          --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/$IMAGE:$GITHUB_SHA
+          --set-secrets=KIE_API_TOKEN=KIE_API_TOKEN:latest
+          --no-invoker-iam-check
+          --quiet
+
+      - name: Report URL
+        run: gcloud run services describe $SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)'

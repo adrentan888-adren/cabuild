@@ -6,6 +6,7 @@ const providerEnv: Record<ApiKeyProvider, string> = {
   kie: "KIE_API_TOKEN",
   apify: "APIFY_API_TOKEN",
   apifyBackup: "APIFY_BACKUP_API_TOKEN",
+  youtube: "YOUTUBE_API_KEY",
   uploadPost: "UPLOAD_POST_API_KEY",
   stripePublishable: "STRIPE_PUBLISHABLE_KEY",
   stripeSecret: "STRIPE_SECRET_KEY",

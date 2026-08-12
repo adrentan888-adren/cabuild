@@ -405,6 +405,7 @@ function ApiKeyManagementCard({ integrations, adminData, currentRole }: { integr
     { id: "kie", label: "Kie.ai", hint: "Used for Gemini/GPT prompt generation, Seedance, VEO, and image generation." },
     { id: "apify", label: "Apify primary", hint: "Used for Research, Source Watcher crawling, and persona crawling." },
     { id: "apifyBackup", label: "Apify backup", hint: "Used automatically when the primary Apify token hits quota/auth/rate-limit errors." },
+    { id: "youtube", label: "YouTube Data API", hint: "Official provider for YouTube keyword Research, thumbnails, metadata, and statistics." },
     { id: "uploadPost", label: "Upload-Post", hint: "Used to connect social accounts and publish approved content." }
   ];
   async function saveKey(provider: string, form: FormData) {
@@ -484,7 +485,7 @@ function BillingManagementCard({ billingData, runBilling, runStripe }: { billing
   const [pricingMessage, setPricingMessage] = useState("");
   const [syncingProvider, setSyncingProvider] = useState("");
   const firstUser = billingData?.users[0];
-  const providerOptions = ["kie", "apify", "upload-post", "brevo", "stripe", "local", "custom"];
+  const providerOptions = ["kie", "apify", "youtube", "upload-post", "brevo", "stripe", "local", "custom"];
   const actionOptions = ["video_generation", "image_generation", "text_generation", "scrape", "persona_crawl", "publish", "automation_run", "ai_assist"];
   const unitOptions = ["per_action", "per_second", "per_image", "per_1k_tokens", "per_1k_results", "per_post"];
   const billingTabs = [

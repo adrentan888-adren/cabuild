@@ -167,7 +167,7 @@ export type ResearchScan = {
   createdAt: string;
   completedAt?: string;
   status?: "running" | "done" | "failed";
-  source: "apify" | "cache" | "fallback";
+  source: "apify" | "youtube" | "cache" | "fallback";
   apifyRunId?: string;
   apifyDatasetId?: string;
   apifyActorId?: string;
@@ -425,6 +425,7 @@ export type ApiKeyProvider =
   | "kie"
   | "apify"
   | "apifyBackup"
+  | "youtube"
   | "uploadPost"
   | "stripePublishable"
   | "stripeSecret"
@@ -467,14 +468,14 @@ export type DebugLog = {
   action: string;
   label: string;
   status: "started" | "success" | "failed" | "info";
-  provider?: "apify" | "kie" | "upload-post" | "local" | "system";
+  provider?: "apify" | "youtube" | "kie" | "upload-post" | "local" | "system";
   prompt?: string;
   details?: Record<string, unknown>;
   error?: string;
   createdAt: string;
 };
 
-export type BillingProvider = "kie" | "apify" | "upload-post" | "brevo" | "stripe" | "local" | "custom";
+export type BillingProvider = "kie" | "apify" | "youtube" | "upload-post" | "brevo" | "stripe" | "local" | "custom";
 
 export type BillingLedgerType =
   | "purchase"

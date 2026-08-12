@@ -5,6 +5,7 @@ import { defaultPersonaProfile, id, mutateDb, readDb } from "@/lib/store";
 import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, Brief, CompetitorResult, GenerationAssetReference, PersonaMediaAsset, PersonaProfile, Platform, PublishItem, ResearchScan } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext, normalizePersonaProfile } from "@/lib/persona";
 import { completeKeywordScanRun, completeSocialUrlScanRun, crawlPersonaSourcesWithApify, fetchTrendSignals, scanKeywordsWithApify, scanSocialUrl, startKeywordScanRun, startSocialUrlScanRun } from "@/lib/providers/apify";
+import { searchYoutubeVideos } from "@/lib/providers/youtube";
 import { buildAiBriefPrompt, buildContentPlanPrompt, buildFinalVideoPromptInstruction, generateContentPlanWithGemini, generateContentPlanWithGpt55, generateFinalVideoPromptWithGpt55, generateImage, generatePersonaAutofillWithGpt55, generateSeedanceMiniVideo, generateSeedanceVideo, generateTextContentWithKie, getMarketTask, getVeoVideo } from "@/lib/providers/kie";
 import { getConnectedUploadPostAccounts, publishPhotoPost, publishTextPost, publishVideoPost } from "@/lib/providers/uploadPost";
 import { assertAutomationCanSpend, quoteBillingAction, reserveBillingCredits, releaseBillingReservation, settleBillingReservation } from "@/lib/billing";
@@ -133,7 +134,7 @@ function summarizePayload(body: Record<string, unknown>) {
   );
 }
 
-async function debugLog(workspaceId: string, entry: { action: string; label: string; status: "started" | "success" | "failed" | "info"; provider?: "apify" | "kie" | "upload-post" | "local" | "system"; prompt?: string; details?: Record<string, unknown>; error?: string }) {
+async function debugLog(workspaceId: string, entry: { action: string; label: string; status: "started" | "success" | "failed" | "info"; provider?: "apify" | "youtube" | "kie" | "upload-post" | "local" | "system"; prompt?: string; details?: Record<string, unknown>; error?: string }) {
   await mutateDb((db) => {
     db.debugLogs ||= [];
     db.debugLogs.push({ id: id("log"), workspaceId, createdAt: new Date().toISOString(), ...entry });
@@ -1136,7 +1137,7 @@ const contentPlanFormats = [
 ];
 
 const researchUrlSourceOwnershipFilter = "owner-v2";
-const keywordResearchCacheVersion = "kw-v13-keyword-fallback-retry";
+const keywordResearchCacheVersion = "kw-v14-youtube-official";
 
 const keywordContentTypesByPlatform: Record<string, string[]> = {
   instagram: ["instagram-reels", "instagram-posts"],
@@ -1971,6 +1972,107 @@ export async function POST(req: Request) {
     if (cached) return NextResponse.json(cached);
 
     const selectedPlatform = platformFromActorSource(dimensions.actorSources[0] || "");
+    if (selectedPlatform === "YouTube") {
+      const quoteInput = {
+        action: "research.youtube_keyword_search",
+        module: "research",
+        provider: "youtube",
+        modelOrActorId: "youtube-data-api-v3",
+        platform: selectedPlatform,
+        maxResults: 50
+      };
+      let billing;
+      try {
+        billing = await reservePaidAction({
+          workspaceId,
+          userId: user.id,
+          quoteInput,
+          description: `Reserve credits for official YouTube Research: ${query}`,
+          metadata: { query, minViews, dimensions, selectedPlatform }
+        });
+        await debugLog(workspaceId, {
+          action,
+          label: `Official YouTube keyword search started: ${query}`,
+          status: "started",
+          provider: "youtube",
+          details: { query, minViews, dimensions, regionCode: "MY", maxResults: 50 }
+        });
+        const youtube = await searchYoutubeVideos(query, {
+          uploadDate: dimensions.uploadDate,
+          contentType: dimensions.contentType,
+          minViews,
+          maxResults: 50,
+          regionCode: "MY"
+        });
+        const normalized = apifyItemsToResearchResults(youtube.items);
+        const scan = await mutateDb((db) => {
+          db.researchScans ||= [];
+          db.competitors ||= [];
+          db.competitorResults ||= [];
+          const competitor = { id: id("cmp"), workspaceId, platform: selectedPlatform, handle: query, url: cacheKey, minViews, cadence: "weekly" as const, lastScraped: new Date().toISOString() };
+          db.competitors.push(competitor);
+          const results: CompetitorResult[] = normalized.map((result) => ({
+            ...result,
+            id: id("res"),
+            workspaceId,
+            competitorId: competitor.id,
+            platform: "YouTube",
+            capturedAt: new Date().toISOString()
+          }));
+          db.competitorResults.push(...results);
+          const created: ResearchScan = {
+            id: id("scan"),
+            workspaceId,
+            url: cacheKey,
+            query,
+            dimensions,
+            platform: "YouTube",
+            minViews,
+            resultIds: results.map((result) => result.id),
+            createdAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            source: "youtube",
+            status: "done"
+          };
+          db.researchScans.push(created);
+          db.researchScans = db.researchScans.filter((item) => item.workspaceId !== workspaceId).concat(db.researchScans.filter((item) => item.workspaceId === workspaceId).slice(-10));
+          db.activity.push({ id: id("act"), workspaceId, message: `Official YouTube research completed for "${query}" with ${results.length} qualified results.`, createdAt: new Date().toISOString() });
+          return created;
+        });
+        await settlePaidActionForResults({
+          workspaceId,
+          reservationId: billing.reservationId,
+          quoteInput,
+          returnedResults: normalized.length,
+          relatedId: scan.id,
+          description: `Recorded official YouTube Research for "${query}".`,
+          metadata: { scanId: scan.id, query, selectedPlatform, quota: youtube.quota }
+        });
+        await debugLog(workspaceId, {
+          action,
+          label: `Official YouTube keyword search completed: ${query}`,
+          status: "success",
+          provider: "youtube",
+          details: { scanId: scan.id, returnedResults: normalized.length, quota: youtube.quota }
+        });
+        return NextResponse.json(scan);
+      } catch (error) {
+        await releasePaidAction({
+          workspaceId,
+          reservationId: billing?.reservationId,
+          description: `Released official YouTube Research reservation: ${query}`,
+          metadata: { query, error: error instanceof Error ? error.message : "YouTube search failed" }
+        });
+        await debugLog(workspaceId, {
+          action,
+          label: `Official YouTube keyword search failed: ${query}`,
+          status: "failed",
+          provider: "youtube",
+          error: error instanceof Error ? error.message : "YouTube search failed"
+        });
+        return NextResponse.json({ error: error instanceof Error ? error.message : "YouTube search failed" }, { status: 502 });
+      }
+    }
     const billingQuoteInput = {
       action: "research.keyword_search",
       module: "research",

@@ -59,6 +59,7 @@ const defaultBillingProviderMappingSeeds: Omit<BillingProviderMapping, "active">
   { id: "map_instagram_hashtag", uiKey: "instagram-hashtag", provider: "apify", providerModelOrActorId: "apify/instagram-hashtag-scraper", actionType: "scrape", label: "Instagram hashtag scrape" },
   { id: "map_tiktok_scrape", uiKey: "tiktok-scrape", provider: "apify", providerModelOrActorId: "clockworks/tiktok-scraper", actionType: "scrape", label: "TikTok scrape" },
   { id: "map_youtube_scrape", uiKey: "youtube-scrape", provider: "apify", providerModelOrActorId: "streamers/youtube-scraper", actionType: "scrape", label: "YouTube scrape" },
+  { id: "map_youtube_official_search", uiKey: "youtube-official-search", provider: "youtube", providerModelOrActorId: "youtube-data-api-v3", actionType: "scrape", label: "YouTube official search" },
   { id: "map_facebook_scrape", uiKey: "facebook-scrape", provider: "apify", providerModelOrActorId: "scrapeforge/facebook-search-posts", actionType: "scrape", label: "Facebook scrape" },
   { id: "map_google_search_scrape", uiKey: "google-search-scrape", provider: "apify", providerModelOrActorId: "apify/google-search-scraper", actionType: "scrape", label: "Google Search scrape" },
   { id: "map_upload_post", uiKey: "upload-post-publish", provider: "upload-post", providerModelOrActorId: "upload-post", actionType: "publish", label: "Upload-Post publish" }
@@ -84,6 +85,7 @@ export const defaultBillingRateCards: BillingRateCard[] = [
   rate("rate_apify_instagram_hashtag", "apify", "scrape", "apify/instagram-hashtag-scraper", "Instagram hashtag scraper", "per_1k_results", 2.60, 2, 1),
   rate("rate_apify_tiktok", "apify", "scrape", "clockworks/tiktok-scraper", "TikTok scraper", "per_1k_results", 1.70, 2, 1),
   rate("rate_apify_youtube", "apify", "scrape", "streamers/youtube-scraper", "YouTube scraper", "per_1k_results", 2.40, 2, 1),
+  rate("rate_youtube_official_search", "youtube", "scrape", "youtube-data-api-v3", "YouTube official search included", "per_action", 0, 2, 0, { included: true, quotaMetered: true }),
   rate("rate_apify_facebook", "apify", "scrape", "scrapeforge/facebook-search-posts", "Facebook search posts", "per_1k_results", 2.59, 2, 1),
   rate("rate_apify_google_search", "apify", "scrape", "apify/google-search-scraper", "Google Search scraper", "per_1k_results", 1.50, 2, 1),
   rate("rate_upload_post_publish", "upload-post", "publish", "upload-post", "Upload-Post publish included", "per_post", 0, 2, 0, { included: true }),
@@ -458,6 +460,17 @@ export function quoteBillingAction(db: Database, input: Record<string, unknown>)
   const model = String(input.model || input.modelOrActorId || defaultModelForAction(action, generationType));
   const actorId = String(input.actorId || input.modelOrActorId || "");
   if (action === "persona.autofill") return quotePersonaAutofill(db, input);
+  if (input.provider === "youtube") {
+    return quoteSingleRate(db, {
+      action: action || "research.youtube_keyword_search",
+      moduleName,
+      provider: "youtube",
+      actionType: "scrape",
+      modelOrActorId: String(input.modelOrActorId || "youtube-data-api-v3"),
+      unitCount: 1,
+      estimate: false
+    });
+  }
   if (action.includes("scrape") || action.includes("scan") || action.includes("search") || input.provider === "apify") {
     return quoteScrape(db, { action, moduleName, actorId, platform: String(input.platform || ""), maxResults: Number(input.maxResults || input.resultLimit || 100) });
   }

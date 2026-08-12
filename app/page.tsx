@@ -104,7 +104,7 @@ type AppData = {
     createdAt: string;
     completedAt?: string;
     status?: "running" | "done" | "failed";
-    source: "apify" | "cache" | "fallback";
+    source: "apify" | "youtube" | "cache" | "fallback";
     apifyRunId?: string;
     apifyDatasetId?: string;
     apifyActorId?: string;
@@ -116,7 +116,7 @@ type AppData = {
     action: string;
     label: string;
     status: "started" | "success" | "failed" | "info";
-    provider?: "apify" | "kie" | "upload-post" | "local" | "system";
+    provider?: "apify" | "youtube" | "kie" | "upload-post" | "local" | "system";
     prompt?: string;
     details?: Record<string, unknown>;
     error?: string;
@@ -1257,9 +1257,10 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
     maxResults: 100
   });
   const keywordScanQuote = useBillingQuote({
-    action: "research.keyword_search",
+    action: actorSource === "youtube" ? "research.youtube_keyword_search" : "research.keyword_search",
     module: "research",
-    provider: "apify",
+    provider: actorSource === "youtube" ? "youtube" : "apify",
+    modelOrActorId: actorSource === "youtube" ? "youtube-data-api-v3" : undefined,
     platform: actorSource,
     maxResults: 100
   });
@@ -1440,23 +1441,23 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
               <ActorSourceSelector selected={actorSource} onSelect={setActorSource} />
               <ContentTypeSelector selected={contentType} onSelect={setContentType} items={availableContentTypes} platform={selectedActor?.label || "Instagram"} />
               <div className="research-filter-summary">
-                <b>Apify query scope</b>
+                <b>{actorSource === "youtube" ? "Official YouTube query scope" : "Apify query scope"}</b>
                 <span>Platform: {selectedActor?.label || "Instagram"} · Type: {selectedContentType?.label || "All types"} · Upload date: {uploadDate ? uploadDate.replace("-", " ") : "Any time"}</span>
-                <small>Native Apify filters are used where available; otherwise results are classified and filtered after scraping. Workspace niche is not injected.</small>
+                <small>{actorSource === "youtube" ? "The official YouTube API supplies public video metadata and statistics. Minimum views is applied after retrieval. Workspace niche is not injected." : "Native Apify filters are used where available; otherwise results are classified and filtered after scraping. Workspace niche is not injected."}</small>
               </div>
             </div>
           </form>
         )}
         <CreditQuoteHint {...(searchMode === "url" ? urlScanQuote : keywordScanQuote)} balance={data.workspace.credits} note="The backend reserves credits before starting paid provider work." />
-        {activeScanStatus && <div className="scan-progress"><span />{activeScanStatus === "keywords" ? "Searching Apify in the background. You can leave this page and come back later." : "Scanning only the submitted URL/profile with Apify in the background. You can leave this page and come back later."}<b>{scanElapsed}s</b></div>}
+        {activeScanStatus && <div className="scan-progress"><span />{activeScanStatus === "keywords" ? `Searching ${actorSource === "youtube" ? "YouTube" : "Apify"}. You can leave this page and come back later.` : "Scanning only the submitted URL/profile with Apify in the background. You can leave this page and come back later."}<b>{scanElapsed}s</b></div>}
         {!activeScanStatus && activeScan && activeScan.status !== "failed" && (
           <div className={`scan-outcome ${activeScan.source}`}>
-            {activeScan.source === "apify" ? "Apify search completed" : "Fallback results shown"}
+            {activeScan.source === "youtube" ? "Official YouTube search completed" : activeScan.source === "apify" ? "Apify search completed" : "Fallback results shown"}
             <b>{activeScanResultCount}</b>
             <span>qualified results</span>
           </div>
         )}
-        {activeScan?.status === "failed" && <p className="provider-error">Apify scan failed: {activeScan.error}</p>}
+        {activeScan?.status === "failed" && <p className="provider-error">Research scan failed: {activeScan.error}</p>}
         {activeScan?.status !== "failed" && activeScan?.error && <p className="provider-error">Apify fallback used: {activeScan.error}</p>}
       </section>
 
@@ -2854,6 +2855,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
 
 function SourceMediaModal({ source, onClose }: { source: SourceMediaPreview; onClose: () => void }) {
   const playable = source.mediaUrl || "";
+  const isYoutubeEmbed = /^https:\/\/www\.youtube\.com\/embed\//i.test(playable);
   const isVideo = source.mediaType === "video" || /\.(mp4|webm|mov|m3u8)(\?|$)/i.test(playable);
   const isImage = source.mediaType === "image" || /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(playable);
   const imageUrl = isImage ? playable : source.thumbnailUrl;
@@ -2869,7 +2871,9 @@ function SourceMediaModal({ source, onClose }: { source: SourceMediaPreview; onC
           </div>
           <button type="button" className="icon-btn" onClick={onClose}>x</button>
         </div>
-        {playable && isVideo ? (
+        {isYoutubeEmbed ? (
+          <iframe src={playable} title={`${source.title} YouTube preview`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+        ) : playable && isVideo ? (
           <video src={playable} controls autoPlay playsInline />
         ) : displayImageUrl ? (
           <img className="asset-preview-image" src={displayImageUrl} alt={`${source.title} source preview`} />

@@ -105,7 +105,7 @@ jobs:
           --platform=managed
           --image=$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-staging:$GITHUB_SHA
           --env-vars-file=api-env.yaml
-          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,APIFY_BACKUP_API_TOKEN=APIFY_BACKUP_API_TOKEN:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest,DATABASE_URL=DATABASE_URL_STAGING:latest,AUTOMATION_CRON_SECRET=AUTOMATION_CRON_SECRET:latest
+          --set-secrets=APP_SECRET=APP_SECRET:latest,KIE_API_TOKEN=KIE_API_TOKEN:latest,APIFY_API_TOKEN=APIFY_API_TOKEN:latest,APIFY_BACKUP_API_TOKEN=APIFY_BACKUP_API_TOKEN:latest,YOUTUBE_API_KEY=cabuild-staging-youtube-api-key:latest,UPLOAD_POST_API_KEY=UPLOAD_POST_API_KEY:latest,DATABASE_URL=DATABASE_URL_STAGING:latest,AUTOMATION_CRON_SECRET=AUTOMATION_CRON_SECRET:latest
           --add-cloudsql-instances=$SQL_CONNECTION
           --quiet
 

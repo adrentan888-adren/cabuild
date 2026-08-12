@@ -6,7 +6,7 @@ import { apiKeyStatus, saveApiKeyOverride } from "@/lib/apiKeyOverrides";
 import type { ApiKeyProvider } from "@/lib/types";
 
 const providers: ApiKeyProvider[] = [
-  "kie", "apify", "apifyBackup", "uploadPost",
+  "kie", "apify", "apifyBackup", "youtube", "uploadPost",
   "stripePublishable", "stripeSecret", "stripeWebhook", "stripePortal",
   "stripeTestPublishable", "stripeTestSecret", "stripeTestWebhook", "stripeTestPortal",
   "stripeLivePublishable", "stripeLiveSecret", "stripeLiveWebhook", "stripeLivePortal"

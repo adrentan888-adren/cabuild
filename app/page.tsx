@@ -10,6 +10,7 @@ import {
   BarChart3,
   Bug,
   CalendarDays,
+  ChevronDown,
   Check,
   CreditCard,
   ExternalLink,
@@ -35,6 +36,7 @@ import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, Automat
 import type { PersonaMediaAsset, PersonaProfile } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
 import VideoTemplatePanel from "@/app/components/video-templates/VideoTemplatePanel";
+import SpokespersonVideoModule from "@/app/components/video-templates/SpokespersonVideoModule";
 
 type AppData = {
   user: { id: string; email: string; name: string; role: string };
@@ -388,6 +390,7 @@ export default function Home() {
   const router = useRouter();
   const [data, setData] = useState<AppData | null>(null);
   const [screen, setScreen] = useState("home");
+  const [videoTemplateOpen, setVideoTemplateOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
   const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);
@@ -457,7 +460,6 @@ export default function Home() {
     ["audit", "Social Audit", BarChart3],
     ["persona", "Persona", UserRound],
     ["research", "Research", Radar],
-    ["video-template", "Video Template", Film],
     ["create", "Create Content", Wand2],
     ["publish", "My Contents", CalendarDays],
     ["automation", "Automation", RefreshCcw],
@@ -475,7 +477,22 @@ export default function Home() {
           <div className="brand-sub">CEO Reputation Module</div>
         </div>
         <nav className="nav-list">
-          {nav.map(([key, label, Icon]) => (
+          {nav.slice(0, 4).map(([key, label, Icon]) => (
+            <button key={key} className={`nav-item ${screen === key ? "active" : ""}`} onClick={() => setScreen(key)}>
+              <span className="nav-icon"><Icon size={16} /></span>
+              <span className="nav-label">{label}</span>
+            </button>
+          ))}
+          <div className={`nav-group ${screen.startsWith("video-template") ? "active" : ""}`}>
+            <button className="nav-item nav-parent" aria-expanded={videoTemplateOpen || screen.startsWith("video-template")} onClick={() => setVideoTemplateOpen((open) => !open)}>
+              <span className="nav-icon"><Film size={16} /></span><span className="nav-label">Video Template</span><ChevronDown className="nav-chevron" size={14} />
+            </button>
+            {(videoTemplateOpen || screen.startsWith("video-template")) && <div className="nav-submenu">
+              <button className={screen === "video-template-ugc" || screen === "video-template" ? "active" : ""} onClick={() => setScreen("video-template-ugc")}>UGC Video</button>
+              <button className={screen === "video-template-spokesperson" ? "active" : ""} onClick={() => setScreen("video-template-spokesperson")}>Spokesperson Video</button>
+            </div>}
+          </div>
+          {nav.slice(4).map(([key, label, Icon]) => (
             <button key={key} className={`nav-item ${screen === key ? "active" : ""}`} onClick={() => setScreen(key)}>
               <span className="nav-icon"><Icon size={16} /></span>
               <span className="nav-label">{label}</span>
@@ -526,7 +543,8 @@ export default function Home() {
           {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
           {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={setDirectCreateInitial} />}
-          {screen === "video-template" && <VideoTemplatePanel />}
+          <div className={screen === "video-template" || screen === "video-template-ugc" ? "video-module-mount active" : "video-module-mount inactive"}><VideoTemplatePanel /></div>
+          <SpokespersonVideoModule active={screen === "video-template-spokesperson"} />
           {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
           {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
@@ -552,7 +570,7 @@ export default function Home() {
 }
 
 function title(screen: string) {
-  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", "video-template": "Video Template", create: "Create Content", publish: "My Contents", automation: "Automation", billing: "Billing", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
+  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", "video-template": "UGC Video", "video-template-ugc": "UGC Video", "video-template-spokesperson": "Spokesperson Video", create: "Create Content", publish: "My Contents", automation: "Automation", billing: "Billing", analyse: "Analyse", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
 }
 
 function AnimatedDots({ label }: { label: string }) {

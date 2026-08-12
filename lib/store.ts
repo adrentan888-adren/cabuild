@@ -38,8 +38,8 @@ export const defaultPromptTemplates: PromptTemplates = {
   researchImageRecreate: "Please analyse the attached image/graphic and write the prompt to recreate this image in JSON format in very detailed terms, no more than 3000 characters. Source image: {{sourceMediaUrl}}. Source page/post: {{sourceUrl}}. Source title: {{sourceTitle}}. {{assetInstruction}}\n\n{{personaContext}}",
   researchTextRecreate: "Analyze this source post and write a new high-conversion text post in the same strategic style without copying it. Source: {{sourceUrl}}. Source title: {{sourceTitle}}. Source description: {{sourceDescription}}. Keep the final post original, platform-native, and ready for social publishing.\n\n{{personaContext}}",
   videoGenerationGuardrails: `Generate clean video imagery only. Do not render captions, subtitles, overlays, letters, words, numbers, URLs, signs, labels, interface text, or readable documents inside the generated video. Spoken dialogue and audio are allowed. The only permitted readable text is text already contained inside an uploaded logo reference; preserve that exact logo without retyping or inventing it. Leave sufficient clean negative space for captions to be added accurately during post-production.`,
-  ugcStoryboard: `Create a conversion-focused UGC product video storyboard using only the supplied product facts and product image as sources of truth. Do not invent claims, certifications, ingredients, packaging text, guarantees, or performance results. Return valid JSON with concept, caption, hashtags, and scenes. Each scene must contain title, prompt, dialogue, and duration.`,
-  ugcSceneGeneration: `Create a vertical 9:16 UGC product-video scene. Preserve the uploaded product's exact packaging, logo, colours, shape, and proportions. Do not render captions, subtitles, overlays, letters, words, numbers, URLs, signs, labels, watermarks, interface text, or readable documents. Do not invent product claims, certifications, ingredients, packaging, or results. Spoken dialogue is allowed. Keep visual continuity with the complete storyboard.`,
+  ugcStoryboard: `Create a conversion-focused storyboard for one continuous 15-second UGC product video using only the supplied product facts and product image as sources of truth. Return exactly three scenes with varied durations that total exactly 15 seconds. Each scene must contain title, prompt, and duration. Do not invent claims, certifications, ingredients, packaging text, guarantees, or performance results. Design clear transitions and visual continuity across all three scenes.`,
+  ugcSceneGeneration: `Create one continuous 15-second UGC product video following the complete time-coded three-scene storyboard exactly. Preserve the uploaded product's exact packaging, logo, colours, shape, and proportions throughout. Maintain visual, character, lighting, and motion continuity across transitions. Do not render captions, subtitles, overlays, letters, words, numbers, URLs, signs, labels, watermarks, interface text, or readable documents. Do not invent product claims, certifications, ingredients, packaging, or results. Spoken dialogue is allowed.`,
   researchVideoPromptRefine: `You are ContentAgent's senior video prompt engineer.
 
 Convert the user's research recreation instruction into ONE final provider-ready video generation prompt.
@@ -345,6 +345,15 @@ export function normalizeDb(db: Database): Database {
   ensureBillingDefaults(db);
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
   db.ugcVideoProjects ||= [];
+  for (const project of db.ugcVideoProjects) {
+    const legacy = project.workflowVersion !== "single_video_v2";
+    project.workflowVersion = legacy ? "legacy_scene_jobs" : "single_video_v2";
+    project.targetDuration = 15;
+    project.aspectRatio = ["9:16", "16:9", "1:1"].includes(project.aspectRatio) ? project.aspectRatio : "9:16";
+    project.generationAttempt ||= 0;
+    project.generationAttempts ||= [];
+    if (legacy) project.status = "legacy_scene_jobs";
+  }
   const existingPermissions = (db as Database & { rolePermissions?: Partial<RolePermissions> }).rolePermissions || {};
   db.rolePermissions = allRoles.reduce((acc, role) => {
     const source = role === "owner" || role === "super_admin"

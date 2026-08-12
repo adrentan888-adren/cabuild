@@ -492,11 +492,12 @@ export async function generateUgcStoryboardWithGpt55(input: {
   style: string;
   language: string;
   duration: number;
+  aspectRatio: "9:16" | "16:9" | "1:1";
   template: string;
 }) {
-  const sceneCount = input.duration <= 8 ? 2 : input.duration <= 20 ? 4 : 6;
-  const prompt = `${input.template}\n\nProduct name: ${input.productName}\nProduct facts, selling points, and restrictions: ${input.sellingPoints || "Show only defensible benefits."}\nTarget audience: ${input.audience || "The product's intended customer."}\nStyle: ${input.style}\nDialogue language: ${input.language}\nTotal duration: ${input.duration} seconds\nRequired scene count: ${sceneCount}\n\nReturn ONLY valid JSON in this shape:\n{"concept":"...","caption":"...","hashtags":["#tag"],"scenes":[{"title":"...","prompt":"detailed visual and camera direction","dialogue":"spoken line or empty string","duration":4}]}`;
-  const result = await generateContentPlanWithGpt55({ idea: prompt, niche: "UGC product advertising", requestedFormat: "Short video 9:16", requestedDuration: input.duration, requestedModel: "seedance-2.0" }, prompt);
+  const prompt = `${input.template}\n\nProduct name: ${input.productName}\nProduct facts, selling points, and restrictions: ${input.sellingPoints || "Show only defensible benefits."}\nTarget audience: ${input.audience || "The product's intended customer."}\nStyle: ${input.style}\nDialogue language: ${input.language}\nAspect ratio: ${input.aspectRatio}\nTotal duration: exactly 15 seconds\nRequired scene count: exactly 3\n\nReturn ONLY valid JSON in this shape:\n{"concept":"...","caption":"...","hashtags":["#tag"],"scenes":[{"title":"...","prompt":"detailed visual, camera, transition, and spoken-dialogue direction","duration":4}]}\nThe three durations must each be at least 1 second and must add up to exactly 15 seconds.`;
+  const requestedFormat = input.aspectRatio === "16:9" ? "Long-form video 16:9" : input.aspectRatio === "1:1" ? "Square video 1:1" : "Short video 9:16";
+  const result = await generateContentPlanWithGpt55({ idea: prompt, niche: "UGC product advertising", requestedFormat, requestedDuration: 15, requestedModel: "seedance-2.0" }, prompt);
   return result as {
     concept?: string;
     caption?: string;

@@ -23,6 +23,7 @@ env:
   SQL_CONNECTION: content-agent-2-499616:asia-southeast1:contentagent-postgres-staging
   WORKLOAD_IDENTITY_PROVIDER: projects/340047797097/locations/global/workloadIdentityPools/github-contentagent/providers/github-cabuild
   SERVICE_ACCOUNT: github-cloud-run-deployer@content-agent-2-499616.iam.gserviceaccount.com
+  AVATARFLOW_URL: https://avatar-video-generator-staging-mkhae4sjlq-as.a.run.app
 
 jobs:
   deploy:
@@ -59,7 +60,7 @@ jobs:
             gcloud storage cp data-seed/app.json gs://$DATA_BUCKET/$DATA_OBJECT
 
       - name: Build image
-        run: docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-staging:$GITHUB_SHA .
+        run: docker build --build-arg NEXT_PUBLIC_AVATARFLOW_URL=$AVATARFLOW_URL -t $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-staging:$GITHUB_SHA .
 
       - name: Push image
         run: docker push $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/contentagent-staging:$GITHUB_SHA
@@ -148,6 +149,7 @@ jobs:
           printf 'APP_SURFACE: "frontend"\n' >> frontend-env.yaml
           printf 'API_SERVICE_URL: "%s"\n' "$API_URL" >> frontend-env.yaml
           printf 'NEXT_PUBLIC_ADMIN_URL: "%s"\n' "$ADMIN_URL" >> frontend-env.yaml
+          printf 'NEXT_PUBLIC_AVATARFLOW_URL: "%s"\n' "$AVATARFLOW_URL" >> frontend-env.yaml
           gcloud run deploy $FRONTEND_SERVICE \
             --project=$PROJECT_ID \
             --region=$REGION \

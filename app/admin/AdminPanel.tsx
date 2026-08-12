@@ -153,9 +153,9 @@ function PromptAdminCard({ data, run }: { data: AdminAppData; run: RunAction }) 
         </div>
         <p className="muted">These templates power Research result to Generate Content. Video stays two-stage internally because Step 2 runs after the user edits modal fields and uploads logo/person/audio references.</p>
         <section className="prompt-module">
-          <div className="prompt-module-head"><div><b>UGC Video Template</b><span>Controls storyboard planning and every Seedance scene prompt.</span></div></div>
+          <div className="prompt-module-head"><div><b>UGC Video Template</b><span>Controls the three-scene storyboard and the final single-video Seedance prompt.</span></div></div>
           <label><span className="prompt-step">UGC storyboard generator</span><textarea name="ugcStoryboard" defaultValue={data.promptTemplates.ugcStoryboard} /></label>
-          <label><span className="prompt-step">UGC scene generation guardrails</span><textarea name="ugcSceneGeneration" defaultValue={data.promptTemplates.ugcSceneGeneration} /></label>
+          <label><span className="prompt-step">UGC final video generation guardrails</span><textarea name="ugcSceneGeneration" defaultValue={data.promptTemplates.ugcSceneGeneration} /></label>
           <p className="muted compact">Product facts and project settings are appended by the server. Keep product-accuracy and no-generated-text rules in these templates.</p>
         </section>
         <section className="prompt-module">

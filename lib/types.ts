@@ -962,30 +962,47 @@ export type PromptTemplates = {
   ugcSceneGeneration: string;
 };
 
-export type UgcVideoSceneStatus = "draft" | "waiting" | "queued" | "generating" | "completed" | "cancelled" | "failed";
-
 export type UgcVideoScene = {
   id: string;
   order: number;
   title: string;
   prompt: string;
-  dialogue?: string;
   duration: number;
-  status: UgcVideoSceneStatus;
-  progress: number;
+  dialogue?: string;
+  // Legacy scene-job fields remain readable for projects created before single_video_v2.
+  status?: "draft" | "waiting" | "queued" | "generating" | "completed" | "cancelled" | "failed";
+  progress?: number;
   providerTaskId?: string;
   providerUrl?: string;
   storageKey?: string;
   outputUrl?: string;
   error?: string;
-  retryCount: number;
+  retryCount?: number;
+  estimatedCostUsd?: number;
+  actualCostUsd?: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type UgcVideoProjectStatus = "draft" | "storyboard_ready" | "awaiting_confirmation" | "queued" | "generating" | "completed" | "cancelled" | "failed" | "legacy_scene_jobs";
+
+export type UgcVideoGenerationAttempt = {
+  id: string;
+  attemptNumber: number;
+  promptSnapshot: string;
+  aspectRatio: "9:16" | "16:9" | "1:1";
+  taskId: string;
+  status: "waiting" | "queued" | "generating" | "completed" | "cancelled" | "failed";
+  progress: number;
+  providerResultUrl?: string;
+  outputStorageKey?: string;
+  outputUrl?: string;
+  error?: string;
   estimatedCostUsd: number;
   actualCostUsd?: number;
   createdAt: string;
-  updatedAt: string;
+  completedAt?: string;
 };
-
-export type UgcVideoProjectStatus = "draft" | "storyboard_ready" | "awaiting_confirmation" | "queued" | "generating" | "partially_failed" | "combining" | "completed" | "cancelled" | "failed";
 
 export type UgcVideoProject = {
   id: string;
@@ -996,14 +1013,15 @@ export type UgcVideoProject = {
   audience: string;
   style: string;
   language: string;
-  targetDuration: number;
+  workflowVersion: "single_video_v2" | "legacy_scene_jobs";
+  targetDuration: 15;
   sourceImageUrl: string;
   sourceImageStorageKey?: string;
   concept?: string;
   caption?: string;
   hashtags?: string[];
   model: "seedance-2.0";
-  aspectRatio: "9:16";
+  aspectRatio: "9:16" | "16:9" | "1:1";
   resolution: "720p";
   status: UgcVideoProjectStatus;
   scenes: UgcVideoScene[];
@@ -1012,7 +1030,15 @@ export type UgcVideoProject = {
   estimatedTotalCostUsd: number;
   actualCostUsd?: number;
   costRateSnapshot?: Record<string, number>;
+  combinedPrompt?: string;
+  providerTaskId?: string;
+  providerStatus?: "waiting" | "queued" | "generating" | "completed" | "cancelled" | "failed";
+  providerProgress?: number;
+  providerError?: string;
+  providerResultUrl?: string;
   generationIdempotencyKey?: string;
+  generationAttempt: number;
+  generationAttempts: UgcVideoGenerationAttempt[];
   finalVideoStorageKey?: string;
   finalVideoUrl?: string;
   error?: string;

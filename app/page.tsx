@@ -1482,7 +1482,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
           {activeScanStatus && (
             <div className="result-loading">
               <b>{activeScanStatus === "keywords" ? "Background keyword scan saved" : "Background URL scan saved"}</b>
-              <p>Apify is collecting and filtering results now. You can switch tabs, leave Research, refresh, or come back later; this scan will stay in History until it finishes.</p>
+              <p>{actorSource === "youtube" ? "The official YouTube API is collecting video metadata and statistics now." : "Apify is collecting and filtering results now."} You can switch tabs, leave Research, refresh, or come back later; this scan will stay in History until it finishes.</p>
               <div><span /></div>
             </div>
           )}

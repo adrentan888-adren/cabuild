@@ -391,6 +391,16 @@ export default function Home() {
   const [data, setData] = useState<AppData | null>(null);
   const [screen, setScreen] = useState("home");
   const [videoTemplateOpen, setVideoTemplateOpen] = useState(false);
+  const [screenLoaded, setScreenLoaded] = useState(false);
+  useEffect(() => {
+    const savedScreen = window.localStorage.getItem("contentagent.activeScreen");
+    if (savedScreen) setScreen(savedScreen);
+    setScreenLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (!screenLoaded) return;
+    window.localStorage.setItem("contentagent.activeScreen", screen);
+  }, [screenLoaded, screen]);
   const [toast, setToast] = useState("");
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
   const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);

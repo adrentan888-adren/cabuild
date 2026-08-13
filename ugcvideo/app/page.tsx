@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Scene = { title: string; duration: number; prompt: string };
+type Scene = { title: string; prompt: string };
 type Result = { scene: number; taskId: string; state: string; assetUrl?: string; error?: string };
 
 async function api(payload: Record<string, unknown>) {
@@ -27,7 +27,6 @@ export default function Page() {
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const completed = useMemo(() => results.filter((item) => item.state === "success").length, [results]);
-  const storyboardDuration = useMemo(() => scenes.reduce((total, scene) => total + (Number(scene.duration) || 0), 0), [scenes]);
 
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
   useEffect(() => {
@@ -61,9 +60,8 @@ export default function Page() {
     try {
       const response = await api({ action: "plan", productName, sellingPoints, audience, style, language, aspectRatio });
       const plannedScenes = Array.isArray(response.plan?.scenes) ? response.plan.scenes : [];
-      setScenes(plannedScenes.map((scene: Scene, index: number) => ({
-        title: String(scene.title || `Scene ${index + 1}`),
-        duration: Number(scene.duration) > 0 ? Number(scene.duration) : 5,
+      setScenes(plannedScenes.slice(0, 1).map((scene: Scene) => ({
+        title: String(scene.title || "Complete video"),
         prompt: String(scene.prompt || "")
       })));
       setMessage("Storyboard ready. Edit any scene before starting Seedance 2.0.");
@@ -76,7 +74,6 @@ export default function Page() {
 
   const generate = async () => {
     if (!file || !scenes.length) return;
-    if (Math.abs(storyboardDuration - duration) > 0.001) return setMessage(`Scene durations must total exactly ${duration} seconds. Current total: ${storyboardDuration} seconds.`);
     setBusy("video");
     try {
       setMessage("Uploading product reference to KIE...");
@@ -85,20 +82,14 @@ export default function Page() {
       const upload = await fetch("/api/kie", { method: "POST", body: form });
       const uploaded = await upload.json();
       if (!upload.ok) throw new Error(uploaded.error || "Upload failed.");
-      let elapsed = 0;
-      const timeline = scenes.map((scene, index) => {
-        const start = elapsed;
-        elapsed += Number(scene.duration);
-        return `Scene ${index + 1} — ${start.toFixed(1)}s to ${elapsed.toFixed(1)}s (${scene.duration}s) — ${scene.title}: ${scene.prompt}`;
-      }).join("\n");
       setMessage("Starting one 15-second Seedance video...");
       const response = await api({
         action: "start",
         referenceUrl: uploaded.url,
         duration,
         aspectRatio,
-        prompt: `${style}, ${aspectRatio} aspect ratio. Create one continuous 15-second product video following this exact time-coded storyboard:\n${timeline}
-Dialogue language: ${language}. Follow the scene timings and transitions precisely while maintaining visual continuity. Use the attached product image as the sole source of truth. Preserve its exact packaging, logo, colors, shape and proportions throughout the entire video. Natural movement and lighting. No generated captions, overlays, invented labels, watermarks, or extra readable text.`
+        prompt: `${style}, ${aspectRatio} aspect ratio. Create one continuous 15-second product video. Creative direction: ${scenes[0].title}. ${scenes[0].prompt}
+Dialogue language: ${language}. Maintain visual continuity throughout the complete video. Use the attached product image as the sole source of truth. Preserve its exact packaging, logo, colors, shape and proportions throughout the entire video. Natural movement and lighting. No generated captions, overlays, invented labels, watermarks, or extra readable text.`
       });
       setResults([{ scene: 1, taskId: response.taskId, state: "waiting" }]);
       setMessage("The complete 15-second video was accepted by KIE and is generating.");
@@ -137,8 +128,8 @@ Dialogue language: ${language}. Follow the scene timings and transitions precise
       {message && <div className="message">{message}</div>}
 
       {scenes.length > 0 && <section className="card wide">
-        <div className="sectionHead"><div className="step"><b>3</b><span>Review storyboard · {storyboardDuration}/15 seconds</span></div><button onClick={() => void generate()} disabled={Boolean(busy) || Math.abs(storyboardDuration - duration) > 0.001}>{busy === "video" ? "Starting video…" : "Generate one 15-second video"}</button></div>
-        <div className="sceneGrid">{scenes.map((scene, index) => <article className="scene" key={index}><div className="sceneTop"><b>Scene {index + 1}</b><span>{aspectRatio}</span></div><input value={scene.title} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, title: event.target.value } : item))} /><label>Duration (seconds)<input type="number" min="1" max="13" step="0.5" value={scene.duration} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, duration: Number(event.target.value) } : item))} /></label><textarea value={scene.prompt} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, prompt: event.target.value } : item))} /></article>)}</div>
+        <div className="sectionHead"><div className="step"><b>3</b><span>Review 15-second storyboard</span></div><button onClick={() => void generate()} disabled={Boolean(busy)}>{busy === "video" ? "Starting video…" : "Generate one 15-second video"}</button></div>
+        <div className="sceneGrid">{scenes.map((scene, index) => <article className="scene" key={index}><div className="sceneTop"><b>Complete video</b><span>15 seconds · {aspectRatio}</span></div><input value={scene.title} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, title: event.target.value } : item))} /><textarea value={scene.prompt} onChange={(event) => setScenes((current) => current.map((item, i) => i === index ? { ...item, prompt: event.target.value } : item))} /></article>)}</div>
       </section>}
 
       {results.length > 0 && <section className="card wide">

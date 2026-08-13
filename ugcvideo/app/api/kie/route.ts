@@ -47,7 +47,6 @@ async function plan(body: Record<string, unknown>) {
   const productName = String(body.productName || "").trim();
   if (!productName) return NextResponse.json({ error: "Product name is required." }, { status: 400 });
   const duration = 15;
-  const sceneCount = 3;
   const aspectRatio = validAspectRatio(body.aspectRatio);
   const instruction = `You are a senior product-video strategist.
 Create a ${duration}-second ${aspectRatio} ${String(body.style || "UGC product demo")} for ${productName}.
@@ -55,8 +54,8 @@ Audience: ${String(body.audience || "the product's ideal customer")}.
 Selling points and restrictions: ${String(body.sellingPoints || "Show only defensible product benefits")}.
 Dialogue language: ${String(body.language || "Malay")}.
 Return ONLY valid JSON:
-{"concept":"...","caption":"...","hashtags":["#tag"],"scenes":[{"title":"...","duration":4,"prompt":"provider-ready visual and spoken-dialogue direction"}]}
-Return exactly ${sceneCount} scenes with varied durations that add up to exactly 15 seconds. Each scene must be at least 1 second. Use a strong hook, product demonstration, consistent product identity, natural dialogue, compliance-safe claims, and a clear CTA. Design the scenes as one continuous 15-second video with clear transitions. Never request generated captions, overlays, labels, watermarks, or extra readable text.`;
+{"concept":"...","caption":"...","hashtags":["#tag"],"scenes":[{"title":"...","prompt":"one provider-ready direction for the complete 15-second video, including visual progression and spoken dialogue"}]}
+Return exactly one scene covering the complete 15-second video. Within that single prompt, describe a coherent visual progression with a strong hook, product demonstration, consistent product identity, natural dialogue, compliance-safe claims, smooth transitions, and a clear CTA. Do not split the response into shots or separate timed scenes. Never request generated captions, overlays, labels, watermarks, or extra readable text.`;
   const response = await fetch(`${base}/codex/v1/responses`, {
     method: "POST",
     headers: { ...headers(), "Content-Type": "application/json" },

@@ -1,6 +1,6 @@
 # CABuild Project Handoff
 
-Last updated: 2026-06-25
+Last updated: 2026-08-26
 
 ## Purpose
 ContentAgent Social is a local Next.js prototype for research, content planning, AI generation, and publishing. The mock UI is the visual source of truth when it conflicts with the PRD.
@@ -149,6 +149,16 @@ Demo web app login:
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+
+### 2026-08-26 - Drama Studio and Asset Library integration
+- Integrated the Drama project into CABUILD while preserving the existing app as the shell and default workflow.
+- Added Content Queue, Drama Studio, and Asset Library tabs under My Contents; the two Drama surfaces run as same-origin embedded routes at /drama-studio and /drama-studio/assets.
+- Reused CABUILD authentication and managed KIE credentials. Drama routes require a signed-in user, client persistence is owner-scoped, and provider keys are never returned to the browser.
+- Drama media jobs now create workspace-scoped CABUILD Asset and Publish records, appear in My Contents immediately, continue polling after the embedded studio closes, and synchronize ready/failed results into the shared queue.
+- Added workspace-owned Persona reference selection and product photo, avatar/persona, logo, and audio uploads. Reference IDs are resolved server-side; unsupported model/reference combinations are rejected before credential lookup or paid provider access.
+- Added FFmpeg browser runtime assets for combined episode exports and imported the Drama asset library/workflow UI.
+- Implementation commit: 6979199 (Integrate Drama Studio into My Contents).
+- Validation: npm run lint passed with existing warnings only; clean npm run build passed; authenticated local route/API negatives passed; independent focused UAT returned PASS on all five remediated findings. No paid KIE task was created during testing.
 - 2026-06-29: Simplified Research keyword content-type filters to match reliable Apify behavior. Instagram now shows `All types`, `Reels`, and `Posts`; TikTok, YouTube, and Facebook show only `All types`; LinkedIn shows `All types` and `Articles`. Backend validation now clears stale TikTok/YouTube/Facebook content-type filters and maps legacy Instagram video/image filters to Reels/Posts. Keyword cache bumped to `kw-v10-platform-realistic-filters`. Local Playwright/API test with the new Apify token and keyword `sheila majid` returned results for Instagram (8 fallback rows), TikTok (29 actor rows), YouTube (60 actor rows), and Facebook (1 actor row). Local `npm run build` passed.
 - 2026-06-29: Tightened keyword fallback result visibility. Google-style fallback rows must now visibly match the keyword in the displayed title or URL, not only hidden snippets/descriptions, to avoid unrelated Facebook/Instagram rows appearing under typed filters. Keyword cache bumped to `kw-v9-visible-keyword-fallback`. Local `npm run build` passed.
 - 2026-06-29: Improved keyword research fallback accuracy before retesting. Missing platform actors such as LinkedIn now create fallback keyword scans instead of immediate failed scans, weak Instagram/Facebook actor runs with fewer than three useful rows can be replaced by broader fallback results, keyword cache bumped to `kw-v8-keyword-fallback-fixes`, fallback query terms are now platform/content-type specific, fallback filtering applies before slicing top rows, and short/long video classification now trusts known duration before URL patterns so very short YouTube `watch` URLs do not pass as long-form videos. Local `npm run build` passed.

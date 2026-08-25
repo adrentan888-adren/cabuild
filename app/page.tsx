@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -406,7 +406,7 @@ export default function Home() {
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
           {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={setDirectCreateInitial} />}
           {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
-          {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
+          {screen === "publish" && <PublishPanel data={data} run={run} refresh={refresh} pendingGeneration={pendingGeneration} />}
           {screen === "automation" && <AutomationPanel data={data} run={run} />}
           {screen === "analyse" && <AnalyticsPanel data={data} />}
           {screen === "logs" && <LogPanel data={data} />}
@@ -2149,15 +2149,28 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
   );
 }
 
-function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; pendingGeneration: PendingGeneration | null }) {
+function PublishPanel({ data, run, refresh, pendingGeneration }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; refresh: () => Promise<void>; pendingGeneration: PendingGeneration | null }) {
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [sourcePreview, setSourcePreview] = useState<SourceMediaPreview | null>(null);
   const [generationNotice, setGenerationNotice] = useState("");
+  const [activeContentsTab, setActiveContentsTab] = useState<"queue" | "drama" | "assets">("queue");
   const notifiedRef = useRef<Set<string>>(new Set());
   const runRef = useRef(run);
   useEffect(() => {
     runRef.current = run;
   }, [run]);
+  useEffect(() => {
+    const onDramaQueueUpdate = (event: MessageEvent) => {
+      if (
+        event.origin === window.location.origin &&
+        event.data?.type === "cabuild:drama-queue-updated"
+      ) {
+        void refresh();
+      }
+    };
+    window.addEventListener("message", onDramaQueueUpdate);
+    return () => window.removeEventListener("message", onDramaQueueUpdate);
+  }, [refresh]);
   const queue = [...data.publishQueue].sort((a, b) => new Date(b.createdAt || b.scheduledAt).getTime() - new Date(a.createdAt || a.scheduledAt).getTime());
   const startIds = queue
     .map((item) => {
@@ -2212,6 +2225,12 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
     <div className="publish-page">
       {sourcePreview && <SourceMediaModal source={sourcePreview} onClose={() => setSourcePreview(null)} />}
       {previewAsset?.assetUrl && <AssetPreviewModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
+      <nav className="contents-tabs" aria-label="My Contents sections">
+        <button type="button" className={activeContentsTab === "queue" ? "on" : ""} onClick={() => setActiveContentsTab("queue")}>Content Queue</button>
+        <button type="button" className={activeContentsTab === "drama" ? "on" : ""} onClick={() => setActiveContentsTab("drama")}><Film size={14} />Drama Studio</button>
+        <button type="button" className={activeContentsTab === "assets" ? "on" : ""} onClick={() => setActiveContentsTab("assets")}><Palette size={14} />Asset Library</button>
+      </nav>
+      {activeContentsTab === "queue" && <>
       <section className="plan-hero">
         <div>
           <div className="clbl">My Contents</div>
@@ -2307,6 +2326,17 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
         })}
         {queue.length === 0 && !pendingGeneration && <div className="empty-state">No generated drafts yet. Use Research or Create Content to create the first item.</div>}
       </div>
+      </>}
+      {activeContentsTab === "drama" && (
+        <section className="contents-studio-shell" aria-label="Drama Studio workspace">
+          <iframe className="contents-studio-frame" src="/drama-studio" title="Drama Studio" />
+        </section>
+      )}
+      {activeContentsTab === "assets" && (
+        <section className="contents-studio-shell" aria-label="Drama Studio Asset Library">
+          <iframe className="contents-studio-frame" src="/drama-studio/assets" title="Drama Studio Asset Library" />
+        </section>
+      )}
     </div>
   );
 }

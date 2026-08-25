@@ -1070,7 +1070,16 @@ export async function POST(req: Request) {
         if (!asset?.providerTaskId) throw new Error("Asset has no provider task to poll.");
         const publishItems = db.publishQueue.filter((item) => item.assetId === asset.id && item.workspaceId === workspaceId);
         const generationModel = asset.generationModel || publishItems.find((item) => item.generationModel)?.generationModel || "";
-        const isMarketTask = generationModel === "seedance-2.0" || isKieImageModel(generationModel) || asset.providerTaskId.startsWith("task_");
+        const isMarketTask =
+          [
+            "seedance-2.0",
+            "kling-3.0",
+            "kling-v3-turbo",
+            "seedream-4.5",
+            "qwen2-image",
+          ].includes(generationModel) ||
+          isKieImageModel(generationModel) ||
+          asset.providerTaskId.startsWith("task_");
         if (isMarketTask) {
           const status = await getMarketTask(asset.providerTaskId);
           if (status.state === "success" && status.assetUrl) {

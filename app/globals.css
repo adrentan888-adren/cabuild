@@ -221,9 +221,6 @@ h2{font-size:22px;margin:0 0 4px;font-weight:600}h3{font-size:14px;margin:0 0 13
 .persona-advanced summary::after{content:"+";float:right;color:var(--muted);font-weight:700}
 .persona-advanced[open] summary::after{content:"-"}
 
-.contents-tabs{display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--line);padding:0 2px}
-.contents-tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--muted);min-height:38px;padding:8px 14px;display:inline-flex;align-items:center;gap:7px;font-size:12px}
-.contents-tabs button.on{color:var(--text);border-bottom-color:var(--text);font-weight:600}
 .contents-studio-shell{width:100%;min-height:760px;border:1px solid var(--line);border-radius:12px;background:#f5f4ee;overflow:hidden}
 .contents-studio-frame{display:block;width:100%;height:calc(100vh - 235px);min-height:760px;border:0;background:#f5f4ee}
-@media(max-width:760px){.contents-tabs{overflow-x:auto}.contents-tabs button{white-space:nowrap}.contents-studio-shell,.contents-studio-frame{min-height:680px}.contents-studio-frame{height:calc(100vh - 180px)}}
+@media(max-width:760px){.contents-studio-shell,.contents-studio-frame{min-height:680px}.contents-studio-frame{height:calc(100vh - 180px)}}

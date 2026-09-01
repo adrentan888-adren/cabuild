@@ -333,7 +333,17 @@ export default function WorkspacePage({
           onClick={() => setSidebarOpen(false)}
         />
       )}
-      <AppSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <AppSidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        activePage={
+          page === "assets"
+            ? "asset-library"
+            : page === "info"
+              ? "production-info"
+              : undefined
+        }
+      />
 
       <main className="main">
         <header className="topbar">

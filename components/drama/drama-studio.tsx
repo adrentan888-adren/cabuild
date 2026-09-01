@@ -438,8 +438,6 @@ const steps = [
   },
 ];
 
-const visibleWorkflowSteps = [steps[0], steps[1], steps[4]];
-
 const stageItemNames: Record<
   number,
   { singular: string; plural: string }
@@ -821,11 +819,11 @@ const createEmptyStageSnapshot = (
 };
 
 const stepPaths: Record<number, string> = {
-  1: "/drama-studio",
-  2: "/drama-studio",
-  3: "/drama-studio",
-  4: "/drama-studio",
-  5: "/drama-studio",
+  1: "/drama-studio?step=1",
+  2: "/drama-studio?step=2",
+  3: "/drama-studio?step=3",
+  4: "/drama-studio?step=4",
+  5: "/drama-studio?step=5",
 };
 
 export default function DramaStudio({
@@ -2973,11 +2971,6 @@ export default function DramaStudio({
   const deleteCandidate = workflowRecords.find(
     (record) => record.id === deleteCandidateId,
   );
-  const activeWorkflowIndex = Math.max(
-    0,
-    visibleWorkflowSteps.findIndex((step) => step.id === activeStep),
-  );
-
   return (
     <CreditPreviewContext.Provider
       value={{ credits: kieCredits.credits, status: kieCredits.status }}
@@ -2996,6 +2989,14 @@ export default function DramaStudio({
         onClose={() => setSidebarOpen(false)}
         title={title}
         episodes={episodes}
+        activePage={
+          activeStep === 1
+            ? "creative-brief"
+            : activeStep === 5
+              ? "generate-edit"
+              : "story-studio"
+        }
+        onSelectWorkflow={navToStep}
       />
 
       <main className="main">
@@ -3085,41 +3086,6 @@ export default function DramaStudio({
               <p>{getStepDescription(activeStep)}</p>
             </div>
           </section>
-
-          <div className="stepper" aria-label="Production progress">
-            <span
-              className="stepper-active-indicator"
-              aria-hidden="true"
-              style={{
-                width: `${100 / visibleWorkflowSteps.length}%`,
-                transform: `translateX(${activeWorkflowIndex * 100}%)`,
-              }}
-            />
-            {visibleWorkflowSteps.map((step, index) => {
-              const Icon = step.icon;
-              const done = completed.includes(step.id);
-              return (
-                <button
-                  key={step.id}
-                  className={`stepper-item ${
-                    activeStep === step.id ? "current" : ""
-                  } ${done ? "done" : ""}`}
-                  onClick={() => navToStep(step.id)}
-                >
-                  <span className="stepper-number">
-                    <Icon size={14} />
-                  </span>
-                  <span className="stepper-copy">
-                    <b>{step.short}</b>
-                    <small>{step.description}</small>
-                  </span>
-                  {index < visibleWorkflowSteps.length - 1 && (
-                    <span className="stepper-line" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
 
           <section className="drama-reference-panel" aria-labelledby="drama-reference-title">
             <div className="drama-reference-head">

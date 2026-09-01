@@ -7,7 +7,6 @@ import {
   Box,
   ChevronDown,
   Clapperboard,
-  LayoutDashboard,
   Info,
   MoreHorizontal,
   Sparkles,
@@ -15,11 +14,17 @@ import {
   X,
 } from "lucide-react";
 
+export type DramaNavigationPage =
+  | "creative-brief"
+  | "story-studio"
+  | "generate-edit"
+  | "production-info"
+  | "asset-library";
+
 const dramaSteps = [
-  { href: "/drama-studio", label: "Creative Brief", detail: "Set format, audience and production intent", icon: WandSparkles },
-  { href: "/drama-studio", label: "Story Studio", detail: "Develop story structure and scene prompts", icon: BookOpen },
-  { href: "/drama-studio", label: "Generate & Edit", detail: "Create, review and refine production media", icon: Clapperboard },
-  { href: "/drama-studio", label: "Production Info", detail: "Review status, costs and deliverables", icon: Info },
+  { id: "creative-brief", href: "/drama-studio?step=1", step: 1, label: "Creative Brief", detail: "Set format, audience and production intent", icon: WandSparkles },
+  { id: "story-studio", href: "/drama-studio?step=2", step: 2, label: "Story Studio", detail: "Develop story, visual assets and scene prompts", icon: BookOpen },
+  { id: "generate-edit", href: "/drama-studio?step=5", step: 5, label: "Generate & Edit", detail: "Create, review and refine production media", icon: Clapperboard },
 ] as const;
 
 export default function AppSidebar({
@@ -27,15 +32,24 @@ export default function AppSidebar({
   onClose,
   title = "The Last Monsoon",
   episodes = 8,
+  activePage,
+  onSelectWorkflow,
 }: {
   open: boolean;
   onClose: () => void;
   title?: string;
   episodes?: number;
+  activePage?: DramaNavigationPage;
+  onSelectWorkflow?: (step: 1 | 2 | 5) => void;
 }) {
   const pathname = usePathname();
-  const inDrama =
-    pathname.startsWith("/drama-studio") && pathname !== "/drama-studio/assets";
+  const resolvedActivePage =
+    activePage ??
+    (pathname === "/drama-studio/assets"
+      ? "asset-library"
+      : pathname === "/drama-studio/info"
+        ? "production-info"
+        : "creative-brief");
 
   return (
     <aside className={`sidebar ${open ? "sidebar-open" : ""}`}>
@@ -65,35 +79,55 @@ export default function AppSidebar({
       </div>
 
       <nav className="main-nav studio-navigation" aria-label="Primary">
-        <Link
-          href="/drama-studio"
-          className={`nav-link drama-root-link ${inDrama ? "active" : ""}`}
-        >
-          <span className="nav-icon"><LayoutDashboard size={15} /></span>
-          <span className="nav-link-copy"><b>Drama Studio</b><small>Brief, story, scenes and production</small></span>
-        </Link>
-
-        <div className="drama-subnav" aria-label="Drama production workflow">
-          <div className="drama-nav-label">Production workflow</div>
-          {dramaSteps.map(({ href, label, detail, icon: Icon }) => (
+        <div className="studio-nav-section-label">Production workflow</div>
+        <div className="studio-nav-list" aria-label="Drama production workflow">
+          {dramaSteps.map(({ id, href, step, label, detail, icon: Icon }, index) => (
             <Link
               href={href}
-              key={label}
-              className="drama-subnav-link"
-              onClick={onClose}
+              key={id}
+              className={`studio-nav-item ${resolvedActivePage === id ? "active" : ""}`}
+              aria-current={resolvedActivePage === id ? "page" : undefined}
+              onClick={(event) => {
+                if (onSelectWorkflow) {
+                  event.preventDefault();
+                  onSelectWorkflow(step);
+                }
+                onClose();
+              }}
             >
-              <Icon size={13} />
-              <span className="nav-link-copy"><b>{label}</b><small>{detail}</small></span>
+              <span className="studio-nav-step">{String(index + 1).padStart(2, "0")}</span>
+              <span className="studio-nav-copy">
+                <b className="studio-nav-label"><Icon size={13} />{label}</b>
+                <small className="studio-nav-detail">{detail}</small>
+              </span>
             </Link>
           ))}
+          <Link
+            href="/drama-studio/info"
+            className={`studio-nav-item ${resolvedActivePage === "production-info" ? "active" : ""}`}
+            aria-current={resolvedActivePage === "production-info" ? "page" : undefined}
+            onClick={onClose}
+          >
+            <span className="studio-nav-step">04</span>
+            <span className="studio-nav-copy">
+              <b className="studio-nav-label"><Info size={13} />Production Info</b>
+              <small className="studio-nav-detail">Review final episodes, sources and deliverables</small>
+            </span>
+          </Link>
         </div>
 
+        <div className="studio-nav-section-label secondary">Insights &amp; Operations</div>
         <Link
           href="/drama-studio/assets"
-          className={`nav-link ${pathname === "/drama-studio/assets" ? "active" : ""}`}
+          className={`studio-nav-item ${resolvedActivePage === "asset-library" ? "active" : ""}`}
+          aria-current={resolvedActivePage === "asset-library" ? "page" : undefined}
+          onClick={onClose}
         >
-          <span className="nav-icon"><Box size={15} /></span>
-          <span className="nav-link-copy"><b>Asset Library</b><small>Characters, locations, props and media</small></span>
+          <span className="studio-nav-step"><Box size={13} /></span>
+          <span className="studio-nav-copy">
+            <b className="studio-nav-label">Asset Library</b>
+            <small className="studio-nav-detail">Characters, locations, props and media</small>
+          </span>
         </Link>
       </nav>
 

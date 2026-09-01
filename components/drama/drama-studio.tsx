@@ -2,8 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import AppSidebar from "@/components/drama/app-sidebar";
-import WorkspaceModeSwitcher from "@/components/workspace-mode-switcher";
+import GlobalHeader from "@/components/global-header";
 import {
   configureDramaStorageOwner,
   createLibraryAssetId,
@@ -41,7 +40,6 @@ import {
   KeyRound,
   Layers3,
   LockKeyhole,
-  Menu,
   PencilLine,
   Play,
   Plus,
@@ -851,7 +849,6 @@ export default function DramaStudio({
     useState<PersonaMediaAsset["role"] | null>(null);
   const [credentialPrompt, setCredentialPrompt] =
     useState<CredentialPrompt | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(null);
   const [saved, setSaved] = useState(true);
   const [workspaceView, setWorkspaceView] =
@@ -896,6 +893,25 @@ export default function DramaStudio({
   const reusableAssetHandled = useRef(false);
   const creditRefreshTimeout = useRef<number | null>(null);
   const kieCredits = useKieCredits();
+
+  useEffect(() => {
+    setActiveStep(initialStep);
+    setCompleted((current) =>
+      Array.from(
+        new Set([
+          ...current,
+          ...Array.from(
+            { length: Math.max(0, initialStep - 1) },
+            (_, index) => index + 1,
+          ),
+        ]),
+      ).sort((a, b) => a - b),
+    );
+    setWorkspaceView("library");
+    setDraftSourceId("");
+    setEditingRecordId("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [initialStep]);
 
   const setVideoOperationBusy = useCallback((key: string, active: boolean) => {
     setVideoBusyKeys((current) =>
@@ -1422,7 +1438,6 @@ export default function DramaStudio({
     setEditingRecordId("");
     if (snapshot) applySnapshot(snapshot);
     window.history.pushState({}, "", stepPaths[step]);
-    setSidebarOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -2961,13 +2976,6 @@ export default function DramaStudio({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, pendingMediaTaskSignature]);
 
-  const navToStep = (step: number) => {
-    const selected =
-      workflowRecords.find(
-        (record) => record.id === selectedRecordIds[step],
-      ) ?? workflowRecords.find((record) => record.stage === step);
-    openStep(step, selected?.snapshot, "library");
-  };
   const deleteCandidate = workflowRecords.find(
     (record) => record.id === deleteCandidateId,
   );
@@ -2976,105 +2984,54 @@ export default function DramaStudio({
       value={{ credits: kieCredits.credits, status: kieCredits.status }}
     >
     <div className="app-shell">
-      {sidebarOpen && (
-        <button
-          className="sidebar-scrim"
-          aria-label="Close navigation"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      <AppSidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        title={title}
-        episodes={episodes}
-        activePage={
-          activeStep === 1
-            ? "creative-brief"
-            : activeStep === 5
-              ? "generate-edit"
-              : "story-studio"
-        }
-        onSelectWorkflow={navToStep}
-      />
-
       <main className="main">
         <header className="topbar">
-          <div className="topbar-row">
-            <div className="title-cluster">
-              <button
-                className="menu-button"
-                onClick={() => setSidebarOpen(true)}
-                aria-label="Open menu"
-              >
-                <Menu size={18} />
-              </button>
-              <div>
-                <div className="page-title">Create a drama</div>
-                <div className="breadcrumbs">
-                  Productions <span>/</span> {title || "Untitled"}{" "}
-                  <span>/</span> {steps[activeStep - 1].label}
+          <GlobalHeader
+            activeMode="drama"
+            activePage={
+              activeStep === 1
+                ? "creative-brief"
+                : activeStep === 5
+                  ? "generate-edit"
+                  : "story-studio"
+            }
+          />
+          <div className="page-context-bar drama-context-bar">
+            <div className="page-context-inner">
+              <div className="title-cluster">
+                <div>
+                  <div className="page-title">Create a drama</div>
+                  <div className="breadcrumbs">
+                    Productions <span>/</span> {title || "Untitled"}{" "}
+                    <span>/</span> {steps[activeStep - 1].label}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="topbar-actions">
-              <WorkspaceModeSwitcher activeMode="drama" />
-              <div className={`save-state ${saved ? "saved" : ""}`}>
-                {saved ? <Check size={12} /> : <Activity size={12} />}
-                {saved ? "All changes saved" : "Saving…"}
+              <div className="topbar-actions">
+                <div className={`save-state ${saved ? "saved" : ""}`}>
+                  {saved ? <Check size={12} /> : <Activity size={12} />}
+                  {saved ? "All changes saved" : "Saving…"}
+                </div>
+                <Link href="/drama-studio?step=1" className="quiet-button">
+                  <Clock3 size={14} />
+                  Production home
+                </Link>
               </div>
-              <Link href="/drama-studio" className="quiet-button">
-                <Clock3 size={14} />
-                History
-              </Link>
-              <button
-                className="credit-pill"
-                onClick={() => {
-                  void kieCredits.refresh();
-                  setToast(kieCredits.message);
-                }}
-                title={kieCredits.message}
-              >
-                <Zap size={13} fill="currentColor" />
-                {kieCredits.label}
-              </button>
-              <Link
-                href="/drama-studio"
-                className="icon-button"
-                aria-label="Settings"
-              >
-                <Settings size={16} />
-              </Link>
             </div>
           </div>
 
           <div className="production-strip">
-            <div className="strip-stat">
-              <span>Format</span>
-              <b>
-                {episodes} × {episodeLength} min
-              </b>
+            <div className="production-strip-inner">
+              <div className="strip-stat">
+                <span>Format</span>
+                <b>{episodes} × {episodeLength} min</b>
+              </div>
+              <div className="strip-stat"><span>Scenes planned</span><b>{scenes.length}</b></div>
+              <div className="strip-stat"><span>Assets ready</span><b>{assets.filter((asset) => asset.status === "ready").length}</b></div>
+              <div className="strip-stat"><span>Video ready</span><b>{readyScenes}/{scenes.length}</b></div>
+              <div className="strip-spacer" />
+              <span className="demo-pill"><span className="demo-dot" />Guided workspace</span>
             </div>
-            <div className="strip-stat">
-              <span>Scenes planned</span>
-              <b>{scenes.length}</b>
-            </div>
-            <div className="strip-stat">
-              <span>Assets ready</span>
-              <b>{assets.filter((asset) => asset.status === "ready").length}</b>
-            </div>
-            <div className="strip-stat">
-              <span>Video ready</span>
-              <b>
-                {readyScenes}/{scenes.length}
-              </b>
-            </div>
-            <div className="strip-spacer" />
-            <span className="demo-pill">
-              <span className="demo-dot" />
-              Guided workspace
-            </span>
           </div>
         </header>
 

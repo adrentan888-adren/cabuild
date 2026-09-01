@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { flushSync } from "react-dom";
@@ -18,7 +18,6 @@ import {
   Film,
   Mic,
   Lightbulb,
-  LogOut,
   Megaphone,
   Palette,
   Plus,
@@ -30,7 +29,7 @@ import {
   UserRound,
   Wand2
 } from "lucide-react";
-import WorkspaceModeSwitcher from "@/components/workspace-mode-switcher";
+import GlobalHeader from "@/components/global-header";
 import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 import type { PersonaMediaAsset, PersonaProfile } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
@@ -275,8 +274,16 @@ export default function Home() {
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
   const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);
   const [directCreateInitial, setDirectCreateInitial] = useState<CreateContentInitial | null>(null);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const navigateScreen = useCallback((nextScreen: string) => {
+    setScreen(nextScreen);
+    const nextUrl = nextScreen === "home" ? "/" : `/?view=${encodeURIComponent(nextScreen)}`;
+    if (`${window.location.pathname}${window.location.search}` !== nextUrl) {
+      window.history.pushState({}, "", nextUrl);
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
 
   async function refresh() {
     const res = await fetch("/api/app", { cache: "no-store" });
@@ -300,8 +307,14 @@ export default function Home() {
 
   useEffect(() => {
     const requestedView = new URLSearchParams(window.location.search).get("view");
-    const normalViews = new Set(["audit", "persona", "research", "create", "publish", "automation", "analyse", "logs"]);
+    const normalViews = new Set(["audit", "persona", "research", "create", "publish", "automation", "analyse", "logs", "settings"]);
+    const syncView = () => {
+      const view = new URLSearchParams(window.location.search).get("view");
+      setScreen(view && normalViews.has(view) ? view : "home");
+    };
     if (requestedView && normalViews.has(requestedView)) setScreen(requestedView);
+    window.addEventListener("popstate", syncView);
+    return () => window.removeEventListener("popstate", syncView);
   }, []);
 
   useEffect(() => {
@@ -341,89 +354,44 @@ export default function Home() {
 
   if (!data) return <div className="loading">Redirecting to sign in...</div>;
 
-  const normalNav = [
-    { key: "persona", label: "Persona", detail: "Voice, audience and reusable brand assets", icon: UserRound },
-    { key: "research", label: "Research", detail: "Find proven topics and source content", icon: Radar },
-    { key: "create", label: "Create Content", detail: "Turn an idea or source into a new asset", icon: Wand2 },
-    { key: "publish", label: "My Contents", detail: "Review generation progress and outputs", icon: CalendarDays },
-    { key: "automation", label: "Automation", detail: "Schedule repeatable content workflows", icon: RefreshCcw }
-  ] as const;
-  const operationsNav = [
-    { key: "audit", label: "Social Audit", detail: "Understand connected-account performance", icon: BarChart3 },
-    { key: "analyse", label: "Analyze", detail: "Track themes, gaps and performance", icon: Activity },
-    { key: "logs", label: "Logs", detail: "Inspect provider jobs and errors", icon: Bug }
-  ] as const;
-  const inNormalWorkspace = screen !== "home";
-  const renderNavItems = (items: readonly { key: string; label: string; detail: string; icon: typeof Activity }[]) => items.map(({ key, label, detail, icon: Icon }, index) => (
-    <button key={key} className={`nav-item ${screen === key ? "active" : ""}`} onClick={() => setScreen(key)}>
-      <span className="nav-step">{String(index + 1).padStart(2, "0")}</span>
-      <span className="nav-copy">
-        <span className="nav-label"><Icon size={14} />{label}</span>
-        <span className="nav-detail">{detail}</span>
-      </span>
-    </button>
-  ));
-
   return (
     <div className={`app-shell ${screen === "home" ? "home-shell" : "workspace-shell"}`}>
       {toast && <div className="toast">{toast}</div>}
-      {inNormalWorkspace && <aside className="sidebar">
-        <div className="sidebar-brand">
-          <div className="brand-name">ContentAgent</div>
-          <div className="brand-sub">Normal Content workspace</div>
-        </div>
-        <nav className="nav-list" aria-label="Normal Content pages">
-          <div className="nav-section-label">Content workflow</div>
-          {renderNavItems(normalNav)}
-          <div className="nav-section-label secondary">Insights &amp; operations</div>
-          {renderNavItems(operationsNav)}
-        </nav>
-        <div className="sidebar-footer">
-          {profileMenuOpen && (
-            <div className="profile-dropup">
-              <button onClick={() => { setScreen("persona"); setProfileMenuOpen(false); }}><UserRound size={14} />Persona</button>
-              <button onClick={() => { setScreen("settings"); setProfileMenuOpen(false); }}><Settings size={14} />Settings</button>
-            </div>
-          )}
-          <button className={`ws-pill ${profileMenuOpen ? "open" : ""}`} onClick={() => setProfileMenuOpen((open) => !open)} aria-expanded={profileMenuOpen} aria-haspopup="menu">
-            <div className="ws-av">ST</div>
-            <div>
-              <div className="ws-name">{data.user.name}</div>
-              <div className="ws-role">{data.user.role}</div>
-            </div>
-          </button>
-        </div>
-      </aside>}
-
       <main className="main">
         <header className="topbar">
-          <div className="topbar-top">
-            <div>
-              <div className="topbar-title">{title(screen)}</div>
-              <div className="topbar-breadcrumb">{data.workspace.niche}</div>
+          <GlobalHeader
+            activeMode={screen === "home" ? null : "normal"}
+            activePage={screen}
+            initialAccount={data.user}
+            initialWorkspaceCredits={data.workspace.credits}
+            onHomeNavigate={() => navigateScreen("home")}
+            onNormalNavigate={navigateScreen}
+          />
+          {screen !== "home" && (
+            <div className="page-context-bar">
+              <div className="page-context-inner">
+                <div className="page-context-title">
+                  <div className="topbar-title">{title(screen)}</div>
+                  <div className="topbar-breadcrumb">{data.workspace.niche}</div>
+                </div>
+                <div className="page-context-metrics" aria-label="Workspace status">
+                  <span><Sparkles size={13} /><b>{metrics?.high}</b><small>priority gaps</small></span>
+                  <span><Search size={13} /><b>{metrics?.research}</b><small>research</small></span>
+                  <span><Wand2 size={13} /><b>{metrics?.assets}</b><small>ready assets</small></span>
+                  <span><CalendarDays size={13} /><b>{metrics?.scheduled}</b><small>scheduled</small></span>
+                  <button className="icon-btn context-refresh" title="Refresh page data" onClick={refresh}><RefreshCcw size={15} /></button>
+                </div>
+              </div>
             </div>
-            <div className="topbar-right">
-              <WorkspaceModeSwitcher activeMode={screen === "home" ? null : "normal"} onHome={() => setScreen("home")} onNormal={() => setScreen(screen === "home" ? "persona" : screen)} />
-              <span className="credit-pill"><b>{data.workspace.credits}</b> credits</span>
-              <button className="icon-btn" title="Refresh" onClick={refresh}><RefreshCcw size={15} /></button>
-              <button className="icon-btn" title="Settings" onClick={() => setScreen("settings")}><Settings size={15} /></button>
-              <button className="icon-btn" title="Log out" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); setData(null); router.replace("/login"); }}><LogOut size={15} /></button>
-            </div>
-          </div>
-          <div className="momentum-strip">
-            <div className="mom-item"><Sparkles size={14} /><b>{metrics?.high}</b><span>high-priority gaps</span></div>
-            <div className="mom-item"><Search size={14} /><b>{metrics?.research}</b><span>research scans</span></div>
-            <div className="mom-item"><Wand2 size={14} /><b>{metrics?.assets}</b><span>ready assets</span></div>
-            <div className="mom-item"><CalendarDays size={14} /><b>{metrics?.scheduled}</b><span>scheduled posts</span></div>
-          </div>
+          )}
         </header>
 
         <section className="panel active">
-          {screen === "home" && <HomePanel data={data} setScreen={setScreen} openDrama={() => router.push("/drama-studio")} />}
+          {screen === "home" && <HomePanel data={data} setScreen={navigateScreen} openDrama={() => router.push("/drama-studio?step=1")} />}
           {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
           {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={setDirectCreateInitial} />}
-          {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={setScreen} setPendingGeneration={setPendingGeneration} />}
+          {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} />}
           {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
           {screen === "drama" && <DramaWorkspacePanel src="/drama-studio" title="Drama Studio" refresh={refresh} />}
           {screen === "asset-library" && <DramaWorkspacePanel src="/drama-studio/assets" title="Asset Library" refresh={refresh} />}
@@ -439,7 +407,7 @@ export default function Home() {
           personaAssets={data.personaProfile.mediaAssets || []}
           run={run}
           onClose={() => setDirectCreateInitial(null)}
-          setScreen={setScreen}
+          setScreen={navigateScreen}
           setPendingGeneration={setPendingGeneration}
         />
       )}

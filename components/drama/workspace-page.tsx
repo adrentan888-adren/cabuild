@@ -3,8 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import AppSidebar from "@/components/drama/app-sidebar";
-import WorkspaceModeSwitcher from "@/components/workspace-mode-switcher";
+import GlobalHeader from "@/components/global-header";
 import {
   configureDramaStorageOwner,
   createLibraryAssetId,
@@ -42,7 +41,6 @@ import {
   ImageIcon,
   KeyRound,
   LockKeyhole,
-  Menu,
   Plus,
   Search,
   Settings,
@@ -313,7 +311,6 @@ export default function WorkspacePage({
 }) {
   configureDramaStorageOwner(ownerId);
   configureCombinedEpisodeOwner(ownerId);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const kieCredits = useKieCredits();
   const meta = pageMeta[page];
@@ -326,65 +323,32 @@ export default function WorkspacePage({
 
   return (
     <div className="app-shell">
-      {sidebarOpen && (
-        <button
-          className="sidebar-scrim"
-          aria-label="Close navigation"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-      <AppSidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        activePage={
-          page === "assets"
-            ? "asset-library"
-            : page === "info"
-              ? "production-info"
-              : undefined
-        }
-      />
-
       <main className="main">
         <header className="topbar">
-          <div className="topbar-row">
-            <div className="title-cluster">
-              <button
-                className="menu-button"
-                onClick={() => setSidebarOpen(true)}
-                aria-label="Open menu"
-              >
-                <Menu size={18} />
-              </button>
-              <div>
-                <div className="page-title">{meta.title}</div>
-                <div className="breadcrumbs">{meta.breadcrumb}</div>
+          <GlobalHeader
+            activeMode="drama"
+            activePage={
+              page === "assets"
+                ? "asset-library"
+                : page === "info"
+                  ? "production-info"
+                  : undefined
+            }
+          />
+          <div className="page-context-bar drama-context-bar">
+            <div className="page-context-inner">
+              <div className="title-cluster">
+                <div>
+                  <div className="page-title">{meta.title}</div>
+                  <div className="breadcrumbs">{meta.breadcrumb}</div>
+                </div>
               </div>
-            </div>
-            <div className="topbar-actions">
-              <WorkspaceModeSwitcher activeMode="drama" />
-              <span className="save-state saved">Saved in this browser</span>
-              <Link href="/drama-studio" className="quiet-button">
-                <Clock3 size={14} /> History
-              </Link>
-              <button
-                className="credit-pill"
-                onClick={() => {
-                  void kieCredits.refresh();
-                  setToast(kieCredits.message);
-                }}
-                title={kieCredits.message}
-              >
-                <Zap size={13} fill="currentColor" />
-                {kieCredits.label}
-              </button>
-              <Link
-                href="/drama-studio"
-                className="icon-button"
-                aria-label="Settings"
-              >
-                <Settings size={16} />
-              </Link>
+              <div className="topbar-actions">
+                <span className="save-state saved">Saved in this browser</span>
+                <Link href="/drama-studio?step=1" className="quiet-button">
+                  <Clock3 size={14} /> Production home
+                </Link>
+              </div>
             </div>
           </div>
         </header>

@@ -151,6 +151,14 @@ Demo web app login:
 
 ## Latest Change Log
 
+### 2026-09-01 - Two-workspace Home and navigation shell
+- Reworked the authenticated Home screen into a launchpad that introduces and routes users into two clear modes: Normal Content and Drama Studio.
+- Normal Content now owns Persona, Research, Create Content, My Contents, and Automation in a descriptive contextual sidebar. Social Audit, Analyze, and Logs remain available in a secondary Insights & Operations group.
+- Drama Studio and Asset Library remain dedicated routes with the Drama workflow sidebar restored and expanded with descriptions for each production stage.
+- Added a shared top-right Home/Normal Content/Drama Studio switcher across the primary app and Drama routes. The Home control explicitly resets same-route Normal Content state.
+- Standardized the outer page gutters and removed nested mobile horizontal navigation: Normal Content uses a responsive two-column navigation grid and the four workspace metrics fit a non-scrolling row.
+- Local validation passed with lint, production build, desktop/mobile visual checks, route and interaction checks, equal-gutter checks, no-overflow checks, and independent focused UAT after repairing the Home-return and mobile-scroll defects. No paid generation, publishing, billing, or destructive production action was used.
+
 ### 2026-09-01 - Repository-owned website delivery skill
 - Added an auto-discoverable Codex skill at `.agents/skills/cabuild-website-delivery/SKILL.md` for CABUILD implementation and release work.
 - The workflow requires GitHub-first synchronization, lint/build/runtime repair loops, accessible website smoke tests, independent read-only UAT with defect retesting, direct commits and pushes to `main`, GitHub Actions monitoring, production verification, and prioritized UX recommendations.

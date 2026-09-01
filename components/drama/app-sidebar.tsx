@@ -7,7 +7,6 @@ import {
   Box,
   ChevronDown,
   Clapperboard,
-  Film,
   LayoutDashboard,
   Info,
   MoreHorizontal,
@@ -17,10 +16,10 @@ import {
 } from "lucide-react";
 
 const dramaSteps = [
-  { href: "/drama-studio", label: "Creative Brief", icon: WandSparkles },
-  { href: "/drama-studio", label: "Story Studio", icon: BookOpen },
-  { href: "/drama-studio", label: "Generate & Edit", icon: Clapperboard },
-  { href: "/drama-studio", label: "Production Info", icon: Info },
+  { href: "/drama-studio", label: "Creative Brief", detail: "Set format, audience and production intent", icon: WandSparkles },
+  { href: "/drama-studio", label: "Story Studio", detail: "Develop story structure and scene prompts", icon: BookOpen },
+  { href: "/drama-studio", label: "Generate & Edit", detail: "Create, review and refine production media", icon: Clapperboard },
+  { href: "/drama-studio", label: "Production Info", detail: "Review status, costs and deliverables", icon: Info },
 ] as const;
 
 export default function AppSidebar({
@@ -36,9 +35,7 @@ export default function AppSidebar({
 }) {
   const pathname = usePathname();
   const inDrama =
-    pathname.startsWith("/drama-studio") ||
-    pathname.startsWith("/drama-studio") ||
-    pathname === "/drama-studio";
+    pathname.startsWith("/drama-studio") && pathname !== "/drama-studio/assets";
 
   return (
     <aside className={`sidebar ${open ? "sidebar-open" : ""}`}>
@@ -68,29 +65,25 @@ export default function AppSidebar({
       </div>
 
       <nav className="main-nav studio-navigation" aria-label="Primary">
-        <Link href="/drama-studio" className={`nav-link ${pathname === "/" ? "active" : ""}`}>
-          <span className="nav-icon"><LayoutDashboard size={15} /></span>
-          <span>Overview</span>
-        </Link>
-
         <Link
           href="/drama-studio"
           className={`nav-link drama-root-link ${inDrama ? "active" : ""}`}
         >
-          <span className="nav-icon"><Film size={15} /></span>
-          <span>Drama</span>
+          <span className="nav-icon"><LayoutDashboard size={15} /></span>
+          <span className="nav-link-copy"><b>Drama Studio</b><small>Brief, story, scenes and production</small></span>
         </Link>
 
-        <div className="drama-subnav" aria-label="Drama workflow">
-          {dramaSteps.map(({ href, label, icon: Icon }) => (
+        <div className="drama-subnav" aria-label="Drama production workflow">
+          <div className="drama-nav-label">Production workflow</div>
+          {dramaSteps.map(({ href, label, detail, icon: Icon }) => (
             <Link
               href={href}
-              key={href}
-              className={`drama-subnav-link ${pathname === href ? "active" : ""}`}
+              key={label}
+              className="drama-subnav-link"
               onClick={onClose}
             >
               <Icon size={13} />
-              <span>{label}</span>
+              <span className="nav-link-copy"><b>{label}</b><small>{detail}</small></span>
             </Link>
           ))}
         </div>
@@ -100,7 +93,7 @@ export default function AppSidebar({
           className={`nav-link ${pathname === "/drama-studio/assets" ? "active" : ""}`}
         >
           <span className="nav-icon"><Box size={15} /></span>
-          <span>Asset Library</span>
+          <span className="nav-link-copy"><b>Asset Library</b><small>Characters, locations, props and media</small></span>
         </Link>
       </nav>
 

@@ -21,6 +21,8 @@
   --coral: #d86652;
   --radius: 12px;
   --shadow: 0 1px 1px rgba(17, 24, 39, 0.02);
+  --drama-nav: 264px;
+  --content-gutter: clamp(16px, 2.6vw, 32px);
 }
 
 * {
@@ -94,7 +96,7 @@ svg {
   position: fixed;
   inset: 0 auto 0 0;
   z-index: 30;
-  width: 224px;
+  width: var(--drama-nav);
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -223,9 +225,9 @@ svg {
   width: 100%;
   min-height: 38px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 9px;
-  padding: 6px 14px;
+  padding: 9px 14px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -263,6 +265,26 @@ svg {
   background: var(--bg);
 }
 
+.nav-link-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding-top: 1px;
+}
+
+.nav-link-copy b {
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.nav-link-copy small {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 450;
+  line-height: 1.35;
+}
+
 .nav-link.active .nav-icon {
   color: #fff;
   background: var(--ink);
@@ -293,16 +315,25 @@ svg {
   position: relative;
   display: grid;
   gap: 2px;
-  margin: 1px 9px 6px 27px;
+  margin: 4px 9px 8px 27px;
   padding: 3px 0 3px 12px;
   border-left: 1px solid var(--line-strong);
+}
+
+.drama-nav-label {
+  padding: 3px 9px 5px;
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
 }
 
 .drama-subnav-link {
   position: relative;
   min-height: 32px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 6px 9px;
   border-radius: 8px;
@@ -503,9 +534,9 @@ svg {
 
 .main {
   min-width: 0;
-  width: calc(100% - 224px);
+  width: calc(100% - var(--drama-nav));
   flex: 1 1 auto;
-  margin-left: 224px;
+  margin-left: var(--drama-nav);
   overflow-x: hidden;
 }
 
@@ -524,7 +555,7 @@ svg {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding: 7px 28px;
+  padding: 7px var(--content-gutter);
 }
 
 .title-cluster {
@@ -672,7 +703,7 @@ svg {
   display: flex;
   align-items: center;
   gap: 0;
-  padding: 0 28px;
+  padding: 0 var(--content-gutter);
   border-top: 1px solid var(--line);
 }
 
@@ -720,7 +751,7 @@ svg {
 .main-panel {
   width: min(100%, 1260px);
   margin: 0 auto;
-  padding: 25px 28px 64px;
+  padding: 25px var(--content-gutter) 64px;
 }
 
 .step-hero {
@@ -3123,6 +3154,15 @@ svg {
     margin-left: 0;
   }
 
+  .topbar-row {
+    flex-wrap: wrap;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   .content-grid,
   .generation-layout {
     grid-template-columns: 1fr;
@@ -3154,6 +3194,13 @@ svg {
   .production-strip {
     padding-left: 14px;
     padding-right: 14px;
+  }
+
+  .workspace-mode-tab,
+  .workspace-home-link {
+    padding-left: 7px;
+    padding-right: 7px;
+    font-size: 9px;
   }
 
   .credit-pill,
@@ -7980,22 +8027,6 @@ a {
     flex: 1 1 auto;
     width: 100%;
   }
-}
-
-/* CABUILD embeds these pages in My Contents. Keep the Drama workspace's own
-   navigation out of the frame while preserving its workflow header and UI. */
-.drama-embedded-root .sidebar,
-.drama-embedded-root .sidebar-scrim {
-  display: none !important;
-}
-
-.drama-embedded-root .main {
-  width: 100%;
-  margin-left: 0;
-}
-
-.drama-embedded-root .menu-button {
-  display: none !important;
 }
 
 .drama-embedded-root .app-shell {

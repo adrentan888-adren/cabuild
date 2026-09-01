@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import AppSidebar from "@/components/drama/app-sidebar";
+import WorkspaceModeSwitcher from "@/components/workspace-mode-switcher";
 import {
   configureDramaStorageOwner,
   createLibraryAssetId,
@@ -3017,6 +3018,7 @@ export default function DramaStudio({
               </div>
             </div>
             <div className="topbar-actions">
+              <WorkspaceModeSwitcher activeMode="drama" />
               <div className={`save-state ${saved ? "saved" : ""}`}>
                 {saved ? <Check size={12} /> : <Activity size={12} />}
                 {saved ? "All changes saved" : "Saving…"}

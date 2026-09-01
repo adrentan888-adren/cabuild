@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AppSidebar from "@/components/drama/app-sidebar";
+import WorkspaceModeSwitcher from "@/components/workspace-mode-switcher";
 import {
   configureDramaStorageOwner,
   createLibraryAssetId,
@@ -351,6 +352,7 @@ export default function WorkspacePage({
               </div>
             </div>
             <div className="topbar-actions">
+              <WorkspaceModeSwitcher activeMode="drama" />
               <span className="save-state saved">Saved in this browser</span>
               <Link href="/drama-studio" className="quiet-button">
                 <Clock3 size={14} /> History

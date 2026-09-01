@@ -7,6 +7,7 @@ import { flushSync } from "react-dom";
 import {
   Activity,
   ArrowLeft,
+  ArrowRight,
   BarChart3,
   Bug,
   CalendarDays,
@@ -29,6 +30,7 @@ import {
   UserRound,
   Wand2
 } from "lucide-react";
+import WorkspaceModeSwitcher from "@/components/workspace-mode-switcher";
 import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 import type { PersonaMediaAsset, PersonaProfile } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
@@ -297,6 +299,12 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const requestedView = new URLSearchParams(window.location.search).get("view");
+    const normalViews = new Set(["audit", "persona", "research", "create", "publish", "automation", "analyse", "logs"]);
+    if (requestedView && normalViews.has(requestedView)) setScreen(requestedView);
+  }, []);
+
+  useEffect(() => {
     if (!pendingGeneration || !data?.publishQueue.length) return;
     const pendingStartedAt = pendingGeneration.startedAt - 30000;
     const hasNewQueueItem = data.publishQueue.some((item) => new Date(item.createdAt || item.scheduledAt).getTime() >= pendingStartedAt);
@@ -333,35 +341,42 @@ export default function Home() {
 
   if (!data) return <div className="loading">Redirecting to sign in...</div>;
 
-  const nav = [
-    ["home", "Home", Activity],
-    ["audit", "Social Audit", BarChart3],
-    ["persona", "Persona", UserRound],
-    ["research", "Research", Radar],
-    ["create", "Create Content", Wand2],
-    ["publish", "My Contents", CalendarDays],
-    ["drama", "Drama Studio", Film],
-    ["asset-library", "Asset Library", Palette],
-    ["automation", "Automation", RefreshCcw],
-    ["analyse", "Analyze", BarChart3],
-    ["logs", "Logs", Bug]
+  const normalNav = [
+    { key: "persona", label: "Persona", detail: "Voice, audience and reusable brand assets", icon: UserRound },
+    { key: "research", label: "Research", detail: "Find proven topics and source content", icon: Radar },
+    { key: "create", label: "Create Content", detail: "Turn an idea or source into a new asset", icon: Wand2 },
+    { key: "publish", label: "My Contents", detail: "Review generation progress and outputs", icon: CalendarDays },
+    { key: "automation", label: "Automation", detail: "Schedule repeatable content workflows", icon: RefreshCcw }
   ] as const;
+  const operationsNav = [
+    { key: "audit", label: "Social Audit", detail: "Understand connected-account performance", icon: BarChart3 },
+    { key: "analyse", label: "Analyze", detail: "Track themes, gaps and performance", icon: Activity },
+    { key: "logs", label: "Logs", detail: "Inspect provider jobs and errors", icon: Bug }
+  ] as const;
+  const inNormalWorkspace = screen !== "home";
+  const renderNavItems = (items: readonly { key: string; label: string; detail: string; icon: typeof Activity }[]) => items.map(({ key, label, detail, icon: Icon }, index) => (
+    <button key={key} className={`nav-item ${screen === key ? "active" : ""}`} onClick={() => setScreen(key)}>
+      <span className="nav-step">{String(index + 1).padStart(2, "0")}</span>
+      <span className="nav-copy">
+        <span className="nav-label"><Icon size={14} />{label}</span>
+        <span className="nav-detail">{detail}</span>
+      </span>
+    </button>
+  ));
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${screen === "home" ? "home-shell" : "workspace-shell"}`}>
       {toast && <div className="toast">{toast}</div>}
-      <aside className="sidebar">
+      {inNormalWorkspace && <aside className="sidebar">
         <div className="sidebar-brand">
           <div className="brand-name">ContentAgent</div>
-          <div className="brand-sub">CEO Reputation Module</div>
+          <div className="brand-sub">Normal Content workspace</div>
         </div>
-        <nav className="nav-list">
-          {nav.map(([key, label, Icon]) => (
-            <button key={key} className={`nav-item ${screen === key ? "active" : ""}`} onClick={() => setScreen(key)}>
-              <span className="nav-icon"><Icon size={16} /></span>
-              <span className="nav-label">{label}</span>
-            </button>
-          ))}
+        <nav className="nav-list" aria-label="Normal Content pages">
+          <div className="nav-section-label">Content workflow</div>
+          {renderNavItems(normalNav)}
+          <div className="nav-section-label secondary">Insights &amp; operations</div>
+          {renderNavItems(operationsNav)}
         </nav>
         <div className="sidebar-footer">
           {profileMenuOpen && (
@@ -378,7 +393,7 @@ export default function Home() {
             </div>
           </button>
         </div>
-      </aside>
+      </aside>}
 
       <main className="main">
         <header className="topbar">
@@ -388,6 +403,7 @@ export default function Home() {
               <div className="topbar-breadcrumb">{data.workspace.niche}</div>
             </div>
             <div className="topbar-right">
+              <WorkspaceModeSwitcher activeMode={screen === "home" ? null : "normal"} onHome={() => setScreen("home")} onNormal={() => setScreen(screen === "home" ? "persona" : screen)} />
               <span className="credit-pill"><b>{data.workspace.credits}</b> credits</span>
               <button className="icon-btn" title="Refresh" onClick={refresh}><RefreshCcw size={15} /></button>
               <button className="icon-btn" title="Settings" onClick={() => setScreen("settings")}><Settings size={15} /></button>
@@ -403,7 +419,7 @@ export default function Home() {
         </header>
 
         <section className="panel active">
-          {screen === "home" && <HomePanel data={data} setScreen={setScreen} run={run} />}
+          {screen === "home" && <HomePanel data={data} setScreen={setScreen} openDrama={() => router.push("/drama-studio")} />}
           {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
           {screen === "persona" && <PersonaPanel data={data} run={run} />}
           {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={setDirectCreateInitial} />}
@@ -444,7 +460,7 @@ function AnimatedDots({ label }: { label: string }) {
   return <span className="animated-dots">{label}<span className="dot-slot">{".".repeat(count)}</span></span>;
 }
 
-function HomePanel({ data, setScreen, run }: { data: AppData; setScreen: (s: string) => void; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+function HomePanel({ data, setScreen, openDrama }: { data: AppData; setScreen: (s: string) => void; openDrama: () => void }) {
   const lead = data.opportunities.filter((item) => item.status !== "dismissed").sort((a, b) => b.gapScore - a.gapScore)[0];
   const latestAudit = [...data.socialAudits].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
   const recentCompetitorIds = new Set(data.competitorResults.filter((item) => isWithinDays(item.capturedAt, 7)).map((item) => item.competitorId));
@@ -465,9 +481,55 @@ function HomePanel({ data, setScreen, run }: { data: AppData; setScreen: (s: str
   const auditStatus = auditScore >= 80 ? "Good" : auditScore >= 60 ? "Fair" : latestAudit ? "Needs work" : "No audit yet";
   return (
     <div className="home-panel">
-      <section className="home-greeting">
-        <h2>Good morning, {data.user.name.split(" ")[0]}</h2>
-        <p className="muted">One strong opportunity is ready to turn into content today.</p>
+      <section className="workspace-intro">
+        <span className="intro-kicker">Welcome to ContentAgent</span>
+        <h1>What are you creating today?</h1>
+        <p>Choose a workspace to see the tools and guidance for that kind of production. You can switch at any time from the tabs above.</p>
+      </section>
+
+      <section className="workspace-choice-grid" aria-label="Content workspaces">
+        <article className="workspace-choice-card normal-choice">
+          <div className="choice-icon"><Sparkles size={22} /></div>
+          <div>
+            <span className="choice-eyebrow">Everyday publishing</span>
+            <h2>Normal Content</h2>
+            <p>Build on-brand social content from audience context and live research, then review or automate the output.</p>
+          </div>
+          <ol className="choice-page-list">
+            <li><b>Persona</b><span>Set your voice and brand assets</span></li>
+            <li><b>Research</b><span>Discover high-performing source ideas</span></li>
+            <li><b>Create Content</b><span>Generate image, video or text</span></li>
+            <li><b>My Contents</b><span>Review progress and finished assets</span></li>
+            <li><b>Automation</b><span>Schedule repeatable workflows</span></li>
+          </ol>
+          <button className="workspace-choice-action primary" onClick={() => setScreen("persona")}>
+            Enter Normal Content <ArrowRight size={15} />
+          </button>
+        </article>
+
+        <article className="workspace-choice-card drama-choice">
+          <div className="choice-icon"><Film size={22} /></div>
+          <div>
+            <span className="choice-eyebrow">Episodic production</span>
+            <h2>Drama Studio</h2>
+            <p>Develop a production from creative brief to scene generation while keeping every reusable reference organized.</p>
+          </div>
+          <ol className="choice-page-list drama-list">
+            <li><b>Drama Studio</b><span>Brief, story, scenes and production controls</span></li>
+            <li><b>Asset Library</b><span>Characters, locations, props and media</span></li>
+          </ol>
+          <button className="workspace-choice-action" onClick={openDrama}>
+            Enter Drama Studio <ArrowRight size={15} />
+          </button>
+        </article>
+      </section>
+
+      <section className="home-greeting home-dashboard-heading">
+        <div>
+          <span className="intro-kicker">Workspace snapshot</span>
+          <h2>Good morning, {data.user.name.split(" ")[0]}</h2>
+        </div>
+        <p className="muted">Pick up the strongest opportunity or check what is already moving.</p>
       </section>
 
       <div className="home-top-grid">

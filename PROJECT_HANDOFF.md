@@ -1,6 +1,6 @@
 # CABuild Project Handoff
 
-Last updated: 2026-08-26
+Last updated: 2026-09-01
 
 ## Purpose
 ContentAgent Social is a local Next.js prototype for research, content planning, AI generation, and publishing. The mock UI is the visual source of truth when it conflicts with the PRD.
@@ -35,6 +35,7 @@ Get-CimInstance Win32_Process -Filter "name = 'node.exe'" | Where-Object { $_.Co
 - Upload-Post provider: `lib/providers/uploadPost.ts`
 - Local data file: `data/app.json`
 - Admin split/multi-user rollout plan: `ADMIN_SPLIT_PHASE_PLAN.md`
+- Repository delivery skill: `.agents/skills/cabuild-website-delivery/SKILL.md`
 
 ## Environment And Secrets
 Do not commit raw API keys. Keep secrets in ignored local files, GCP Secret Manager, or the user's password manager. The user pasted live keys in chat earlier; treat those values as compromised before production and rotate them. This handoff deliberately records names, locations, and usage, not raw secret values.
@@ -149,6 +150,12 @@ Demo web app login:
 - Keep this file updated whenever material project behavior changes.
 
 ## Latest Change Log
+
+### 2026-09-01 - Repository-owned website delivery skill
+- Added an auto-discoverable Codex skill at `.agents/skills/cabuild-website-delivery/SKILL.md` for CABUILD implementation and release work.
+- The workflow requires GitHub-first synchronization, lint/build/runtime repair loops, accessible website smoke tests, independent read-only UAT with defect retesting, direct commits and pushes to `main`, GitHub Actions monitoring, production verification, and prioritized UX recommendations.
+- UAT is free/no-spend by default. Paid provider generation, real publishing, live billing, destructive operations, and meaningful quota use still require explicit authorization.
+- Validation passed: the official skill validator, `npm run lint`, `npm run build`, compiled-route HTTP smoke checks, and independent Chromium UAT at desktop and mobile viewports.
 
 ### 2026-08-26 - Drama Studio and Asset Library integration
 - Integrated the Drama project into CABUILD while preserving the existing app as the shell and default workflow.

@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import GlobalHeader from "@/components/global-header";
+import WorkspaceRail from "@/components/workspace-rail";
 import {
   configureDramaStorageOwner,
   createLibraryAssetId,
@@ -3035,7 +3036,18 @@ export default function DramaStudio({
           </div>
         </header>
 
-        <div className="main-panel">
+        <div className="workspace-content-frame drama-workspace-frame">
+          <WorkspaceRail
+            mode="drama"
+            activePage={
+              activeStep === 1
+                ? "creative-brief"
+                : activeStep === 5
+                  ? "generate-edit"
+                  : "story-studio"
+            }
+          />
+          <div className="main-panel">
           <section className="step-hero">
             <div className="step-hero-copy">
               <span className="step-kicker">Drama workflow</span>
@@ -3323,6 +3335,8 @@ export default function DramaStudio({
               }}
             />
           )}
+          </div>
+          <span className="workspace-rail-balance" aria-hidden="true" />
         </div>
       </main>
 

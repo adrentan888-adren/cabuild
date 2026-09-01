@@ -39,7 +39,7 @@ type AccountSummary = {
   }>;
 };
 
-const normalPages = [
+export const normalPages = [
   { id: "persona", label: "Persona", detail: "Voice, audience and brand assets", icon: UserRound },
   { id: "research", label: "Research", detail: "Find proven topics and source content", icon: Radar },
   { id: "create", label: "Create Content", detail: "Turn an idea into a finished asset", icon: Wand2 },
@@ -50,7 +50,7 @@ const normalPages = [
   { id: "logs", label: "Logs", detail: "Inspect provider jobs and errors", icon: Bug },
 ] as const;
 
-const dramaPages = [
+export const dramaPages = [
   { id: "creative-brief", label: "Creative Brief", detail: "Format, audience and production intent", href: "/drama-studio?step=1", icon: WandSparkles },
   { id: "story-studio", label: "Story Studio", detail: "Story, visual assets and scene prompts", href: "/drama-studio?step=2", icon: BookOpen },
   { id: "generate-edit", label: "Generate & Edit", detail: "Create, review and refine production media", href: "/drama-studio?step=5", icon: Clapperboard },

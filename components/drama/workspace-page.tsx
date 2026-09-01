@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import GlobalHeader from "@/components/global-header";
+import WorkspaceRail from "@/components/workspace-rail";
 import {
   configureDramaStorageOwner,
   createLibraryAssetId,
@@ -353,7 +354,18 @@ export default function WorkspacePage({
           </div>
         </header>
 
-        <div className="main-panel workspace-main-panel">
+        <div className="workspace-content-frame drama-workspace-frame">
+          <WorkspaceRail
+            mode="drama"
+            activePage={
+              page === "assets"
+                ? "asset-library"
+                : page === "info"
+                  ? "production-info"
+                  : undefined
+            }
+          />
+          <div className="main-panel workspace-main-panel">
           <section className="workspace-page-head">
             <div>
               <span className="step-kicker">Drama Studio workspace</span>
@@ -384,6 +396,8 @@ export default function WorkspacePage({
           {page === "activity" && <ActivityContent setToast={setToast} />}
           {page === "info" && <ProductionInfoContent />}
           {page === "help" && <HelpContent />}
+          </div>
+          <span className="workspace-rail-balance" aria-hidden="true" />
         </div>
       </main>
 

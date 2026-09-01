@@ -793,6 +793,17 @@ svg {
   padding: 25px var(--content-gutter) 64px;
 }
 
+.drama-workspace-frame > .main-panel {
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+.drama-workspace-frame .workspace-rail {
+  top: 178px;
+}
+
 .step-hero {
   display: flex;
   align-items: flex-end;
@@ -3488,6 +3499,22 @@ a {
   max-width: calc(
     var(--content-max, 1180px) + var(--content-gutter) + var(--content-gutter)
   );
+}
+
+@media (max-width: 900px) {
+  .drama-workspace-frame .workspace-rail {
+    top: 210px;
+  }
+}
+
+@media (max-width: 720px) {
+  .drama-workspace-frame .workspace-rail {
+    top: 250px;
+  }
+
+  .drama-workspace-frame > .workspace-main-panel {
+    width: 100%;
+  }
 }
 
 .workspace-page-head {

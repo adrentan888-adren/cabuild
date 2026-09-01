@@ -30,6 +30,7 @@ import {
   Wand2
 } from "lucide-react";
 import GlobalHeader from "@/components/global-header";
+import WorkspaceRail from "@/components/workspace-rail";
 import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 import type { PersonaMediaAsset, PersonaProfile } from "@/lib/types";
 import { appendPersonaContext, buildPersonaContext } from "@/lib/persona";
@@ -386,20 +387,29 @@ export default function Home() {
           )}
         </header>
 
-        <section className="panel active">
-          {screen === "home" && <HomePanel data={data} setScreen={navigateScreen} openDrama={() => router.push("/drama-studio?step=1")} />}
-          {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
-          {screen === "persona" && <PersonaPanel data={data} run={run} />}
-          {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={setDirectCreateInitial} />}
-          {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} />}
-          {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
-          {screen === "drama" && <DramaWorkspacePanel src="/drama-studio" title="Drama Studio" refresh={refresh} />}
-          {screen === "asset-library" && <DramaWorkspacePanel src="/drama-studio/assets" title="Asset Library" refresh={refresh} />}
-          {screen === "automation" && <AutomationPanel data={data} run={run} />}
-          {screen === "analyse" && <AnalyticsPanel data={data} />}
-          {screen === "logs" && <LogPanel data={data} />}
-          {screen === "settings" && <SettingsPanel data={data} run={run} integrations={integrations} />}
-        </section>
+        {screen === "home" ? (
+          <section className="panel active">
+            <HomePanel data={data} setScreen={navigateScreen} openDrama={() => router.push("/drama-studio?step=1")} />
+          </section>
+        ) : (
+          <div className="workspace-content-frame normal-workspace-frame">
+            <WorkspaceRail mode="normal" activePage={screen} onNormalNavigate={navigateScreen} />
+            <section className="panel active">
+              {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
+              {screen === "persona" && <PersonaPanel data={data} run={run} />}
+              {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={setDirectCreateInitial} />}
+              {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} />}
+              {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
+              {screen === "drama" && <DramaWorkspacePanel src="/drama-studio" title="Drama Studio" refresh={refresh} />}
+              {screen === "asset-library" && <DramaWorkspacePanel src="/drama-studio/assets" title="Asset Library" refresh={refresh} />}
+              {screen === "automation" && <AutomationPanel data={data} run={run} />}
+              {screen === "analyse" && <AnalyticsPanel data={data} />}
+              {screen === "logs" && <LogPanel data={data} />}
+              {screen === "settings" && <SettingsPanel data={data} run={run} integrations={integrations} />}
+            </section>
+            <span className="workspace-rail-balance" aria-hidden="true" />
+          </div>
+        )}
       </main>
       {directCreateInitial && (
         <ResearchGenerateModal

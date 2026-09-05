@@ -222,13 +222,13 @@ function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData 
           <tbody>
             {sortableUsers.map((user) => (
               <tr key={user.id} className={user.disabled ? "disabled" : ""}>
-                <td>{user.name}</td>
-                <td>{username(user)}</td>
-                <td>{user.email}</td>
-                <td><span className="admin-role-pill">{user.role}</span></td>
-                <td><span className={`status ${user.disabled ? "failed" : "done"}`}>{status(user)}</span></td>
-                <td>{user.createdAt ? new Date(user.createdAt).toLocaleString() : "Unknown"}</td>
-                <td><button type="button" onClick={() => setEditing(user)}>Edit</button></td>
+                <td data-label="Name">{user.name}</td>
+                <td data-label="Username">{username(user)}</td>
+                <td data-label="Email">{user.email}</td>
+                <td data-label="Role"><span className="admin-role-pill">{user.role}</span></td>
+                <td data-label="Status"><span className={`status ${user.disabled ? "failed" : "done"}`}>{status(user)}</span></td>
+                <td data-label="Created">{user.createdAt ? new Date(user.createdAt).toLocaleString() : "Unknown"}</td>
+                <td data-label="Actions"><button type="button" onClick={() => setEditing(user)}>Edit</button></td>
               </tr>
             ))}
           </tbody>
@@ -304,8 +304,9 @@ function PermissionCard({ adminData, runAdmin }: { adminData: AdminUserData | nu
                     <tr key={permission.key}>
                       <td><b>{permission.label}</b><span>{permission.description}</span></td>
                       {roles.map((role) => (
-                        <td key={role}>
+                        <td key={role} data-label={role}>
                           <input
+                            aria-label={`${role}: ${permission.label}`}
                             name={`${role}:${permission.key}`}
                             type="checkbox"
                             defaultChecked={Boolean(adminData?.permissions?.[role]?.includes(permission.key))}

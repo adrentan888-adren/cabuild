@@ -62,11 +62,13 @@ export default function GlobalHeader({
   activeMode,
   activePage,
   initialAccount,
+  frontendBaseUrl = "",
   initialWorkspaceCredits,
   onHomeNavigate,
   onNormalNavigate,
 }: {
   activeMode: HeaderWorkspaceMode;
+  frontendBaseUrl?: string;
   activePage?: string;
   initialAccount?: { name: string; email: string; role: string };
   initialWorkspaceCredits?: number;
@@ -74,6 +76,7 @@ export default function GlobalHeader({
   onNormalNavigate?: (page: string) => void;
 }) {
   const router = useRouter();
+  const destination = (path: string) => `${frontendBaseUrl}${path}`;
   const headerRef = useRef<HTMLDivElement>(null);
   const [openPanel, setOpenPanel] = useState<"normal" | "drama" | "credits" | "account" | null>(null);
   const [suppressedPanel, setSuppressedPanel] = useState<"normal" | "drama" | "credits" | "account" | null>(null);
@@ -111,6 +114,7 @@ export default function GlobalHeader({
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        headerRef.current?.querySelector<HTMLElement>(".global-nav-group.open .global-nav-trigger > button, .global-action-group.open > button")?.focus();
         const hovered = headerRef.current?.querySelector<HTMLElement>("[data-header-panel]:hover")?.dataset.headerPanel as typeof suppressedPanel;
         setOpenPanel((current) => {
           setSuppressedPanel(current ?? hovered ?? null);
@@ -165,7 +169,7 @@ export default function GlobalHeader({
   return (
     <div className="global-header" ref={headerRef}>
       <div className="global-header-inner">
-        <Link href="/" className="global-brand" aria-label="Content Agent home" onClick={openHome}>
+        <Link href={destination("/")} className="global-brand" aria-label="Content Agent home" onClick={openHome}>
           <span className="global-brand-logo"><Sparkles size={17} /></span>
           <span className="global-brand-copy">
             <b>Content Agent</b>
@@ -176,7 +180,7 @@ export default function GlobalHeader({
         <nav className="global-workspace-nav" aria-label="Content Agent workspaces">
           <div {...panelGroupProps("normal")} className={`global-nav-group ${openPanel === "normal" ? "open" : ""} ${suppressedPanel === "normal" ? "suppress-hover" : ""}`}>
             <div className={`global-nav-trigger ${activeMode === "normal" ? "active" : ""}`}>
-              <Link href="/?view=persona" onClick={(event) => openNormal("persona", event)}>
+              <Link href={destination("/?view=persona")} onClick={(event) => openNormal("persona", event)}>
                 <Wand2 size={15} /> Normal Content
               </Link>
               <button type="button" aria-label="Show Normal Content pages" aria-expanded={openPanel === "normal"} onClick={() => setOpenPanel(openPanel === "normal" ? null : "normal")}>
@@ -187,7 +191,7 @@ export default function GlobalHeader({
               <div className="global-menu-heading"><span>Normal Content</span><small>Content workflow and operations</small></div>
               <div className="global-menu-grid">
                 {normalPages.map(({ id, label, detail, icon: Icon }) => (
-                  <Link key={id} href={`/?view=${id}`} className={`global-menu-item ${activeMode === "normal" && activePage === id ? "active" : ""}`} onClick={(event) => openNormal(id, event)} role="menuitem">
+                  <Link key={id} href={destination(`/?view=${id}`)} className={`global-menu-item ${activeMode === "normal" && activePage === id ? "active" : ""}`} onClick={(event) => openNormal(id, event)} role="menuitem">
                     <span><Icon size={14} /></span><span><b>{label}</b><small>{detail}</small></span>
                   </Link>
                 ))}
@@ -197,7 +201,7 @@ export default function GlobalHeader({
 
           <div {...panelGroupProps("drama")} className={`global-nav-group ${openPanel === "drama" ? "open" : ""} ${suppressedPanel === "drama" ? "suppress-hover" : ""}`}>
             <div className={`global-nav-trigger ${activeMode === "drama" ? "active" : ""}`}>
-              <Link href="/drama-studio?step=1" onClick={() => { setOpenPanel(null); setSuppressedPanel("drama"); }}><Clapperboard size={15} /> Drama Studio</Link>
+              <Link href={destination("/drama-studio?step=1")} onClick={() => { setOpenPanel(null); setSuppressedPanel("drama"); }}><Clapperboard size={15} /> Drama Studio</Link>
               <button type="button" aria-label="Show Drama Studio pages" aria-expanded={openPanel === "drama"} onClick={() => setOpenPanel(openPanel === "drama" ? null : "drama")}>
                 <ChevronDown size={13} />
               </button>
@@ -206,7 +210,7 @@ export default function GlobalHeader({
               <div className="global-menu-heading"><span>Drama Studio</span><small>From brief to production library</small></div>
               <div className="global-menu-grid one-column">
                 {dramaPages.map(({ id, label, detail, href, icon: Icon }) => (
-                  <Link key={id} href={href} className={`global-menu-item ${activeMode === "drama" && activePage === id ? "active" : ""}`} onClick={() => { setOpenPanel(null); setSuppressedPanel("drama"); }} role="menuitem">
+                  <Link key={id} href={destination(href)} className={`global-menu-item ${activeMode === "drama" && activePage === id ? "active" : ""}`} onClick={() => { setOpenPanel(null); setSuppressedPanel("drama"); }} role="menuitem">
                     <span><Icon size={14} /></span><span><b>{label}</b><small>{detail}</small></span>
                   </Link>
                 ))}
@@ -216,6 +220,8 @@ export default function GlobalHeader({
         </nav>
 
         <div className="global-header-actions">
+          <Link href={destination("/?view=create")} className="global-quick-action primary" onClick={(event) => openNormal("create", event)} aria-label="Create content"><Wand2 size={15} /><span>Create</span></Link>
+          <Link href={destination("/?view=publish")} className="global-quick-action" onClick={(event) => openNormal("publish", event)} aria-label="My Contents"><CalendarDays size={15} /><span>My Contents</span></Link>
           <div {...panelGroupProps("credits")} className={`global-action-group ${openPanel === "credits" ? "open" : ""} ${suppressedPanel === "credits" ? "suppress-hover" : ""}`}>
             <button type="button" className="global-credit-trigger" aria-expanded={openPanel === "credits"} onClick={() => setOpenPanel(openPanel === "credits" ? null : "credits")}>
               <Coins size={15} />
@@ -254,8 +260,8 @@ export default function GlobalHeader({
             </button>
             <div className="global-popover account-popover">
               <div className="account-summary"><span className="global-account-avatar large">{initials || "CA"}</span><span><b>{account?.name || "Content Agent user"}</b><small>{account?.email || "Signed-in account"}</small></span></div>
-              <Link href="/?view=persona" onClick={(event) => openNormal("persona", event)}><UserRound size={14} /> Persona</Link>
-              <Link href="/?view=settings" onClick={(event) => openNormal("settings", event)}><Settings size={14} /> Settings</Link>
+              <Link href={destination("/?view=persona")} onClick={(event) => openNormal("persona", event)}><UserRound size={14} /> Persona</Link>
+              <Link href={destination("/?view=settings")} onClick={(event) => openNormal("settings", event)}><Settings size={14} /> Settings</Link>
               <button type="button" onClick={() => void logout()}><LogOut size={14} /> Log out</button>
             </div>
           </div>

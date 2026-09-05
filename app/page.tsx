@@ -395,9 +395,12 @@ export default function Home() {
           <div className="workspace-content-frame normal-workspace-frame">
             <WorkspaceRail mode="normal" activePage={screen} onNormalNavigate={navigateScreen} />
             <section className="panel active">
+              {screen === "research" && directCreateInitial && (
+                <ResearchInlineEditor key={directCreateInitial.sourceResultId || directCreateInitial.sourceTitle} initial={directCreateInitial} personaAssets={data.personaProfile.mediaAssets || []} run={run} onClose={() => setDirectCreateInitial(null)} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} />
+              )}
               {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
               {screen === "persona" && <PersonaPanel data={data} run={run} />}
-              {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={setDirectCreateInitial} />}
+              {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={(initial) => { setDirectCreateInitial(initial); window.setTimeout(() => document.getElementById("research-inline-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0); }} />}
               {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} />}
               {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
               {screen === "drama" && <DramaWorkspacePanel src="/drama-studio" title="Drama Studio" refresh={refresh} />}
@@ -411,16 +414,7 @@ export default function Home() {
           </div>
         )}
       </main>
-      {directCreateInitial && (
-        <ResearchGenerateModal
-          initial={directCreateInitial}
-          personaAssets={data.personaProfile.mediaAssets || []}
-          run={run}
-          onClose={() => setDirectCreateInitial(null)}
-          setScreen={navigateScreen}
-          setPendingGeneration={setPendingGeneration}
-        />
-      )}
+
     </div>
   );
 }
@@ -1092,7 +1086,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
   const scanLabel = (scanItem: AppData["researchScans"][number]) => scanItem.query || (scanItem.url.startsWith("keyword:") ? scanItem.url.split("|")[0].replace("keyword:", "") : scanItem.url);
   return (
     <div className="research-page">
-      {sourcePreview && <SourceMediaModal source={sourcePreview} onClose={() => setSourcePreview(null)} />}
+      {sourcePreview && <SourceMediaPreviewPanel source={sourcePreview} onClose={() => setSourcePreview(null)} />}
       <section className="research-hero">
         <div>
           <div className="clbl">Research</div>
@@ -1635,8 +1629,8 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
   return (
     <div className="plan-page">
-      {sourcePreview && <SourceMediaModal source={sourcePreview} onClose={() => setSourcePreview(null)} />}
-      {previewAsset?.assetUrl && <AssetPreviewModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
+      {sourcePreview && <SourceMediaPreviewPanel source={sourcePreview} onClose={() => setSourcePreview(null)} />}
+      {previewAsset?.assetUrl && <AssetPreviewPanel asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
       {creatingPlan && (
         <div className="modal-backdrop">
           <div className="generation-modal">
@@ -2056,23 +2050,33 @@ function GenerationModal({ brief, personaAssets, onClose, onStart, onSubmit }: {
   );
 }
 
-function ResearchGenerateModal({ initial, personaAssets, run, onClose, setScreen, setPendingGeneration }: { initial: CreateContentInitial; personaAssets: PersonaMediaAsset[]; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onClose: () => void; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
-  const [g01Review, setG01Review] = useState<{ videoPrompt: string; debugJson: string } | null>(null);
+function useInlineFocus(identity: unknown) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    ref.current?.focus({ preventScroll: true });
+    return () => { if (trigger?.isConnected) trigger.focus({ preventScroll: true }); };
+  }, [identity]);
+  return ref;
+}
+
+function ResearchInlineEditor({ initial, personaAssets, run, onClose, setScreen, setPendingGeneration }: { initial: CreateContentInitial; personaAssets: PersonaMediaAsset[]; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onClose: () => void; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
+  const editorRef = useInlineFocus(initial);
+  const [promptReview, setPromptReview] = useState<{ videoPrompt: string } | null>(null);
   const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [submissionError, setSubmissionError] = useState("");
+  useEffect(() => { editorRef.current?.focus({ preventScroll: true }); }, [promptReview, editorRef]);
   const queueGeneration = async (payload: Record<string, unknown>) => {
-    flushSync(() => {
-      setPendingGeneration({
+    setSubmissionError("");
+    setPendingGeneration({
         title: initial.sourceTitle,
         description: "Preparing provider generation from the selected research result.",
         kind: String(payload.generationType || initial.kind) as GenerationKind,
         model: String(payload.generationModel || initial.model || ""),
         startedAt: Date.now()
-      });
-      setScreen("publish");
     });
-    onClose();
-    await run("generateDirectContent", {
+    const result = await run("generateDirectContent", {
       ...payload,
       sourceResultId: initial.sourceResultId,
       sourceUrl: initial.sourceUrl,
@@ -2082,8 +2086,16 @@ function ResearchGenerateModal({ initial, personaAssets, run, onClose, setScreen
       sourceMediaType: initial.sourceMediaType
     }, "Generation queued in Publish");
     setPendingGeneration(null);
+    if (!result) {
+      setSubmissionError("We could not queue this content. Your edits are still here; try again when ready.");
+      return false;
+    }
+    onClose();
+    setScreen("publish");
+    return true;
   };
   const prepareGeneration = async (payload: Record<string, unknown>) => {
+    setSubmissionError("");
     if (payload.generationType !== "video") {
       await queueGeneration(payload);
       return;
@@ -2096,47 +2108,46 @@ function ResearchGenerateModal({ initial, personaAssets, run, onClose, setScreen
       sourceMediaType: initial.sourceMediaType
     }, "Final video prompt prepared");
     const finalPrompt = String(result?.videoPrompt || "").trim();
-    if (!finalPrompt) return;
-    const debugJson = String(result?.debugJson || JSON.stringify({ videoPrompt: finalPrompt }, null, 2));
+    if (!finalPrompt) { setSubmissionError("The prompt could not be prepared. Your edits are still here; try again."); return; }
     setPendingPayload({ ...payload, prompt: finalPrompt });
-    setG01Review({ videoPrompt: finalPrompt, debugJson });
+    setPromptReview({ videoPrompt: finalPrompt });
   };
-  const confirmDebugPrompt = async () => {
+  const confirmVideoPrompt = async () => {
     if (!pendingPayload || generating) return;
     setGenerating(true);
     try {
       await queueGeneration(pendingPayload);
     } finally {
       setGenerating(false);
-      setPendingPayload(null);
-      setG01Review(null);
     }
   };
   return (
-    <div className="modal-backdrop">
+    <div ref={editorRef} tabIndex={-1} className="inline-editor" id="research-inline-editor" aria-label="Create from research">
       <section className="generation-modal research-generate-modal">
         <div className="modal-head">
           <div>
-            <div className="clbl">{g01Review ? "Debug pop up G01" : "Generate from research"}</div>
-            <h3>{g01Review ? "Final video prompt JSON" : initial.sourceTitle}</h3>
-            <p>{g01Review ? "This is the GPT-5.5 refined JSON. Generation starts only after OK." : "Review the prefilled fields, attach replacement logo/person/audio references if needed, then generate the final asset."}</p>
+            <div className="clbl">{promptReview ? "Review before generating" : "Generate from research"}</div>
+            <h3>{promptReview ? "Your video prompt" : initial.sourceTitle}</h3>
+            <p>{promptReview ? "Review your refined prompt. Video generation starts only when you choose Generate video." : "Review the prefilled fields, attach replacement logo/person/audio references if needed, then generate the final asset."}</p>
           </div>
-          <button type="button" className="icon-btn" onClick={g01Review ? () => { setG01Review(null); setPendingPayload(null); } : onClose}>x</button>
+          <button type="button" className="icon-btn" disabled={generating} aria-label={promptReview ? "Back to editing" : "Close prompt editor"} onClick={promptReview ? () => { setPromptReview(null); setPendingPayload(null); } : onClose}>x</button>
         </div>
-        {g01Review ? (
+        {submissionError && <p className="provider-error inline" role="alert">{submissionError}</p>}
+        {promptReview && (
           <div className="g01-review">
-            <label>G01 JSON<textarea readOnly value={g01Review.debugJson} /></label>
+            <label>Video prompt<textarea readOnly value={promptReview.videoPrompt} /></label>
             <div className="ftrow">
-              <div>{g01Review.videoPrompt.length} prompt characters</div>
+              <div>{promptReview.videoPrompt.length} prompt characters</div>
               <div className="row-actions">
-                <button type="button" onClick={() => { setG01Review(null); setPendingPayload(null); }} disabled={generating}>Cancel</button>
-                <button type="button" className="primary" onClick={() => void confirmDebugPrompt()} disabled={generating}><Check size={14} />{generating ? <AnimatedDots label="Queuing" /> : "OK"}</button>
+                <button type="button" onClick={() => { setPromptReview(null); setPendingPayload(null); }} disabled={generating}>Back to editing</button>
+                <button type="button" className="primary" onClick={() => void confirmVideoPrompt()} disabled={generating}><Check size={14} />{generating ? <AnimatedDots label="Queuing" /> : "Generate video"}</button>
               </div>
             </div>
           </div>
-        ) : (
-          <CreateContentModule initial={initial} personaAssets={personaAssets} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing G01" : "Sending to Publish"} onSubmit={prepareGeneration} />
         )}
+        <div hidden={Boolean(promptReview)}>
+          <CreateContentModule initial={initial} personaAssets={personaAssets} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing your prompt" : "Sending to Publish"} onSubmit={prepareGeneration} />
+        </div>
       </section>
     </div>
   );
@@ -2275,8 +2286,8 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
   }, [queue, generationNotice]);
   return (
     <div className="publish-page">
-      {sourcePreview && <SourceMediaModal source={sourcePreview} onClose={() => setSourcePreview(null)} />}
-      {previewAsset?.assetUrl && <AssetPreviewModal asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
+      {sourcePreview && <SourceMediaPreviewPanel source={sourcePreview} onClose={() => setSourcePreview(null)} />}
+      {previewAsset?.assetUrl && <AssetPreviewPanel asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
 
       <section className="plan-hero">
         <div>
@@ -2378,14 +2389,16 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
   );
 }
 
-function SourceMediaModal({ source, onClose }: { source: SourceMediaPreview; onClose: () => void }) {
+function SourceMediaPreviewPanel({ source, onClose }: { source: SourceMediaPreview; onClose: () => void }) {
+  useEffect(() => { document.querySelector(".inline-preview")?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [source]);
+  const previewRef = useInlineFocus(source);
   const playable = source.mediaUrl || "";
   const isVideo = source.mediaType === "video" || /\.(mp4|webm|mov|m3u8)(\?|$)/i.test(playable);
   const isImage = source.mediaType === "image" || /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(playable);
   const imageUrl = isImage ? playable : source.thumbnailUrl;
   const displayImageUrl = proxiedMediaUrl(imageUrl);
   return (
-    <div className="modal-backdrop video-backdrop">
+    <div ref={previewRef} tabIndex={-1} className="inline-preview" aria-label="Media preview">
       <section className="video-player-modal source-media-modal">
         <div className="modal-head">
           <div>
@@ -2393,7 +2406,7 @@ function SourceMediaModal({ source, onClose }: { source: SourceMediaPreview; onC
             <h3>{source.title}</h3>
             <p>{source.platform || "Research source"}</p>
           </div>
-          <button type="button" className="icon-btn" onClick={onClose}>x</button>
+          <button type="button" className="icon-btn" aria-label="Close media preview" onClick={onClose}>x</button>
         </div>
         {playable && isVideo ? (
           <video src={playable} controls autoPlay playsInline />
@@ -2417,18 +2430,20 @@ function SourceMediaModal({ source, onClose }: { source: SourceMediaPreview; onC
   );
 }
 
-function AssetPreviewModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
+function AssetPreviewPanel({ asset, onClose }: { asset: Asset; onClose: () => void }) {
+  const previewRef = useInlineFocus(asset);
   const isImage = asset.type === "image" || asset.type === "carousel";
+  useEffect(() => { document.querySelector(".inline-preview")?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [asset]);
   const downloadLabel = isImage ? "Download image" : "Download MP4";
   return (
-    <div className="modal-backdrop video-backdrop">
+    <div ref={previewRef} tabIndex={-1} className="inline-preview" aria-label="Media preview">
       <section className="video-player-modal">
         <div className="modal-head">
           <div>
             <div className="clbl">{isImage ? "Image Preview" : "Video Preview"}</div>
             <h3>{asset.title}</h3>
           </div>
-          <button type="button" className="icon-btn" onClick={onClose}>x</button>
+          <button type="button" className="icon-btn" aria-label="Close media preview" onClick={onClose}>x</button>
         </div>
         {isImage ? <img className="asset-preview-image" src={asset.assetUrl} alt={`${asset.title} generated preview`} /> : <video src={asset.assetUrl} controls autoPlay playsInline />}
         <div className="modal-actions">

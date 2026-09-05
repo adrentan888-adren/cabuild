@@ -19,15 +19,15 @@ export default function WorkspaceRail({
 
   return (
     <aside
-      className={`workspace-rail ${isNormal ? "normal-rail" : "drama-rail"}`}
+      className="workspace-navigation"
       aria-label={`${isNormal ? "Normal Content" : "Drama Studio"} section navigation`}
     >
-      <div className="workspace-rail-heading">
+      <div className="workspace-navigation-heading">
         <span className="workspace-rail-icon"><ModeIcon size={15} /></span>
-        <span className="workspace-rail-label">{isNormal ? "Normal Content" : "Drama Studio"}</span>
+        <span className="workspace-navigation-label">{isNormal ? "Normal Content" : "Drama Studio"}</span>
       </div>
       <nav>
-        {pages.map((page, index) => {
+        {pages.map((page) => {
           const Icon = page.icon;
           const active = activePage === page.id;
           const href = "href" in page ? page.href : `/?view=${page.id}`;
@@ -35,7 +35,7 @@ export default function WorkspaceRail({
             <Link
               key={page.id}
               href={href}
-              className={`workspace-rail-item ${active ? "active" : ""} ${isNormal && index === 5 ? "rail-section-start" : ""}`}
+              className={`workspace-navigation-item ${active ? "active" : ""}`}
               aria-current={active ? "page" : undefined}
               title={page.label}
               onClick={
@@ -48,7 +48,7 @@ export default function WorkspaceRail({
               }
             >
               <span className="workspace-rail-icon"><Icon size={15} /></span>
-              <span className="workspace-rail-label">{page.label}</span>
+              <span className="workspace-navigation-label">{page.label}</span>
             </Link>
           );
         })}

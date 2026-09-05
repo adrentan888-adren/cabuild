@@ -817,6 +817,23 @@ const createEmptyStageSnapshot = (
   return snapshot;
 };
 
+function newManualScene(index = 1): Scene {
+  return { id: "scene-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7), episode: 1, title: "Scene " + index, duration: 5, prompt: "", provider: "", safety: "Review", selected: true, status: "draft" };
+}
+
+function stageInputError(stage: number, snapshot: ProductionSnapshot): string | null {
+  if (stage === 1 && !snapshot.roughStory.trim()) return "Add your story idea.";
+  if (stage === 2 && !(snapshot.generatedBrief || snapshot.roughStory).trim()) return "Write a brief or choose saved work.";
+  if ((stage === 3 || stage === 4) && !snapshot.storyline.trim()) return "Add your story and visual direction or choose saved work.";
+  if (stage === 5) {
+    const selected = snapshot.scenes.filter((scene) => scene.selected);
+    if (!selected.length) return "Add and select at least one scene.";
+    if (selected.some((scene) => !scene.prompt.trim())) return "Write a prompt for every selected scene.";
+    if (selected.some((scene) => !Number.isInteger(scene.duration) || scene.duration < 3 || scene.duration > 15)) return "Set each selected clip to 3–15 whole seconds.";
+  }
+  return null;
+}
+
 const stepPaths: Record<number, string> = {
   1: "/drama-studio?step=1",
   2: "/drama-studio?step=2",
@@ -835,9 +852,7 @@ export default function DramaStudio({
   configureDramaStorageOwner(ownerId);
   configureCombinedEpisodeOwner(ownerId);
   const [activeStep, setActiveStep] = useState(initialStep);
-  const [completed, setCompleted] = useState<number[]>(
-    Array.from({ length: Math.max(0, initialStep - 1) }, (_, index) => index + 1),
-  );
+  const [completed, setCompleted] = useState<number[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [briefSeedBusy, setBriefSeedBusy] = useState(false);
   const [storyBusyKeys, setStoryBusyKeys] = useState<string[]>([]);
@@ -897,17 +912,6 @@ export default function DramaStudio({
 
   useEffect(() => {
     setActiveStep(initialStep);
-    setCompleted((current) =>
-      Array.from(
-        new Set([
-          ...current,
-          ...Array.from(
-            { length: Math.max(0, initialStep - 1) },
-            (_, index) => index + 1,
-          ),
-        ]),
-      ).sort((a, b) => a - b),
-    );
     setWorkspaceView("library");
     setDraftSourceId("");
     setEditingRecordId("");
@@ -1325,6 +1329,29 @@ export default function DramaStudio({
     }
   }, [applySnapshot, hydrated, initialStep, selectedRecordIds, workflowRecords]);
 
+  useEffect(() => {
+    if (!hydrated || workspaceView !== "create") return;
+    try {
+      window.localStorage.setItem(dramaStorageKey("drama-studio:draft-" + activeStep), JSON.stringify({ snapshot: productionSnapshot, sourceId: draftSourceId }));
+      setSaved(true);
+    } catch { setSaved(false); }
+  }, [hydrated, workspaceView, activeStep, productionSnapshot, draftSourceId]);
+
+  useEffect(() => {
+    const syncHistory = () => {
+      const requested = Number(new URLSearchParams(window.location.search).get("step"));
+      const step = [1, 2, 3, 4, 5].includes(requested) ? requested : 1;
+      setActiveStep(step);
+      setWorkspaceView("library");
+      setEditingRecordId("");
+      setDraftSourceId("");
+      const record = workflowRecords.find((item) => item.id === selectedRecordIds[step]) ?? workflowRecords.find((item) => item.stage === step);
+      if (record) applySnapshot(record.snapshot);
+    };
+    window.addEventListener("popstate", syncHistory);
+    return () => window.removeEventListener("popstate", syncHistory);
+  }, [applySnapshot, selectedRecordIds, workflowRecords]);
+
   const readyScenes = scenes.filter((scene) => scene.status === "ready").length;
   const activeRecords = workflowRecords.filter(
     (record) => record.stage === activeStep,
@@ -1434,6 +1461,7 @@ export default function DramaStudio({
     snapshot?: ProductionSnapshot,
     view: WorkspaceView = "library",
   ) => {
+    saveActiveRecord();
     setActiveStep(step);
     setWorkspaceView(view);
     setEditingRecordId("");
@@ -1463,14 +1491,24 @@ export default function DramaStudio({
           ) ??
           workflowRecords.find((record) => record.stage === stage - 1)
         : undefined;
-    const snapshot =
+    let snapshot =
       stage === 1
         ? createBlankBriefSnapshot()
         : createEmptyStageSnapshot(
             stage,
             source?.snapshot ?? createBlankBriefSnapshot(),
           );
-    setDraftSourceId(source?.id ?? "");
+    if (stage === 5 && !snapshot.scenes.length) {
+      snapshot = { ...snapshot, episodes: 1, scenes: [newManualScene()] };
+    }
+    // Resume a local draft when opening a stage without an explicit source.
+    if (!sourceId) {
+      try {
+        const draft = JSON.parse(window.localStorage.getItem(dramaStorageKey("drama-studio:draft-" + stage)) || "null");
+        if (draft?.snapshot) { snapshot = draft.snapshot; sourceId = draft.sourceId; }
+      } catch { /* Keep the selected source when a stored draft is malformed. */ }
+    }
+    setDraftSourceId(sourceId ?? source?.id ?? "");
     setActiveStep(stage);
     setWorkspaceView("create");
     setEditingRecordId("");
@@ -1499,6 +1537,7 @@ export default function DramaStudio({
 
   const selectSourceRecord = (sourceId: string) => {
     if (activeStep === 1) return;
+    if (!sourceId) { setDraftSourceId(""); return; }
     const source = workflowRecords.find((record) => record.id === sourceId);
     if (!source) return;
     setDraftSourceId(sourceId);
@@ -1618,13 +1657,6 @@ export default function DramaStudio({
     if (source.stage === 2) {
       if (!source.snapshot.storyline.trim()) {
         setToast("This Story Studio has no finished storyline to use.");
-        return;
-      }
-      if (
-        !source.snapshot.assets.length ||
-        source.snapshot.assets.some((asset) => asset.status !== "ready")
-      ) {
-        setToast("Generate and approve every planned visual asset first.");
         return;
       }
       if (!source.snapshot.scenes.length) {
@@ -2405,17 +2437,8 @@ export default function DramaStudio({
       setToast("Add a rough story before generating the finished brief.");
       return;
     }
-    if (activeStep > 1 && !draftSourceId) {
-      setToast(`Select a finished ${stageItemNames[activeStep - 1].singular}.`);
-      return;
-    }
-    if (
-      activeStep === 5 &&
-      (!assets.length || assets.some((asset) => asset.status !== "ready"))
-    ) {
-      setToast("Finish every Story Studio asset before generating final videos.");
-      return;
-    }
+    const inputError = stageInputError(activeStep, productionSnapshot);
+    if (inputError) { setToast(inputError); return; }
 
     setBusy("stage-generate");
     try {
@@ -2671,6 +2694,7 @@ export default function DramaStudio({
         [activeStep]: record.id,
       }));
       applySnapshot(snapshot);
+      window.localStorage.removeItem(dramaStorageKey("drama-studio:draft-" + activeStep));
       setWorkspaceView("library");
       setEditingRecordId("");
       scheduleCreditRefresh();
@@ -3011,7 +3035,7 @@ export default function DramaStudio({
               <div className="topbar-actions">
                 <div className={`save-state ${saved ? "saved" : ""}`}>
                   {saved ? <Check size={12} /> : <Activity size={12} />}
-                  {saved ? "All changes saved" : "Saving…"}
+                  {workspaceView === "edit" ? "Save edits below" : saved ? "Saved in this browser" : "Draft not saved"}
                 </div>
                 <Link href="/drama-studio?step=1" className="quiet-button">
                   <Clock3 size={14} />
@@ -3031,7 +3055,7 @@ export default function DramaStudio({
               <div className="strip-stat"><span>Assets ready</span><b>{assets.filter((asset) => asset.status === "ready").length}</b></div>
               <div className="strip-stat"><span>Video ready</span><b>{readyScenes}/{scenes.length}</b></div>
               <div className="strip-spacer" />
-              <span className="demo-pill"><span className="demo-dot" />Guided workspace</span>
+              <span className="demo-pill"><span className="demo-dot" />Flexible workspace</span>
             </div>
           </div>
         </header>
@@ -3056,7 +3080,15 @@ export default function DramaStudio({
             </div>
           </section>
 
-          <section className="drama-reference-panel" aria-labelledby="drama-reference-title">
+          <section className="drama-flexible-start" aria-label="Flexible Drama workflow">
+            <div><b>Start wherever you are</b><p>Use the guided stages, bring your own story, or go straight to video. Only the input for your next action is required.</p></div>
+            <div>{activeStep !== 5 && <button type="button" className="primary-button" disabled={Boolean(busy)} onClick={() => startCreate(5)}>Skip to video <ArrowRight size={14} /></button>}
+              {activeStep === 5 && workspaceView !== "create" && <button type="button" className="primary-button" onClick={() => startCreate(5)}>Write scene prompts <Plus size={14} /></button>}
+              <Link href="/drama-studio/info" className="quiet-button">View final outputs</Link>
+            </div>
+          </section>
+          <details className="drama-reference-panel">
+            <summary>Reference assets · optional · {selectedReferenceIds.length} selected</summary>
             <div className="drama-reference-head">
               <div>
                 <span className="context-kicker">Optional continuity controls</span>
@@ -3140,7 +3172,7 @@ export default function DramaStudio({
               2.0 for video. Unsupported model combinations are blocked before a
               paid task is created.
             </p>
-          </section>
+          </details>
 
           {failureLogs.length > 0 && (
             <section className="temporary-error-log" aria-live="polite">
@@ -3300,6 +3332,7 @@ export default function DramaStudio({
               setImageModel={setImageModel}
               videoModel={videoModel}
               setVideoModel={setVideoModel}
+              onUpdateSetup={(patch) => applySnapshot({ ...productionSnapshot, ...patch })}
               onSelectSource={selectSourceRecord}
               onBack={() => setWorkspaceView("library")}
               onGenerate={() => void generateCurrentStage()}
@@ -3924,9 +3957,7 @@ function WorkflowContextBar({
           const source = allRecords.find((item) => item.id === record.sourceId);
           const storyReady =
             stage !== 2 ||
-            (record.snapshot.assets.length > 0 &&
-              record.snapshot.assets.every((asset) => asset.status === "ready") &&
-              record.snapshot.scenes.length > 0);
+            record.snapshot.scenes.some((scene) => scene.prompt.trim());
           const videoEpisodes = Array.from(
             new Set(record.snapshot.scenes.map((scene) => scene.episode)),
           ).sort((first, second) => first - second);
@@ -3971,7 +4002,7 @@ function WorkflowContextBar({
                       </span>
                       {stage > 1 && (
                         <span>
-                          <FolderKanban size={11} /> Source: {source?.name ?? "Unavailable"}
+                          <FolderKanban size={11} /> Source: {source?.name ?? "Your own scene prompts"}
                         </span>
                       )}
                     </span>
@@ -5170,6 +5201,7 @@ function StageCreationPanel({
   setImageModel,
   videoModel,
   setVideoModel,
+  onUpdateSetup,
   onSelectSource,
   onBack,
   onGenerate,
@@ -5191,11 +5223,11 @@ function StageCreationPanel({
   setImageModel: (value: ImageModelId) => void;
   videoModel: VideoModelId;
   setVideoModel: (value: VideoModelId) => void;
+  onUpdateSetup: (patch: Partial<ProductionSnapshot>) => void;
   onSelectSource: (sourceId: string) => void;
   onBack: () => void;
   onGenerate: () => void;
 }) {
-  const sourceName = stage === 5 ? stageItemNames[2] : stageItemNames[stage - 1];
   const selectedSource = sourceRecords.find(
     (record) => record.id === selectedSourceId,
   );
@@ -5205,22 +5237,22 @@ function StageCreationPanel({
   > = {
     2: {
       title: "Create a new Story Studio",
-      copy: "Choose a finished brief. Kie AI will generate the full-season storyline, every episode storyline, all recurring characters, and the complete visual-asset plan in one result.",
+      copy: "Write your own brief or choose a saved one. Kie AI will generate the full-season storyline, every episode storyline, all recurring characters, and the complete visual-asset plan in one result.",
       button: "Generate complete Story Studio",
     },
     3: {
       title: "Create a new visual asset pack",
-      copy: "Choose a finished Story Bible. Kie AI will design the recurring characters, venues, and objects, then submit their image tasks.",
+      copy: "Write your story direction or choose saved work. Kie AI will design the recurring characters, venues, and objects, then submit their image tasks.",
       button: "Generate asset images",
     },
     4: {
       title: "Create a new scene prompt set",
-      copy: "Choose a finished asset pack. Kie AI will break Episode 1 into individually editable scenes no longer than 15 seconds.",
+      copy: "Write your story direction or choose saved work. Kie AI will break Episode 1 into individually editable scenes no longer than 15 seconds.",
       button: "Generate scene prompts",
     },
     5: {
       title: "Create a new generation job",
-      copy: "Choose a completed Story Studio, select the finished scene prompts you want, and submit only those scenes to your selected Kie AI video model.",
+      copy: "Write your scene prompts or use saved Story Studio work. Generate only the clips you select; earlier steps and reference images are optional.",
       button: "Generate selected scenes",
     },
   };
@@ -5235,11 +5267,8 @@ function StageCreationPanel({
         ? estimateSceneCredits(selectedScenes, videoModel, videoMode)
         : chatCreditEstimate[chatModel] *
           (stage === 2 ? 2 : Math.max(1, snapshot.episodes));
-  const finalSourceReady =
-    stage !== 5 ||
-    (snapshot.assets.length > 0 &&
-      snapshot.assets.every((asset) => asset.status === "ready") &&
-      snapshot.scenes.length > 0);
+  const inputError = stageInputError(stage, { ...snapshot, scenes });
+  const finalSourceReady = !inputError;
   const selectedModelSummary =
     stage === 3
       ? `${modelLabel(chatModelOptions, chatModel)} + ${modelLabel(
@@ -5263,6 +5292,10 @@ function StageCreationPanel({
           </span>
         </div>
 
+        <div className="form-grid two">
+          <label>Production title<input value={snapshot.title} onChange={(event) => onUpdateSetup({ title: event.target.value })} /></label>
+          <SelectField label="Aspect ratio" value={snapshot.aspectRatio} options={["16:9", "9:16", "1:1"]} onChange={(value) => onUpdateSetup({ aspectRatio: value })} />
+        </div>
         {(stage === 2 || stage === 4) && (
           <div className="model-choice-panel">
             <ModelSelect
@@ -5304,7 +5337,7 @@ function StageCreationPanel({
 
         <div className="field">
           <label htmlFor={`create-source-${stage}`}>
-            Finished source · {sourceName.singular}
+            Use saved work · optional
           </label>
           <div className="select-wrap">
             <select
@@ -5312,6 +5345,7 @@ function StageCreationPanel({
               value={selectedSourceId}
               onChange={(event) => onSelectSource(event.target.value)}
             >
+              <option value="">Write your own input</option>
               {sourceRecords.map((record) => (
                 <option value={record.id} key={record.id}>
                   {record.name}
@@ -5322,14 +5356,12 @@ function StageCreationPanel({
           </div>
         </div>
 
-        {!selectedSource && (
-          <div className="suggestion-box">
-            <b>No finished source is available</b>
-            <p>
-              Return to {steps[stage - 2].label}, create and generate a finished{" "}
-              {sourceName.singular}, then use it here.
-            </p>
-          </div>
+        {!selectedSource && stage < 5 && (
+          <label className="field">
+            {stage === 2 ? "Your brief" : "Your story and visual direction"}
+            <textarea value={stage === 2 ? snapshot.generatedBrief : snapshot.storyline} placeholder="Paste what you already have. Earlier AI steps are optional." onChange={(event) => onUpdateSetup(stage === 2 ? { generatedBrief: event.target.value, roughStory: event.target.value } : { storyline: event.target.value })} />
+            <span>{inputError || "Ready to generate from your own input."}</span>
+          </label>
         )}
 
         {selectedSource && stage === 2 && (
@@ -5392,15 +5424,12 @@ function StageCreationPanel({
           </div>
         )}
 
-        {selectedSource && stage === 5 && (
+        {stage === 5 && (
           <>
             {!finalSourceReady && (
               <div className="suggestion-box">
-                <b>This Story Studio is not ready for final video</b>
-                <p>
-                  Return to Story Studio, finish every visual asset, and generate
-                  the scene prompts for all episodes.
-                </p>
+                <b>One more thing before generating</b>
+                <p>{inputError}</p>
               </div>
             )}
             <div className="form-grid three">
@@ -5446,16 +5475,8 @@ function StageCreationPanel({
                   <div className="fixed-model-value">720p · no sound option</div>
                 </div>
               )}
-              <SelectField
-                label="Fallback handling"
-                value="Ask before changing prompt"
-                options={[
-                  "Ask before changing prompt",
-                  "Safety-adjust automatically",
-                ]}
-                onChange={() => undefined}
-              />
             </div>
+            <details className="drama-advanced-details"><summary>Continuity and production details</summary>
             <div className="continuity-lock-preview">
               <div>
                 <span className="continuity-lock-icon">
@@ -5495,6 +5516,7 @@ function StageCreationPanel({
                 <div><dt>Continuity assets</dt><dd>{snapshot.assets.length}</dd></div>
               </dl>
             </div>
+            </details>
             <div className="scene-selection-toolbar" aria-label="Scene selection controls">
               <div>
                 <b>Choose scenes to generate</b>
@@ -5521,6 +5543,7 @@ function StageCreationPanel({
                 </button>
               </div>
             </div>
+            <div className="manual-scene-toolbar"><span>Write or paste a prompt for each clip. Reference images are optional.</span><button type="button" onClick={() => setScenes([...scenes, newManualScene(scenes.length + 1)])}><Plus size={14} />Add scene</button></div>
             <div className="create-scene-list">
               {scenes.map((scene) => (
                 <article
@@ -5531,7 +5554,8 @@ function StageCreationPanel({
                 >
                   <button
                     className={`check-box ${scene.selected ? "checked" : ""}`}
-                    aria-label={`Select ${scene.id}`}
+                    aria-label={`Select ${scene.title}`}
+                    aria-pressed={scene.selected}
                     onClick={() =>
                       setScenes(
                         scenes.map((item) =>
@@ -5548,7 +5572,11 @@ function StageCreationPanel({
                     <span>
                       Episode {scene.episode} · {scene.id} · {scene.duration}s
                     </span>
-                    <h3>{scene.title}</h3>
+                    <div className="form-grid three">
+                      <label>Scene title<input value={scene.title} onChange={(event) => setScenes(scenes.map((item) => item.id === scene.id ? { ...item, title: event.target.value } : item))} /></label>
+                      <label>Duration (seconds)<input type="number" min={3} max={15} step={1} value={scene.duration} onChange={(event) => setScenes(scenes.map((item) => item.id === scene.id ? { ...item, duration: Number(event.target.value) } : item))} /></label>
+                      <button type="button" onClick={() => setScenes(scenes.filter((item) => item.id !== scene.id))} aria-label={"Remove " + scene.title}>Remove scene</button>
+                    </div>
                     <div className="scene-generation-details">
                       <span><Film size={11} /> Text-to-video</span>
                       <span><Clock3 size={11} /> {scene.duration}-second clip</span>
@@ -5601,7 +5629,6 @@ function StageCreationPanel({
           <button
             className="primary-button"
             disabled={
-              !selectedSource ||
               !finalSourceReady ||
               busy === "stage-generate" ||
               (stage === 5 && selectedCount === 0)

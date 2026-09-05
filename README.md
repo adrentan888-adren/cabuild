@@ -1,5 +1,7 @@
 # ContentAgent Social
 
+Start with [Website capabilities](docs/WEBSITE_CAPABILITIES.md) for the current page-by-page feature guide and [UX research](docs/UX_RESEARCH_AND_DECISIONS.md) for the interface decisions. Older setup notes below may describe prototype infrastructure; current production delivery uses Cloud Run as documented in PROJECT_HANDOFF.md.
+
 Full-stack Next.js prototype for the ContentAgent Social PRD. The app includes local authentication, workspace data, brand kit settings, social intelligence opportunities, brief generation, production assets, UGC generation, publishing queue, analytics, and deployment guidance.
 
 ## Run locally

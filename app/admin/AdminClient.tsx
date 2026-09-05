@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, RefreshCcw } from "lucide-react";
+import GlobalHeader from "@/components/global-header";
+import { RefreshCcw } from "lucide-react";
 import AdminPanel from "./AdminPanel";
 import type { AdminAppData, AdminUserData, IntegrationData } from "./AdminPanel";
 
@@ -16,7 +17,7 @@ async function post(action: string, payload: Record<string, unknown> = {}) {
   return res.json();
 }
 
-export default function AdminClient() {
+export default function AdminClient({ frontendBaseUrl = "" }: { frontendBaseUrl?: string }) {
   const router = useRouter();
   const [data, setData] = useState<AdminAppData | null>(null);
   const [adminData, setAdminData] = useState<AdminUserData | null>(null);
@@ -87,13 +88,9 @@ export default function AdminClient() {
   return (
     <div className="admin-shell">
       {toast && <div className="toast">{toast}</div>}
-      <header className="admin-topbar">
-        <a href="/" className="asset-link">Open frontend</a>
-        <div className="topbar-right">
-          <span className="credit-pill"><b>{data.user.name}</b> {data.user.role}</span>
-          <button className="icon-btn" title="Refresh" onClick={refresh}><RefreshCcw size={15} /></button>
-          <button className="icon-btn" title="Log out" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); router.replace("/login"); }}><LogOut size={15} /></button>
-        </div>
+      <header className="topbar">
+        <GlobalHeader activeMode={null} initialAccount={data.user} frontendBaseUrl={frontendBaseUrl} />
+        <div className="page-context-bar"><div className="page-context-inner"><div className="topbar-title">Administration</div><button type="button" aria-label="Refresh admin data" onClick={refresh}><RefreshCcw size={15} />Refresh</button></div></div>
       </header>
       <main className="admin-main">
         <AdminPanel data={data} run={run} runAdmin={runAdmin} integrations={integrations} adminData={adminData} />

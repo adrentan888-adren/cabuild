@@ -47,6 +47,7 @@ export const normalPages = [
   { id: "automation", label: "Automation", detail: "Schedule repeatable content workflows", icon: RefreshCcw },
   { id: "audit", label: "Social Audit", detail: "Understand connected-account performance", icon: BarChart3 },
   { id: "analyse", label: "Analyze", detail: "Track themes, gaps and performance", icon: Activity },
+  { id: "settings", label: "Settings", detail: "Account connections and workspace preferences", icon: Settings },
   { id: "logs", label: "Logs", detail: "Inspect provider jobs and errors", icon: Bug },
 ] as const;
 
@@ -78,6 +79,7 @@ export default function GlobalHeader({
   const router = useRouter();
   const destination = (path: string) => `${frontendBaseUrl}${path}`;
   const headerRef = useRef<HTMLDivElement>(null);
+  const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [openPanel, setOpenPanel] = useState<"normal" | "drama" | "credits" | "account" | null>(null);
   const [suppressedPanel, setSuppressedPanel] = useState<"normal" | "drama" | "credits" | "account" | null>(null);
   const [summary, setSummary] = useState<AccountSummary | null>(
@@ -130,6 +132,8 @@ export default function GlobalHeader({
     };
   }, []);
 
+  useEffect(() => () => { if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current); }, []);
+
   const openHome = (event: React.MouseEvent<HTMLAnchorElement>) => {
     if (!onHomeNavigate) return;
     event.preventDefault();
@@ -147,8 +151,21 @@ export default function GlobalHeader({
   };
   const panelGroupProps = (panel: "normal" | "drama" | "credits" | "account") => ({
     "data-header-panel": panel,
-    onPointerLeave: () => {
+    onPointerEnter: (event: React.PointerEvent<HTMLDivElement>) => {
+      if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current);
+      if (event.pointerType === "mouse" && panel !== "account") {
+        setSuppressedPanel(null);
+        setOpenPanel(panel);
+      }
+    },
+    onPointerLeave: (event: React.PointerEvent<HTMLDivElement>) => {
       if (suppressedPanel === panel) setSuppressedPanel(null);
+      if (event.pointerType === "mouse" && panel !== "account") {
+        hoverCloseTimer.current = setTimeout(() => setOpenPanel(current => current === panel ? null : current), 220);
+      }
+    },
+    onBlurCapture: (event: React.FocusEvent<HTMLDivElement>) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node)) setOpenPanel(current => current === panel ? null : current);
     },
   });
   const logout = async () => {
@@ -157,7 +174,7 @@ export default function GlobalHeader({
     router.refresh();
   };
   const account = summary?.user ?? initialAccount;
-  const workspaceCredits = summary?.workspace.credits ?? initialWorkspaceCredits;
+  const workspaceCredits = summary?.workspace?.credits ?? initialWorkspaceCredits;
   const initials = (account?.name || "Content Agent")
     .split(/\s+/)
     .filter(Boolean)
@@ -220,10 +237,8 @@ export default function GlobalHeader({
         </nav>
 
         <div className="global-header-actions">
-          <Link href={destination("/?view=create")} className="global-quick-action primary" onClick={(event) => openNormal("create", event)} aria-label="Create content"><Wand2 size={15} /><span>Create</span></Link>
-          <Link href={destination("/?view=publish")} className="global-quick-action" onClick={(event) => openNormal("publish", event)} aria-label="My Contents"><CalendarDays size={15} /><span>My Contents</span></Link>
           <div {...panelGroupProps("credits")} className={`global-action-group ${openPanel === "credits" ? "open" : ""} ${suppressedPanel === "credits" ? "suppress-hover" : ""}`}>
-            <button type="button" className="global-credit-trigger" aria-expanded={openPanel === "credits"} onClick={() => setOpenPanel(openPanel === "credits" ? null : "credits")}>
+            <button type="button" className="global-credit-trigger" aria-label="Show credit balances" aria-expanded={openPanel === "credits"} onClick={() => setOpenPanel(openPanel === "credits" ? null : "credits")}>
               <Coins size={15} />
               <span className="global-action-label"><b>{workspaceCredits ?? "—"}</b> CA credits</span>
               <ChevronDown size={12} />
@@ -234,8 +249,8 @@ export default function GlobalHeader({
                 <button type="button" onClick={() => void refreshCredits()} aria-label="Refresh credit balances"><RefreshCcw size={13} /></button>
               </div>
               <div className="credit-provider-list">
-                <div className="credit-provider-row primary-balance"><span><b>Content Agent</b><small>{summary?.workspace.plan || "Workspace balance"}</small></span><strong>{workspaceCredits ?? "—"} CA</strong></div>
-                {summary?.providers.map((provider) => (
+                <div className="credit-provider-row primary-balance"><span><b>Content Agent</b><small>{summary?.workspace?.plan || "Workspace balance"}</small></span><strong>{workspaceCredits ?? "—"} CA</strong></div>
+                {summary?.providers?.map((provider) => (
                   <div className="credit-provider-row" key={provider.id}>
                     <span><b>{provider.label}</b><small>{provider.message}</small></span>
                     <strong className={provider.configured ? "connected" : "unavailable"}>
@@ -247,7 +262,7 @@ export default function GlobalHeader({
                     </strong>
                   </div>
                 ))}
-                {loadingCredits && !summary?.providers.length ? <div className="popover-loading">Checking provider balances…</div> : null}
+                {loadingCredits && !summary?.providers?.length ? <div className="popover-loading">Checking provider balances…</div> : null}
               </div>
             </div>
           </div>

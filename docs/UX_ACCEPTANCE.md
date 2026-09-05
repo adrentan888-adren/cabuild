@@ -26,3 +26,14 @@ Independent UAT: **Pass** on the final production build. The reviewer checked 10
 - Drama draft/library metadata is browser-local and owner-scoped; server-backed My Contents retains generation jobs and asset handoff. This change does not implement cross-device draft synchronization.
 - Real paid provider success, live publishing, email delivery and billing are not verified by intercepted UI tests.
 - Some older analytics indicators and unexposed backend modules remain prototype functionality; see the capability guide instead of treating the PRD as a list of shipped screens.
+
+## Header and welcome refinement — 2026-09-05
+
+- Removed duplicate top-level Create/My Contents links. Home stays left; workspace, credit and account controls align right, with the workspace controls on a right-aligned second row on phones.
+- Workspace and Credits hover menus preserve direct page access, delayed pointer-leave dismissal, tap/click toggles, keyboard activation, Escape focus restoration and outside dismissal. Normal Content includes Settings.
+- Home has original SVG concept graphics, two workspace introductions, a flexible four-stage pipeline and recent completed outputs. Empty-state illustrations are labeled examples; they are not claimed as generated work. Linked assets/queue records are deduplicated for the showcase.
+- `npm run lint` and `npm run build` passed with existing warnings only. Both `tools/uat/header-welcome.cjs` and the prior `tools/uat/ux-flows.cjs` passed on the final local production build.
+- Header/welcome browser checks cover 390, 768 and 1440px widths, hover traversal, balance display, keyboard/Escape, menu bounds, absence of top shortcuts, empty-state labels and real-result deduplication. No provider mutations were attempted and no page exceptions occurred.
+- Desktop/mobile screenshots of hero, pipeline and showcase were visually reviewed. Home navigation resets the actual main scroll container.
+- Independent UAT and production release results for this refinement are recorded in the persistent CABUILD project log.
+- Independent UAT identified and prompted fixes for linked text captions, fresh hover after Escape, slow pointer traversal across header padding, 320px admin sizing, and Home anchor cleanup. Both local regression suites passed again after the fixes; final independent verdict and production evidence are recorded in the project log.

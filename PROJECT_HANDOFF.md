@@ -354,3 +354,12 @@ Demo web app login:
 - Drama can start with manual input in later stages, including direct editable scene prompts at Generate & Edit. Earlier-stage records and completed visual assets are optional. Validate selected prompts and whole-number 3–15-second clip durations before submission. Optional references and production detail controls collapse inline.
 - Per-stage unfinished drafts are stored under owner-scoped `drama-studio:draft-N` browser keys and resume from the stage's create action. Successful submission clears that unfinished draft. Library record editing retains explicit Save. Browser Back/Forward now updates the visible stage; visiting a later stage no longer marks prior stages complete.
 - Local verification and release evidence are recorded in `docs/UX_ACCEPTANCE.md`. Browser generation/research tests use intercepted fixtures so they do not spend provider credits or publish content.
+
+
+## 2026-09-05 — Visual welcome page and hover navigation
+
+- User refinement removes Create/My Contents shortcuts from the top header, aligns workspace/credit/account controls right with Home left, and restores desktop hover menus for both workspaces and credit balances. Touch/click, keyboard, Escape and delayed pointer-leave dismissal remain supported; Settings joins the Normal Content directory.
+- Home now explains the product with original SVG concept art, two creation paths, an actionable four-stage pipeline, and recent completed owner-scoped outputs. Real output records are deduplicated; an empty workspace gets explicitly labeled examples rather than fictional results or metrics. No new provider calls or generated assets are needed for the illustrations.
+- Root AGENTS.md requires reading/applying the repository delivery skill before project commands in every CABUILD task. The skill itself is unchanged.
+- Home navigation resets the actual scrolling main container. Header balance rendering also tolerates missing optional response fields.
+- Validation: tools/uat/header-welcome.cjs covers hover traversal, keyboard, responsive bounds, absent header shortcuts, illustrative empty state and real/deduplicated results without provider spend. Final independent UAT and deployment evidence are recorded in the persistent CABUILD log.

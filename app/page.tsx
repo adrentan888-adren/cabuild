@@ -30,6 +30,7 @@ import {
   Wand2
 } from "lucide-react";
 import GlobalHeader from "@/components/global-header";
+import WelcomeHome from "@/components/welcome-home";
 import WorkspaceRail from "@/components/workspace-rail";
 import type { Asset, AutomationJob, AutomationRule, AutomationSourceRun, AutomationSourceWatcher, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 import type { PersonaMediaAsset, PersonaProfile } from "@/lib/types";
@@ -280,10 +281,11 @@ export default function Home() {
   const navigateScreen = useCallback((nextScreen: string) => {
     setScreen(nextScreen);
     const nextUrl = nextScreen === "home" ? "/" : `/?view=${encodeURIComponent(nextScreen)}`;
-    if (`${window.location.pathname}${window.location.search}` !== nextUrl) {
+    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
       window.history.pushState({}, "", nextUrl);
     }
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    document.querySelector<HTMLElement>(".main")?.scrollTo({ top: 0, behavior: "auto" });
+    window.scrollTo({ top: 0, behavior: "auto" });
   }, []);
 
   async function refresh() {
@@ -433,157 +435,7 @@ function AnimatedDots({ label }: { label: string }) {
 }
 
 function HomePanel({ data, setScreen, openDrama }: { data: AppData; setScreen: (s: string) => void; openDrama: () => void }) {
-  const lead = data.opportunities.filter((item) => item.status !== "dismissed").sort((a, b) => b.gapScore - a.gapScore)[0];
-  const latestAudit = [...data.socialAudits].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-  const recentCompetitorIds = new Set(data.competitorResults.filter((item) => isWithinDays(item.capturedAt, 7)).map((item) => item.competitorId));
-  const activeResearch = data.researchScans.filter((item) => item.status === "running" || item.status === "done").length;
-  const createCount = data.assets.filter((item) => item.status === "queued" || item.status === "rendering").length + data.publishQueue.filter((item) => item.status === "generating").length;
-  const reviewCount = data.assets.filter((item) => item.status === "ready").length + data.publishQueue.filter((item) => item.status === "done" || item.status === "draft").length;
-  const scheduledCount = data.publishQueue.filter((item) => item.status === "scheduled").length;
-  const publishedCount = data.publishQueue.filter((item) => item.status === "published").length;
-  const failedCount = data.assets.filter((item) => item.status === "failed").length + data.publishQueue.filter((item) => item.status === "failed").length;
-  const pipeline = [
-    { key: "research", label: "Research", count: activeResearch, detail: "Topics in research", Icon: Search, status: activeResearch ? "On track" : "Start research", tone: "info" },
-    { key: "create", label: "Create", count: createCount, detail: "In progress", Icon: Wand2, status: createCount ? "In progress" : "Ready", tone: "warn" },
-    { key: "review", label: "Review", count: reviewCount, detail: "Ready for review", Icon: UserRound, status: failedCount ? "Needs attention" : reviewCount ? "Ready" : "No queue", tone: failedCount ? "danger" : "purple" },
-    { key: "schedule", label: "Schedule", count: scheduledCount, detail: "Scheduled posts", Icon: CalendarDays, status: scheduledCount ? "On track" : "Not scheduled", tone: "success" },
-    { key: "publish", label: "Publish", count: publishedCount, detail: "Published posts", Icon: Megaphone, status: publishedCount ? "Live" : "No posts yet", tone: "success" }
-  ];
-  const auditScore = latestAudit?.authorityScore ?? 0;
-  const auditStatus = auditScore >= 80 ? "Good" : auditScore >= 60 ? "Fair" : latestAudit ? "Needs work" : "No audit yet";
-  return (
-    <div className="home-panel">
-      <section className="workspace-intro">
-        <span className="intro-kicker">Welcome to ContentAgent</span>
-        <h1>What are you creating today?</h1>
-        <p>Choose a workspace to see the tools and guidance for that kind of production. You can switch at any time from the tabs above.</p>
-      </section>
-
-      <section className="workspace-choice-grid" aria-label="Content workspaces">
-        <article className="workspace-choice-card normal-choice">
-          <div className="choice-icon"><Sparkles size={22} /></div>
-          <div>
-            <span className="choice-eyebrow">Everyday publishing</span>
-            <h2>Normal Content</h2>
-            <p>Build on-brand social content from audience context and live research, then review or automate the output.</p>
-          </div>
-          <ol className="choice-page-list">
-            <li><b>Persona</b><span>Set your voice and brand assets</span></li>
-            <li><b>Research</b><span>Discover high-performing source ideas</span></li>
-            <li><b>Create Content</b><span>Generate image, video or text</span></li>
-            <li><b>My Contents</b><span>Review progress and finished assets</span></li>
-            <li><b>Automation</b><span>Schedule repeatable workflows</span></li>
-          </ol>
-          <button className="workspace-choice-action primary" onClick={() => setScreen("persona")}>
-            Enter Normal Content <ArrowRight size={15} />
-          </button>
-        </article>
-
-        <article className="workspace-choice-card drama-choice">
-          <div className="choice-icon"><Film size={22} /></div>
-          <div>
-            <span className="choice-eyebrow">Episodic production</span>
-            <h2>Drama Studio</h2>
-            <p>Develop a production from creative brief to scene generation while keeping every reusable reference organized.</p>
-          </div>
-          <ol className="choice-page-list drama-list">
-            <li><b>Drama Studio</b><span>Brief, story, scenes and production controls</span></li>
-            <li><b>Asset Library</b><span>Characters, locations, props and media</span></li>
-          </ol>
-          <button className="workspace-choice-action" onClick={openDrama}>
-            Enter Drama Studio <ArrowRight size={15} />
-          </button>
-        </article>
-      </section>
-
-      <section className="home-greeting home-dashboard-heading">
-        <div>
-          <span className="intro-kicker">Workspace snapshot</span>
-          <h2>Good morning, {data.user.name.split(" ")[0]}</h2>
-        </div>
-        <p className="muted">Pick up the strongest opportunity or check what is already moving.</p>
-      </section>
-
-      <div className="home-top-grid">
-        <article className="home-card next-action-card">
-          <div className="home-card-label"><span className="label-dot blue"><Lightbulb size={14} /></span>Next best action</div>
-          {lead ? (
-            <>
-              <div className="home-chip">High-priority opportunity</div>
-              <div className="next-action-layout">
-                <div>
-                  <h3>{lead.topic}</h3>
-                  <p>{lead.platform} · {lead.format} · Gap score {lead.gapScore}</p>
-                </div>
-                <div className="next-illustration"><Lightbulb size={44} /></div>
-              </div>
-              <div className="row-actions">
-                <button className="primary" onClick={() => setScreen("create")}><Sparkles size={14} />Create content</button>
-                <button onClick={() => setScreen("research")}>View research</button>
-              </div>
-            </>
-          ) : (
-            <div className="home-empty-action">
-              <h3>No priority opportunity yet</h3>
-              <p>Run Research to surface the next high-scoring content opportunity.</p>
-              <button className="primary" onClick={() => setScreen("research")}><Search size={14} />Open research</button>
-            </div>
-          )}
-        </article>
-
-        <article className="home-card workspace-health-card">
-          <div className="home-card-label"><span className="label-dot green"><Check size={14} /></span>Workspace health</div>
-          <div className="health-grid">
-            <HealthMetric tone="blue" value={`${data.workspace.setup}%`} label="Setup complete" sub={<span className="health-bar"><span style={{ width: `${Math.max(0, Math.min(100, data.workspace.setup))}%` }} /></span>} />
-            <HealthMetric tone="green" value={data.competitors.length} label="Competitors tracked" sub={recentCompetitorIds.size ? `${recentCompetitorIds.size} new` : "No new scans"} />
-            <HealthMetric tone="amber" value={data.workspace.credits} label="Credits" sub={`${data.workspace.credits} credits remaining`} />
-            <HealthMetric tone="purple" value={latestAudit ? `${auditScore}/100` : "—"} label="Social audit score" sub={auditStatus} />
-          </div>
-          <button className="text-link" onClick={() => setScreen("audit")}>View report</button>
-        </article>
-      </div>
-
-      <section className="home-card content-pipeline-card">
-        <div className="home-section-head">
-          <div>
-            <h3>Content pipeline</h3>
-            <p>Track progress from research to scheduled post.</p>
-          </div>
-          <button className="text-link" onClick={() => setScreen("publish")}>View full pipeline</button>
-        </div>
-        <div className="pipeline-row">
-          {pipeline.map(({ key, label, count, detail, Icon, status, tone }, index) => (
-            <div className="pipeline-step" key={key}>
-              <div className={`pipeline-icon ${tone}`}><Icon size={22} /></div>
-              <b>{label}</b>
-              <strong>{count}</strong>
-              <span>{detail}</span>
-              <small className={status === "Needs attention" || status === "Needs input" ? "attention" : ""}>{status}</small>
-              <button onClick={() => setScreen(key === "review" || key === "schedule" || key === "publish" ? "publish" : key)}> {key === "create" ? "Generate" : key === "schedule" ? "Schedule" : key === "review" ? "Review" : key === "publish" ? "Open" : "Open"} </button>
-              {index < pipeline.length - 1 && <i className="pipeline-connector" />}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="home-card recent-activity-card">
-        <div className="home-section-head">
-          <h3>Recent activity</h3>
-          <button className="text-link" onClick={() => setScreen("logs")}>View all activity</button>
-        </div>
-        <div className="home-activity-list">
-          {data.activity.slice(0, 5).map((item) => (
-            <div className="home-activity-row" key={item.id}>
-              <Check size={14} />
-              <span>{item.message}</span>
-              <time>{relativeTime(item.createdAt)}</time>
-            </div>
-          ))}
-          {data.activity.length === 0 && <div className="empty-state">No activity yet. Run Research or create content to start building history.</div>}
-        </div>
-      </section>
-    </div>
-  );
+  return <WelcomeHome data={data} onNavigate={setScreen} onDrama={openDrama} />;
 }
 
 function HealthMetric({ tone, value, label, sub }: { tone: "blue" | "green" | "amber" | "purple"; value: string | number; label: string; sub: ReactNode }) {

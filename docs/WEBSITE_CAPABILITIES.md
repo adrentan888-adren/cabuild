@@ -4,13 +4,13 @@ Updated: 2026-09-05. This guide describes the routes and controls implemented in
 
 ## Getting around
 
-The Content Agent logo returns Home. The header offers Normal Content, Drama Studio, Create, My Contents, credits and account controls. Workspace menus open on click; section links remain visible inside each workspace. Settings is available in the account menu. Pages share a centered 1080px content canvas with responsive gutters; phone navigation wraps into two columns.
+The Content Agent logo returns Home. The header keeps Home on the left and Normal Content, Drama Studio, credits and account controls on the right. Hover over either workspace to see its page links, or hover over Credits for balances. Tap/click toggles and keyboard access remain available. Create Content and My Contents are available inside the Normal Content menu, without duplicate top-level buttons. Section links remain visible inside each workspace; Settings is available in Normal Content and the account menu. Pages share a centered 1080px content canvas with responsive gutters; phone navigation wraps into two columns.
 
 ## Page and feature directory
 
 | Page | Address | What you can do |
 | --- | --- | --- |
-| Home | `/` | Choose Normal Content or Drama Studio, see workflow introductions, content counts, activity and suggested next actions. |
+| Home | `/` | Explore a visual welcome page explaining Normal Content and Drama Studio, follow the flexible research/create/review/automation pipeline, and preview the latest completed workspace outputs. Empty workspaces show clearly labeled illustrated examples. |
 | Persona | `/?view=persona` | Create or update the single active persona; describe voice, audience, topics and positioning; autofill from public profiles; upload or record reference audio; maintain logo, avatar and product images. |
 | Research | `/?view=research` | Search by source URL or keyword; choose the source/platform and content filters; set minimum views; inspect saved scan history; sort results by views, likes or date; open original posts; create from an exact result in the inline editor. Scans run in the background and expose progress/errors. |
 | Create Content | `/?view=create` | Generate video, image or text; edit prompt, caption and hashtags; choose a supported model, format and duration; select Persona references or upload one-off media; use AI assistance where offered. Generation hands off to My Contents. |

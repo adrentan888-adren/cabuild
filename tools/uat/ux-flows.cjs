@@ -11,7 +11,7 @@ const generate=page.getByRole('button',{name:'Generate selected scenes',exact:tr
 await page.getByRole('button',{name:'Add scene',exact:true}).click();assert(await generate.isDisabled());await page.getByRole('button',{name:'Remove Scene 2',exact:true}).click();assert(await generate.isEnabled());
 await page.waitForTimeout(200);const draft=await page.evaluate(()=>JSON.parse(localStorage.getItem(Object.keys(localStorage).find(k=>k.includes('drama-studio:draft-5')))));assert.equal(draft.snapshot.scenes.length,1);assert.deepEqual(draft.snapshot.completed,[]);
 await page.reload();await page.getByRole('button',{name:'Write scene prompts',exact:true}).click();assert.equal(await page.getByLabel('Editable generation prompt').inputValue(),draft.snapshot.scenes[0].prompt);await generate.click();await page.waitForTimeout(250);assert.equal(mediaCalls.length,1);assert.equal(mediaCalls[0].duration,5);assert(mediaCalls[0].prompt.includes('sunrise'));assert(await page.getByLabel('Editable generation prompt').isVisible());
-await page.goto('http://localhost:3100/drama-studio?step=1');await page.getByRole('button',{name:'Skip to video'}).click();await page.goBack();await page.waitForTimeout(350);assert.match(await page.locator('.step-hero h1').innerText(),/Creative brief/i);
+await page.goto('http://localhost:3100/drama-studio?step=1');await page.getByRole('button',{name:'Skip to video'}).click();await page.goBack();await page.waitForTimeout(350);assert.match(await page.locator('.page-intro h1').innerText(),/Creative brief/i);
 
 // A manually entered draft must never be relinked to another saved source on resume.
 await page.evaluate((snapshot) => {
@@ -34,4 +34,3 @@ await page.screenshot({path:'.playwright-mcp/research-inline-mobile.png',fullPag
 await page.getByRole('button', {name:'Close prompt editor'}).click();
 assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'Generate Content');
 assert.equal(context.pages().length,1);assert.deepEqual(errors,[]);fs.writeFileSync('.playwright-mcp/flow-audit.json',JSON.stringify({passed:true,mediaCalls:mediaCalls.length,errors}));console.log('PASS: direct generation validation, draft recovery, no automatic spend, failed request retains draft, Back navigation, manual source identity, inline source editor focus');await browser.close();})().catch(e=>{console.error(e);process.exit(1)});
-

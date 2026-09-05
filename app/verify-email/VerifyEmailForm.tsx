@@ -1,4 +1,5 @@
 "use client";
+import { PageArtwork } from "@/components/page-intro";
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -51,10 +52,11 @@ export default function VerifyEmailForm() {
   return (
     <main className="auth-shell">
       <section className="auth-panel">
-        <div>
+        <div className="auth-brand">
           <div className="brand-mark">CA</div>
           <h1>Verify your email</h1>
           <p>Enter the 6-digit code we sent to your inbox. The code expires after 15 minutes.</p>
+          <PageArtwork kind="create" />
         </div>
         <div className="auth-card">
           <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.currentTarget.value)} required /></label>

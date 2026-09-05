@@ -1,4 +1,5 @@
 "use client";
+import PageIntro from "@/components/page-intro";
 
 import Image from "next/image";
 import Link from "next/link";
@@ -366,18 +367,12 @@ export default function WorkspacePage({
             }
           />
           <div className="main-panel workspace-main-panel">
-          <section className="workspace-page-head">
-            <div>
-              <span className="step-kicker">Drama Studio workspace</span>
-              <h1>{meta.title}</h1>
-              <p>{meta.description}</p>
-            </div>
-            {page === "overview" || page === "productions" ? (
+          <PageIntro title={meta.title} description={meta.description} eyebrow="Drama Studio" tone="lilac" art={page === "assets" ? "library" : "story"}>{page === "overview" || page === "productions" ? (
               <Link href="/drama-studio" className="primary-button">
                 <Plus size={14} /> New production
               </Link>
             ) : null}
-          </section>
+          </PageIntro>
 
           {page === "overview" && (
             <OverviewContent setToast={setToast} kieCredits={kieCredits} />

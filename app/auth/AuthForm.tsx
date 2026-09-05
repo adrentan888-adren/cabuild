@@ -1,4 +1,5 @@
 "use client";
+import { PageArtwork } from "@/components/page-intro";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -53,10 +54,11 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
   return (
     <main className="auth-shell">
       <section className="auth-panel">
-        <div>
+        <div className="auth-brand">
           <div className="brand-mark">CA</div>
           <h1>ContentAgent Social</h1>
           <p>Intelligence-first content planning, production, and publishing for SME social channels.</p>
+          <PageArtwork kind="create" />
         </div>
         <form action={submit} className="auth-card">
           <div className="segmented">

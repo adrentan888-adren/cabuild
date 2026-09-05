@@ -1,6 +1,7 @@
 "use client";
+import { PageArtwork } from "@/components/page-intro";
 
-import { LogOut, ShieldAlert } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function AdminAccessDenied() {
@@ -14,7 +15,7 @@ export default function AdminAccessDenied() {
   return (
     <main className="admin-access-shell">
       <section className="admin-access-card">
-        <div className="admin-access-icon"><ShieldAlert size={22} /></div>
+        <PageArtwork kind="admin" />
         <div>
           <div className="clbl">Admin</div>
           <h1>Backend access only</h1>

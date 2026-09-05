@@ -1,4 +1,5 @@
 "use client";
+import PageIntro from "@/components/page-intro";
 
 import Image from "next/image";
 import Link from "next/link";
@@ -3072,13 +3073,7 @@ export default function DramaStudio({
             }
           />
           <div className="main-panel">
-          <section className="step-hero">
-            <div className="step-hero-copy">
-              <span className="step-kicker">Drama workflow</span>
-              <h1>{steps[activeStep - 1].label}</h1>
-              <p>{getStepDescription(activeStep)}</p>
-            </div>
-          </section>
+          <PageIntro title={steps[activeStep - 1].label} description={getStepDescription(activeStep)} eyebrow="Drama Studio" tone="lilac" art="story" />
 
           <section className="drama-flexible-start" aria-label="Flexible Drama workflow">
             <div><b>Start wherever you are</b><p>Use the guided stages, bring your own story, or go straight to video. Only the input for your next action is required.</p></div>

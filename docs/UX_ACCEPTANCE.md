@@ -37,3 +37,15 @@ Independent UAT: **Pass** on the final production build. The reviewer checked 10
 - Desktop/mobile screenshots of hero, pipeline and showcase were visually reviewed. Home navigation resets the actual main scroll container.
 - Independent UAT and production release results for this refinement are recorded in the persistent CABUILD project log.
 - Independent UAT identified and prompted fixes for linked text captions, fresh hover after Escape, slow pointer traversal across header padding, 320px admin sizing, and Home anchor cleanup. Both local regression suites passed again after the fixes; final independent verdict and production evidence are recorded in the project log.
+
+
+## Application-wide Home visual system — 2026-09-05
+
+- Primary production-build audit: 104 page/tab/viewport combinations at 1440, 768, 390 and 320px, covering public auth/not-found screens, Home, all nine Normal destinations, five Drama stages, both Drama libraries and all five admin tabs. Unique illustrated intros on functional pages, in-bounds controls and no document overflow passed. Desktop/mobile screenshot contact sheets were reviewed.
+- Existing header/welcome/touch and Drama/Research workflow regressions passed. The old .step-hero heading locator was updated to the shared .page-intro heading; its Back-navigation behavior assertion remains.
+- Commands: npm run lint; npm run build; node tools/uat/all-pages-style.cjs; node tools/uat/header-welcome.cjs; node tools/uat/ux-flows.cjs. Set PLAYWRIGHT_MODULE when using the bundled runtime. Provider actions are intercepted and no publishing or paid generation is part of the checks.
+- Independent all-page/editor UAT and live release evidence are recorded in the persistent project log.
+
+- Independent review caught the Research History popup extending beyond the viewport after the hero replacement. The menu now anchors to the left and clamps to its container; the responsive regression suite opens it at every tested width. Muted/faint text token checks exceed 4.5:1 against their intended light surfaces.
+
+- Final independent local verdict: PASS. In addition to the primary 104 checks, the dedicated agent exercised 33 populated editor/builder/result/admin states at 320/390/1440px, Research review/back/failed-queue recovery, Drama skip/manual/draft recovery and populated History menus at all four widths with actual row hit testing. No page exceptions, clipped dynamic controls or actual provider mutations were observed.

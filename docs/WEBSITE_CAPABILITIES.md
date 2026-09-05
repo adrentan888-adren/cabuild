@@ -17,7 +17,7 @@ The Content Agent logo returns Home. The header keeps Home on the left and Norma
 | My Contents | `/?view=publish` | Review generating, completed and failed outputs in time order; inspect model, duration, caption, hashtags and errors; preview source and output media inline; download assets. Provider jobs are automatically checked while this screen is active. |
 | Automation | `/?view=automation` | Create scheduled content rules and source watchers; configure content type, cadence, platforms, review preference, references and spend controls; inspect saved rules and runs; pause, resume, run or delete rules. |
 | Social Audit | `/?view=audit` | Connect social accounts, audit connected profiles, review performance signals, trends, content pillars, top posts and diagnostic recommendations. Auditing can invoke an external research provider. |
-| Analyze | `/?view=analyse` | View published-post count and average opportunity gap score. The displayed engagement forecast is currently a fixed demonstration value, not a measured forecast. |
+| Analyze | `/?view=analyse` | View published-post count and average opportunity gap score. The engagement forecast is explicitly labeled as an example; it is a fixed demonstration value, not a measured forecast. |
 | Logs | `/?view=logs` | Inspect and filter operational/provider activity, job status and error details for diagnosis. |
 | Settings | `/?view=settings` | Edit workspace name and brand/niche context; obtain a social-account connection link; open permitted admin controls. Account connection requires the external provider's authorization page. |
 | Creative Brief | `/drama-studio?step=1` | Describe a story and production format, audience, language, pacing, tone and rating; optionally generate a creative seed or finished brief; save and review library records. Skip to video at any point. |
@@ -30,6 +30,7 @@ The Content Agent logo returns Home. The header keeps Home on the left and Norma
 | Sign in | `/login` | Authenticate an existing account and enter the workspace. |
 | Register | `/register` | Register using email and matching password fields. |
 | Verify email | `/verify-email` | Submit an email verification code or request another code. Requires the email service. |
+| Unavailable page | Any unknown page address | See a styled not-found message and return Home. |
 | Administration | `/admin` | Authorized users manage users and roles, permission rules, generation prompt templates, encrypted provider-key overrides and system information. Server authorization still controls every operation. |
 
 ## Common journeys
@@ -70,3 +71,5 @@ The Content Agent logo returns Home. The header keeps Home on the left and Norma
 Implementation sources: `app/page.tsx`, `components/global-header.tsx`, `components/drama/drama-studio.tsx`, `components/drama/workspace-page.tsx`, `app/admin/AdminPanel.tsx`, and `app/api/**`. Update this guide whenever a user-facing capability or persistence boundary changes.
 
 See [UX research and decisions](UX_RESEARCH_AND_DECISIONS.md) and [UX acceptance checks](UX_ACCEPTANCE.md).
+
+All page families use the same visual system as Home: compact illustrated introductions, cream surfaces, sage/lilac accents, consistent cards and controls. Existing actions remain inside their pages; the design does not add a prerequisite step or change provider workflows. See [prioritized UX suggestions](UX_IMPROVEMENT_BACKLOG.md).

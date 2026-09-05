@@ -1,4 +1,5 @@
 "use client";
+import PageIntro from "@/components/page-intro";
 
 import { ArrowUpDown, KeyRound, Save, Server, Settings, ShieldCheck, Trash2, UserPlus, Users, WandSparkles, X } from "lucide-react";
 import { Fragment, useState } from "react";
@@ -426,18 +427,12 @@ export default function AdminPanel({ data, run, runAdmin, integrations, adminDat
 
   return (
     <div className="admin-page">
-      <section className="admin-hero">
-        <div>
-          <div className="clbl">Backend</div>
-          <h2>Admin workspace</h2>
-          <p>Manage users, generation prompts, provider configuration status, and backend operations from one protected surface.</p>
-        </div>
-        <div className="admin-hero-stats">
+      <PageIntro title={tabs.find(tab => tab.id === activeTab)?.label || "Administration"} description="Manage access, creative prompts and provider settings from your protected workspace." eyebrow="Administration" tone="slate" art="admin"><div className="admin-hero-stats">
           <div><strong>{totalUsers}</strong><span>Users</span></div>
           <div><strong>{activeUsers}</strong><span>Active</span></div>
           <div><strong>{configuredProviders}</strong><span>Providers</span></div>
         </div>
-      </section>
+      </PageIntro>
 
       <nav className="admin-tabs" aria-label="Admin modules">
         {tabs.map((tab) => {

@@ -29,6 +29,7 @@ import {
   UserRound,
   Wand2
 } from "lucide-react";
+import PageIntro from "@/components/page-intro";
 import GlobalHeader from "@/components/global-header";
 import WelcomeHome from "@/components/welcome-home";
 import WorkspaceRail from "@/components/workspace-rail";
@@ -509,14 +510,7 @@ function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: R
 
   return (
     <div className="audit-page">
-      <div className="audit-title-row">
-        <div>
-          <div className="clbl">Social Audit</div>
-          <h2>{connectedAccounts.length ? "Connected social authority dashboard" : "Connect social media to start the audit"}</h2>
-          <p>{connectedAccounts.length ? `${connectedAccounts.length} connected account${connectedAccounts.length === 1 ? "" : "s"} from Upload-Post profile Mariana` : "Connect through Upload-Post first. Only connected accounts are audited and shown here."}</p>
-        </div>
-        <button className="primary" onClick={connectSocialMedia}><Megaphone size={14} />Connect social media</button>
-      </div>
+      <PageIntro title="Social Audit" description={connectedAccounts.length ? `Understand performance across your ${connectedAccounts.length} connected social accounts.` : "Connect your social accounts to explore performance and content opportunities."} art="research"><button className="primary" onClick={connectSocialMedia}><Megaphone size={14} />Connect social media</button></PageIntro>
 
       {connectError && <p className="provider-error">{connectError}</p>}
       {auditing && <div className="scan-progress"><span />Analysing all connected social accounts with Apify<b>{auditElapsed}s</b></div>}
@@ -712,14 +706,8 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
         <span className="badge">Single active profile</span>
       </div>
 
-      <section className="persona-hero">
-        <div>
-          <div className="msub">Module 1 - Persona</div>
-          <h2>Reference persona</h2>
-          <p>Keep one reusable voice profile for research, image, video, and text prompts. Start simple; advanced guardrails are optional.</p>
-        </div>
-        <span className="last-upd">{persona.updatedAt ? `Updated ${new Date(persona.updatedAt).toLocaleString()}` : "Not saved yet"}</span>
-      </section>
+      <PageIntro title="Persona" description="Your voice, audience and brand references, ready for every creation." art="identity"><span className="last-upd">{persona.updatedAt ? `Updated ${new Date(persona.updatedAt).toLocaleString()}` : "Not saved yet"}</span>
+      </PageIntro>
 
       <section className="persona-summary">
         <Metric label="Profile completion" value={`${completion}%`} />
@@ -939,13 +927,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
   return (
     <div className="research-page">
       {sourcePreview && <SourceMediaPreviewPanel source={sourcePreview} onClose={() => setSourcePreview(null)} />}
-      <section className="research-hero">
-        <div>
-          <div className="clbl">Research</div>
-          <h2>Find competitor posts worth turning into content</h2>
-          <p>URL scans stay scoped to the submitted profile/page. Keyword scans search one selected platform and optional content type, then sort qualified posts by views, likes, or date.</p>
-        </div>
-        <div className="history-wrap">
+      <PageIntro title="Research" description="Discover source ideas by URL or keyword, then make the strongest ones your own." art="research"><div className="history-wrap">
           <button onClick={() => setHistoryOpen((open) => !open)}>History</button>
           {historyOpen && (
             <div className="history-menu">
@@ -960,7 +942,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
             </div>
           )}
         </div>
-      </section>
+      </PageIntro>
 
       <div className="research-kpis">
         <Metric label="Tracked sources" value={data.competitors.length} />
@@ -2022,13 +2004,7 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
   const initial = defaultInitial;
   return (
     <div className="create-page">
-      <div className="create-top">
-        <div>
-          <div className="module-kicker">Module 4</div>
-          <h2>Create content</h2>
-        </div>
-        <div className="credit-pill">Generated assets move to <b>Publish</b></div>
-      </div>
+      <PageIntro title="Create Content" description="Bring an idea to life as an image, video or text, using your own voice and references." art="create"><span className="page-intro-note">Generated outputs appear in <b>My Contents</b>.</span></PageIntro>
       <CreateContentModule
         initial={initial}
         personaAssets={data.personaProfile.mediaAssets || []}
@@ -2141,14 +2117,8 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
       {sourcePreview && <SourceMediaPreviewPanel source={sourcePreview} onClose={() => setSourcePreview(null)} />}
       {previewAsset?.assetUrl && <AssetPreviewPanel asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
 
-      <section className="plan-hero">
-        <div>
-          <div className="clbl">My Contents</div>
-          <h2>Generated drafts and content queue</h2>
-          <p>Generated content appears here first, then moves to Upload-Post once it is done.</p>
-        </div>
-        <Metric label="Done drafts" value={queue.filter((item) => item.status === "done").length} />
-      </section>
+      <PageIntro title="My Contents" description="Review your creations, check generation progress and download finished outputs." art="library"><Metric label="Done drafts" value={queue.filter((item) => item.status === "done").length} />
+      </PageIntro>
       {generationNotice && <div className="generation-notice">{generationNotice}</div>}
       <div className="publish-list">
         {pendingGeneration && (
@@ -2307,7 +2277,7 @@ function AssetPreviewPanel({ asset, onClose }: { asset: Asset; onClose: () => vo
   );
 }
 function AnalyticsPanel({ data }: { data: AppData }) {
-  return <div className="grid three"><Metric label="Engagement forecast" value="4.8%" /><Metric label="Published posts" value={data.publishQueue.filter((p) => p.status === "published").length} /><Metric label="Avg gap score" value={Math.round(data.opportunities.reduce((sum, item) => sum + item.gapScore, 0) / Math.max(1, data.opportunities.length))} /><PanelCard title="Feedback loop"><p>Published assets retain their originating brief, template, platform, and score so future recommendations can learn from performance results.</p></PanelCard></div>;
+  return <div className="insights-page"><PageIntro title="Analyze" description="Explore your workspace counts and opportunity scores. The forecast below is a demonstration value." art="research" /><div className="grid three"><Metric label="Example engagement forecast" value="4.8%" /><Metric label="Published posts" value={data.publishQueue.filter((p) => p.status === "published").length} /><Metric label="Avg gap score" value={Math.round(data.opportunities.reduce((sum, item) => sum + item.gapScore, 0) / Math.max(1, data.opportunities.length))} /><PanelCard title="Feedback loop"><p>Published assets retain their originating brief, template, platform, and score so future recommendations can learn from performance results.</p></PanelCard></div></div>;
 }
 
 function LogPanel({ data }: { data: AppData }) {
@@ -2317,13 +2287,7 @@ function LogPanel({ data }: { data: AppData }) {
   const logs = (data.debugLogs || []).filter((item) => (provider === "all" || item.provider === provider) && (status === "all" || item.status === status));
   return (
     <div className="log-page">
-      <section className="log-hero">
-        <div>
-          <div className="clbl">Debug log</div>
-          <h2>Actions, prompts, and provider calls</h2>
-          <p>Audit what happened, which prompt was sent, and what provider task or error came back.</p>
-        </div>
-        <div className="log-filters">
+      <PageIntro title="Logs" description="Follow each action from request to result, with provider details when you need them." art="text"><div className="log-filters">
           <label>Provider<select value={provider} onChange={(event) => setProvider(event.target.value)}>
             <option value="all">All providers</option>
             {providers.map((item) => <option key={item} value={item}>{item}</option>)}
@@ -2336,7 +2300,7 @@ function LogPanel({ data }: { data: AppData }) {
             <option value="info">Info</option>
           </select></label>
         </div>
-      </section>
+      </PageIntro>
       <div className="log-list">
         {logs.map((item) => (
           <article className="log-row" key={item.id}>
@@ -2459,14 +2423,8 @@ function AutomationPanel({ data, run }: { data: AppData; run: (a: string, p?: Re
 
   return (
     <div className="automation-page">
-      <section className="automation-hero">
-        <div>
-          <div className="clbl">Automation</div>
-          <h2>{automationMode === "sources" ? "Source Watcher" : "Scheduled content engine"}</h2>
-          <p>{automationMode === "sources" ? "Monitor competitor or inspiration URLs on a schedule, crawl the latest posts, pick the strongest suitable source, and turn it into content using your persona and uploaded references." : "Tell the system what to create, how often to create it, and how strict it should be about avoiding repeated ideas. Staging v1 creates reviewed drafts only; final generation and posting stay behind approval."}</p>
-        </div>
-        <button className="primary" type="button" onClick={() => automationMode === "sources" ? setSourceExpanded((value) => !value) : setExpanded((value) => !value)}><Plus size={15} />{automationMode === "sources" ? sourceExpanded ? "Hide watcher" : "New watcher" : expanded ? "Hide builder" : "New automation"}</button>
-      </section>
+      <PageIntro title="Automation" description={automationMode === "sources" ? "Follow your sources and turn fresh inspiration into a repeatable workflow." : "Set your content direction, schedule and review preferences in one place."} art="operations"><button className="primary" type="button" onClick={() => automationMode === "sources" ? setSourceExpanded((value) => !value) : setExpanded((value) => !value)}><Plus size={15} />{automationMode === "sources" ? sourceExpanded ? "Hide watcher" : "New watcher" : expanded ? "Hide builder" : "New automation"}</button>
+      </PageIntro>
 
       <div className="automation-tabs">
         <button className={automationMode === "sources" ? "on" : ""} onClick={() => setAutomationMode("sources")}>Source Watcher</button>
@@ -2838,7 +2796,7 @@ function SettingsPanel({ data, run, integrations }: { data: AppData; run: (a: st
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   }
   return (
-    <div className="grid two">
+    <div className="settings-page"><PageIntro title="Settings" description="Keep your workspace context and account connections in one place." art="operations" /><div className="grid two">
       <PanelCard title="Workspace context">
         <form className="brand-form" action={(form) => run("updateWorkspace", Object.fromEntries(form.entries()), "Workspace context saved")}>
           <label>Workspace name<input name="name" defaultValue={data.workspace.name} /></label>
@@ -2859,6 +2817,7 @@ function SettingsPanel({ data, run, integrations }: { data: AppData; run: (a: st
           <a className="asset-link" href="/admin">Open admin</a>
         </PanelCard>
       )}
+    </div>
     </div>
   );
 }

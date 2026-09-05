@@ -363,3 +363,14 @@ Demo web app login:
 - Root AGENTS.md requires reading/applying the repository delivery skill before project commands in every CABUILD task. The skill itself is unchanged.
 - Home navigation resets the actual scrolling main container. Header balance rendering also tolerates missing optional response fields.
 - Validation: tools/uat/header-welcome.cjs covers hover traversal, keyboard, responsive bounds, absent header shortcuts, illustrative empty state and real/deduplicated results without provider spend. Final independent UAT and deployment evidence are recorded in the persistent CABUILD log.
+
+
+## 2026-09-05 — Home visual system across the application
+
+- Reread root instructions, both CABUILD skills, capability/research/acceptance guides, PRD and current handoff/log; verified a clean checkout, fetched and pulled latest main before edits.
+- Added shared PageIntro/PageArtwork components and workspace-theme.css. Replaced existing hero presentation across Normal Content, all Drama stages, libraries and all admin tabs while retaining action/filter/history/count children. Authentication, access-denied and not-found states use the same art and palette. Forms, selected states, results, cards, navigation and scoped Drama tokens share Home's cream/sage/lilac visual language.
+- Create Content terminology now points to My Contents; Analyze labels its fixed forecast as an example. No provider, ownership, billing, persistence or generation schema changed.
+- Added tools/uat/all-pages-style.cjs for 104 page/tab/viewport checks across 1440/768/390/320px, with no-spend provider interception and persisted local evidence. Existing header/welcome and Drama/Research regression suites remain required; updated the old Drama heading selector to PageIntro.
+- Added UX_IMPROVEMENT_BACKLOG.md with prioritized optional next steps. Independent UAT and production evidence are recorded in the persistent project log after release.
+
+- Independent review caught the Research History popup extending beyond the viewport after the hero replacement. The menu now anchors to the left and clamps to its container; the responsive regression suite opens it at every tested width. Muted/faint text token checks exceed 4.5:1 against their intended light surfaces.

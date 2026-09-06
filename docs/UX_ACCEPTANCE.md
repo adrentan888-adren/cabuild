@@ -58,3 +58,12 @@ Independent UAT: **Pass** on the final production build. The reviewer checked 10
 - Shared notices reserve their measured height outside the scrolling work area. This keeps the final Generate action clear while notices are visible.
 - Final local gates passed: lint (baseline warnings only), production build, tools/uat/drama-brief.cjs, tools/uat/ux-flows.cjs, tools/uat/header-welcome.cjs, and 104 checks in tools/uat/all-pages-style.cjs. The workflow test now verifies Back from creation to Generate & Edit library, then Back to Creative Brief.
 - Independent UAT and production evidence are recorded in the persistent project log.
+
+## Brief generation repair and control polish — 2026-09-06
+
+- Episodes/duration use native keyboard-accessible ranges with all supported value marks; no duplicate radio/button choices. Purple title/premise and finished-brief generation controls are inside the first story section. The seed prompt remains an optional disclosure.
+- Two-column format choices and balanced guardrail groups fill their cards; mobile layouts stack groups. Intro/form spacing and removal of the Strong seeds hint are verified.
+- tools/uat/drama-brief.cjs now checks raw HTTP500 responses containing long plain-text errors, full message retention, input recovery, slider marks and successful finished-brief creation with an intercepted response.
+- tools/uat/drama-stage-api.cjs executes the actual TypeScript stage handler with mocked session/key/provider boundaries: successful brief, complete nested provider error, non-JSON failure, malformed output,210s deadline/504 with no retry, store failure503, anonymous/missing-key401 and invalid-body400 all pass.
+- tools/uat/drama-proxy.cjs launches the built frontend with APP_SURFACE=frontend and a local API fixture. Its real middleware rewrite returns a valid brief after32,028ms (one upstream request), beyond the former30-second cutoff. A separate diagnostic agent reproduced the original error at30,068ms and confirmed the240-second configuration succeeds.
+- These tests create no paid jobs. No live provider success is claimed; the precise duration of the user's production request could not be read because local Cloud logging credentials/tooling were unavailable.

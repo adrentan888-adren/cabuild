@@ -357,6 +357,8 @@ function safeLogValue(value?: string, limit = 600) {
 type KieChatResponse = {
   code?: number | string;
   msg?: string;
+  message?: string;
+  error?: string | { message?: string };
   data?: KieChatResponse;
   choices?: Array<{
     finish_reason?: string;
@@ -498,8 +500,7 @@ function responseDiagnostic(payload: KieChatResponse) {
   };
 }
 
-export async function POST(request: Request) {
-  const requestId = randomUUID();
+async function generateStage(request: Request, requestId: string) {
   const user = await currentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -515,11 +516,11 @@ export async function POST(request: Request) {
     );
   }
   if (
-    body.targetStage !== 0 &&
+    !body || typeof body !== "object" || (body.targetStage !== 0 &&
     body.targetStage !== 1 &&
     body.targetStage !== 2 &&
     body.targetStage !== 3 &&
-    body.targetStage !== 4
+    body.targetStage !== 4)
   ) {
     return NextResponse.json(
       { error: "This endpoint generates creative seeds and stages 1 through 4." },
@@ -580,6 +581,7 @@ export async function POST(request: Request) {
       `https://api.kie.ai${selectedModel.endpoint}`,
       {
         method: "POST",
+        signal: AbortSignal.timeout(210000),
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
@@ -640,7 +642,7 @@ export async function POST(request: Request) {
           error: "provider_error",
           provider: "kie",
           message:
-            safeLogValue(responseBody.msg, 240) ||
+            safeLogValue(responseBody.msg || responseBody.message || (typeof responseBody.error === "string" ? responseBody.error : responseBody.error?.message), Infinity) ||
             safeProviderMessage(kieResponse.status),
           diagnostic: {
             ...baseDiagnostic,
@@ -714,14 +716,17 @@ export async function POST(request: Request) {
       result: normalizeStageResult(targetStage, result),
     });
   } catch (error) {
+    const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
     return NextResponse.json(
       {
-        error: "generation_failed",
+        error: timedOut ? "provider_timeout" : "generation_failed",
         provider: "kie",
         message:
-          error instanceof Error
-            ? error.message
-            : "The production stage could not be generated with Kie AI.",
+          timedOut
+            ? "Kie AI did not finish within 3 minutes 30 seconds. Your brief inputs have been kept. Please try again later or choose the faster writing model. No automatic retry was made."
+            : error instanceof Error
+              ? safeLogValue(error.message, Infinity)
+              : "The production stage could not be generated with Kie AI.",
         diagnostic: {
           ...baseDiagnostic,
           networkError: safeLogValue(
@@ -729,7 +734,18 @@ export async function POST(request: Request) {
           ),
         },
       },
-      { status: 502 },
+      { status: timedOut ? 504 : 502 },
     );
+  }
+}
+
+
+export async function POST(request: Request) {
+  const requestId = randomUUID();
+  try {
+    return await generateStage(request, requestId);
+  } catch (error) {
+    console.error("Drama stage preparation failed", { requestId, error: safeLogValue(error instanceof Error ? error.message : "Unknown error") });
+    return NextResponse.json({ error: "generation_unavailable", message: `The writing service could not prepare this request. Your inputs have been kept. Please try again later. Reference: ${requestId}` }, { status: 503 });
   }
 }

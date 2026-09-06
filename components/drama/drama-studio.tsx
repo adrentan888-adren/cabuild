@@ -1,5 +1,6 @@
 "use client";
 import StatusToast, { useStatusToast } from "@/components/status-toast";
+import { readDramaResponse } from "@/lib/drama/read-response";
 import BriefChoiceField from "@/components/drama/brief-choice-field";
 import PageIntro from "@/components/page-intro";
 
@@ -1675,7 +1676,7 @@ const markChanged = () => {
       const credentialResponse = await fetch("/api/drama/credentials", {
         cache: "no-store",
       });
-      const credentialState = (await credentialResponse.json()) as {
+      const credentialState = (await readDramaResponse(credentialResponse)) as {
         configured?: boolean;
         statuses?: { kie?: { connected?: boolean } };
       };
@@ -1697,7 +1698,7 @@ const markChanged = () => {
           snapshot: buildStageGenerationSnapshot(0, productionSnapshot),
         }),
       });
-      const payload = (await response.json()) as {
+      const payload = (await readDramaResponse(response)) as {
         ok?: boolean;
         error?: string;
         message?: string;
@@ -1755,7 +1756,7 @@ const markChanged = () => {
         ...body,
       }),
     });
-    const payload = (await response.json()) as {
+    const payload = (await readDramaResponse(response)) as {
       ok?: boolean;
       error?: string;
       message?: string;
@@ -2000,7 +2001,7 @@ const markChanged = () => {
           }),
         }),
       });
-      const payload = (await response.json()) as {
+      const payload = (await readDramaResponse(response)) as {
         ok?: boolean;
         error?: string;
         message?: string;
@@ -2386,7 +2387,7 @@ const markChanged = () => {
             ),
           }),
         });
-        const payload = (await response.json()) as {
+        const payload = (await readDramaResponse(response)) as {
           ok?: boolean;
           error?: string;
           message?: string;
@@ -2681,7 +2682,7 @@ const markChanged = () => {
           const response = await fetch(
             `/api/drama/generate/media?taskId=${encodeURIComponent(taskId)}`,
           );
-          const payload = (await response.json()) as {
+          const payload = (await readDramaResponse(response)) as {
             error?: string;
             message?: string;
             state?: string;
@@ -5848,7 +5849,7 @@ function StepOne({
   return (
     <div className="content-grid creative-brief-form">
       <div className="content-main">
-        <section className="card">
+        <section className="card brief-story-section">
           <div className="card-heading">
             <div>
               <h2>Start with the rough story</h2>
@@ -5886,17 +5887,9 @@ function StepOne({
               }
               placeholder="Describe the world, the main conflict, and anything you already know…"
             />
-            <div className="input-tip">
-              <Sparkles size={14} />
-              <span>
-                Strong seeds mention a protagonist, a conflict, and what makes
-                the world feel different.
-              </span>
-            </div>
           </div>
-        </section>
 
-        <details className="card seed-section">
+        <details className="seed-section">
           <summary><Sparkles size={18} /><span><b>Generate title &amp; premise</b><small>Optional · give AI a direction to explore</small></span><ChevronDown size={18} /></summary>
           <div className="seed-section-body">
             <div className="field"><label htmlFor="seed-prompt">Extra direction for the AI</label>
@@ -5943,6 +5936,33 @@ function StepOne({
 
           </div>
         </details>
+        <div className="step-actions">
+          <div>
+            <b>Ready to generate the finished brief?</b>
+            <span>
+              Kie AI turns these inputs into a polished creative brief and
+              saves only the finished result to the Brief library.
+            </span>
+          </div>
+          <GenerationCost credits={chatCreditEstimate[chatModel]}>
+            <button
+              className="primary-button"
+              onClick={onContinue}
+              disabled={!values.roughStory.trim() || briefSeedBusy || Boolean(busy)}
+            >
+              {busy === "stage-generate" ? (
+                <>
+                  <LoadingMark /> Generating with Kie AI
+                </>
+              ) : (
+                <>
+                  Generate finished brief <Sparkles size={15} />
+                </>
+              )}
+            </button>
+          </GenerationCost>
+        </div>
+        </section>
 
         <section className="card">
           <div className="card-heading compact-heading">
@@ -6121,32 +6141,7 @@ function StepOne({
           </fieldset>
         </section>
 
-        <div className="step-actions">
-          <div>
-            <b>Ready to generate the finished brief?</b>
-            <span>
-              Kie AI turns these inputs into a polished creative brief and
-              saves only the finished result to the Brief library.
-            </span>
-          </div>
-          <GenerationCost credits={chatCreditEstimate[chatModel]}>
-            <button
-              className="primary-button"
-              onClick={onContinue}
-              disabled={!values.roughStory.trim() || briefSeedBusy || Boolean(busy)}
-            >
-              {busy === "stage-generate" ? (
-                <>
-                  <LoadingMark /> Generating with Kie AI
-                </>
-              ) : (
-                <>
-                  Generate finished brief <Sparkles size={15} />
-                </>
-              )}
-            </button>
-          </GenerationCost>
-        </div>
+
       </div>
 
     </div>

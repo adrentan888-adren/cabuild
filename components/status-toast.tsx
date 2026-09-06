@@ -34,7 +34,7 @@ export default function StatusToast({ toast, onDismiss }: { toast: Notice | null
   return (
     <div ref={noticeRef} className={`status-notice ${failed ? "is-error" : "is-success"}`} role={failed ? "alert" : "status"}>
       {failed ? <CircleAlert size={18} aria-hidden="true" /> : <CheckCircle2 size={18} aria-hidden="true" />}
-      <div><b>{failed ? "Failed" : "Success"}</b><span>{toast.message}</span></div>
+      <div className="status-notice-message" tabIndex={failed ? 0 : undefined} aria-label={failed ? "Full failure message" : undefined}><b>{failed ? "Failed" : "Success"}</b><p>{toast.message}</p></div>
       <button type="button" onClick={onDismiss} aria-label="Dismiss notification"><X size={16} /></button>
     </div>
   );

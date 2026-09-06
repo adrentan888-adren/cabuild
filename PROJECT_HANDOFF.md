@@ -383,3 +383,12 @@ Demo web app login:
 - Full-width shared page navigation animates its active indicator and includes Asset Library. Drama hover navigation separates the library into its own responsive column.
 - Consolidated Normal, Drama and admin notices into a shared component: bottom-right success 15s, explicit red failure 30s, accessible announcements and X dismissal. Dynamic footer reservation prevents notices covering scrollable work controls.
 - Focused no-spend regression: tools/uat/drama-brief.cjs; existing direct-video regression follows Generate & Edit after the requested banner removal. Local/independent UAT and release evidence are recorded in the project log.
+
+## 2026-09-06 — Brief layout polish and generation proxy repair
+
+- Episodes and episode length now use sliders only, with discrete tick marks, every option label and a current-value output. Format and guardrail choices fill even grids within their own groups.
+- Both purple generation actions sit in the first story section; seed generation remains collapsible. Added intro-to-form spacing and removed the Strong seeds hint.
+- Reproduced the reported error without provider spend: Next's default 30-second external rewrite returned HTTP500 with literal Internal Server Error for a32-second local response, causing the exact Unexpected token I parser error. The same fixture passed with the corrected timeout.
+- Set the supported Next14 experimental.proxyTimeout to240 seconds, above the new210-second Kie stage deadline and below the default300-second Cloud Run request window. No automatic provider retries. The existing stage workflow remains synchronous; durable background jobs are a future improvement.
+- Added a JSON error boundary around authentication/key preparation, friendly provider timeout responses, complete provider error messages and a shared Drama response reader that handles plain text/HTML/empty responses without exposing a JSON parser exception. Failure notices wrap the entire message and support keyboard scrolling for unusually long responses while reserving their own footer space.
+- Validation includes actual stage handler tests with mocked providers and an actual built frontend-to-local-API middleware request that completes after32 seconds. Commands: node tools/uat/drama-stage-api.cjs; node tools/uat/drama-proxy.cjs; node tools/uat/drama-brief.cjs. Live provider jobs were not run; production logs were unavailable locally. Independent UAT and release results are recorded in the persistent project log.

@@ -104,3 +104,33 @@
 .ratio-choices .brief-choice-options>label{flex:1;min-width:66px;flex-direction:column}.ratio-outline{display:block;height:28px;max-width:65px;border:2px solid currentColor;border-radius:3px;background:#ede5f355}
 .writing-model-choices .brief-choice-options>label{flex:1;justify-content:flex-start;min-width:220px;padding:20px}.writing-model-choices b{display:block;font-size:17px}.writing-model-choices small{display:block;font-size:13px;margin-top:6px}.creative-brief-form .tone-chip{font-size:14px;min-height:44px}
 @media(max-width:760px){.drama-embedded-root .creative-brief-form .card{padding:20px}.drama-embedded-root .creative-brief-form .seed-section{padding:0}.seed-section>summary{padding:20px}.seed-section-body{padding:0 20px 20px}.brief-format-grid,.brief-guardrail-grid{grid-template-columns:1fr;gap:24px}.drama-embedded-root .creative-brief-form .card-heading h2{font-size:21px}.writing-model-choices .brief-choice-options>label{min-width:100%}}
+
+/* Brief refinement: a single marked slider, balanced choices and purple actions. */
+.drama-embedded-root .main-panel>.page-intro{margin-bottom:10px}
+.drama-embedded-root .creative-brief-form .brief-story-section .seed-section{margin-top:24px;border:1px solid #d8cce1;border-radius:12px;background:#faf6fd}
+.drama-embedded-root .creative-brief-form .primary-button{background:#79638c;border-color:#79638c;color:#fff}
+.drama-embedded-root .creative-brief-form .primary-button:hover:not(:disabled){background:#655174;border-color:#655174}
+.brief-story-section>.step-actions{margin-top:24px;padding-top:22px;border-top:1px solid #ded4e6}
+.brief-story-section .brief-seed-generator{background:transparent;border:0;padding:0;box-shadow:none}
+.brief-story-section .brief-seed-copy{display:none}
+.brief-format-grid>.brief-choices,.brief-guardrail-grid>.brief-choices{min-width:0;padding:18px;border:1px solid #e0d6e7;border-radius:12px;background:#fcf9fe}
+.brief-format-grid>.brief-choices>legend,.brief-guardrail-grid>.brief-choices>legend{padding:0 6px;margin-bottom:4px;font-size:14px}
+.brief-format-grid>.brief-choices .brief-choice-options,.brief-guardrail-grid>.brief-choices .brief-choice-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.brief-format-grid .brief-choice-options>label,.brief-guardrail-grid .brief-choice-options>label{width:100%;min-width:0;min-height:48px;padding:10px 8px;text-align:center;overflow-wrap:anywhere}
+.brief-format-grid .brief-choice-options>label:last-child:nth-child(odd),.brief-guardrail-grid .brief-choice-options>label:last-child:nth-child(odd){grid-column:1/-1}
+.brief-guardrail-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.drama-embedded-root .creative-brief-form .tone-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.drama-embedded-root .creative-brief-form .tone-chip{width:100%;justify-content:center}
+.brief-slider-control{position:relative;padding:0 4px 32px}
+.brief-slider-control>output{display:block;text-align:right;font-size:17px;font-weight:650;color:#655174;margin-bottom:12px}
+.drama-embedded-root .brief-slider-control>input{display:block;width:100%;min-height:28px;height:28px;padding:0;margin:0;accent-color:#79638c;cursor:pointer}
+.brief-slider-points{position:relative;margin:0 8px;height:26px}
+.brief-slider-points>span{position:absolute;top:0;display:grid;justify-items:center;gap:5px;transform:translateX(-50%);white-space:nowrap;font-size:12px;color:#716a77}
+.brief-slider-points i{display:block;height:6px;width:1px;background:#b2a1bf}
+.brief-slider-points .selected{color:#513766;font-weight:700}.brief-slider-points .selected i{width:2px;background:#79638c}
+.status-notice .status-notice-message>p{display:block;margin:0;font-size:13px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;color:inherit}
+.status-notice.is-error{width:min(560px,calc(100vw - 32px));max-height:calc(45dvh - 24px)}
+.status-notice.is-error>.status-notice-message{max-height:calc(45dvh - 54px);overflow:auto;padding-right:4px}
+.status-notice.is-error>.status-notice-message:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+@media(max-width:900px){.brief-guardrail-grid{grid-template-columns:1fr}.brief-guardrail-grid>.brief-choices .brief-choice-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.brief-format-grid>.brief-choices,.brief-guardrail-grid>.brief-choices{padding:14px}.drama-embedded-root .creative-brief-form .tone-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.brief-story-section .seed-section>summary{padding:16px}.brief-story-section .seed-section-body{padding:0 16px 16px}.brief-slider-points>span{font-size:11px}}

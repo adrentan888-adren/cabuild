@@ -82,3 +82,7 @@ All page families use the same visual system as Home: compact illustrated introd
 - Episode/duration sliders and presets, ratio previews, visible style/pacing/language/audience/rating/continuity choices, tone toggles and model cards replace brief dropdowns. Draft settings, extra direction and writing-model preference survive browser refresh.
 - Continuity strength now reaches the writing prompt; older drafts default to Strict.
 - Shared status notices appear bottom-right with X dismissal: success 15 seconds, red failure 30 seconds. Their measured height reserves a footer area outside the scrolling workspace so controls remain unobstructed.
+
+### Brief controls and failure recovery update — 2026-09-06
+
+Episodes and duration are marked sliders without duplicate buttons. Generation actions use the purple theme inside the first story section. Choice grids fill their groups evenly. Failure notices retain complete readable server messages. Writing requests use a210-second provider deadline within a240-second API proxy window, fixing the former30-second proxy cutoff; failed requests retain creator inputs and never retry automatically.

@@ -4,6 +4,8 @@ import path from "node:path";
 
 export type BriefJob = {
   id: string;
+  stage?: 1 | 2;
+  sourceId?: string;
   snapshot: Record<string, unknown>;
   model: string;
   status: "generating" | "ready" | "failed";
@@ -99,7 +101,7 @@ export async function getBriefJob(ownerId: string, id: string): Promise<BriefJob
   if (result) return result;
   const claim = await readObject<BriefJob>(objectName(ownerId, id, "claim"));
   if (claim && Date.now() - Date.parse(claim.createdAt) > timeoutMs) {
-    const failed: BriefJob = { ...claim, status: "failed", finishedAt: new Date().toISOString(), error: "Brief generation was interrupted or did not finish within 5 minutes. Your inputs have been saved. No automatic retry was made." };
+    const failed: BriefJob = { ...claim, status: "failed", finishedAt: new Date().toISOString(), error: `${claim.stage === 2 ? "Story Studio" : "Brief"} generation was interrupted or did not finish within 5 minutes. Your inputs have been saved. No automatic retry was made.` };
     await createObject(objectName(ownerId, id, "result"), failed);
     return await readObject<BriefJob>(objectName(ownerId, id, "result"));
   }

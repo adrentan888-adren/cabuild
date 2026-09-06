@@ -1,6 +1,7 @@
 "use client";
 import StatusToast, { useStatusToast } from "@/components/status-toast";
 import { readDramaResponse } from "@/lib/drama/read-response";
+import StoryCreationForm from "@/components/drama/story-creation-form";
 import BriefLibraryCard from "@/components/drama/brief-library-card";
 import BriefChoiceField from "@/components/drama/brief-choice-field";
 import PageIntro from "@/components/page-intro";
@@ -830,7 +831,7 @@ function newManualScene(index = 1): Scene {
 
 function stageInputError(stage: number, snapshot: ProductionSnapshot): string | null {
   if (stage === 1 && !snapshot.roughStory.trim()) return "Add your story idea.";
-  if (stage === 2 && !(snapshot.generatedBrief || snapshot.roughStory).trim()) return "Write a brief or choose saved work.";
+  if (stage === 2 && !snapshot.generatedBrief.trim()) return "Write a brief or choose saved work.";
   if ((stage === 3 || stage === 4) && !snapshot.storyline.trim()) return "Add your story and visual direction or choose saved work.";
   if (stage === 5) {
     const selected = snapshot.scenes.filter((scene) => scene.selected);
@@ -1221,7 +1222,7 @@ export default function DramaStudio({
       const requestedAt = Date.now();
       try {
         const response = await fetch("/api/drama/brief-jobs", { cache: "no-store" });
-        const payload = await readDramaResponse(response) as { jobs?: Array<{ id: string; snapshot: ProductionSnapshot; model: string; status: "generating" | "ready" | "failed"; error?: string; createdAt: string }> };
+        const payload = await readDramaResponse(response) as { jobs?: Array<{ id: string; stage?: 1 | 2; sourceId?: string; snapshot: ProductionSnapshot; model: string; status: "generating" | "ready" | "failed"; error?: string; createdAt: string }> };
         if (!stopped && response.ok && payload.jobs) {
           setWorkflowRecords(current => {
             const returnedIds = new Set(payload.jobs!.map(job => job.id));
@@ -1231,7 +1232,11 @@ export default function DramaStudio({
               const existing = merged.get(job.id);
               // A slow poll must not downgrade a completed response.
               if (job.status === "generating" && existing?.status !== "generating" && existing?.serverConfirmedAt && existing.serverConfirmedAt >= requestedAt) continue;
-              merged.set(job.id, { ...existing, ...job, stage: 1, serverJob: true, serverConfirmedAt: Date.now(), name: job.snapshot.title || "Untitled drama", updatedAt: job.status });
+              if (existing?.stage === 2 && existing.status === "ready" && job.status === "ready") {
+                merged.set(job.id, { ...existing, serverConfirmedAt: Date.now() });
+                continue;
+              }
+              merged.set(job.id, { ...existing, ...job, stage: job.stage ?? 1, serverJob: true, serverConfirmedAt: Date.now(), name: job.snapshot.title || "Untitled drama", updatedAt: job.status });
             }
             return [...merged.values()];
           });
@@ -1505,6 +1510,7 @@ const markChanged = () => {
   });
 
   const startCreate = (stage: number, sourceId?: string) => {
+    const eligibleSources = stage === 2 ? workflowRecords.filter(record => record.stage === 1 && record.status !== "generating" && record.status !== "failed" && record.snapshot.generatedBrief.trim()) : workflowRecords;
     const source =
       stage === 5
         ? workflowRecords.find((record) => record.id === sourceId) ??
@@ -1519,11 +1525,11 @@ const markChanged = () => {
           ) ??
           workflowRecords.find((record) => record.stage === 4)
         : stage > 1
-        ? workflowRecords.find((record) => record.id === sourceId) ??
-          workflowRecords.find(
+        ? eligibleSources.find((record) => record.id === sourceId) ??
+          eligibleSources.find(
             (record) => record.id === selectedRecordIds[stage - 1],
           ) ??
-          workflowRecords.find((record) => record.stage === stage - 1)
+          eligibleSources.find((record) => record.stage === stage - 1)
         : undefined;
     let snapshot =
       stage === 1
@@ -2428,31 +2434,34 @@ const markChanged = () => {
     const inputError = stageInputError(activeStep, productionSnapshot);
     if (inputError) { setToast(inputError, "error"); return; }
 
-    if (activeStep === 1) {
+    if (activeStep === 1 || activeStep === 2) {
       if (briefSubmission.current) return;
       briefSubmission.current = true;
       queueMicrotask(() => { briefSubmission.current = false; });
+      const stage = activeStep;
+      const itemLabel = stage === 1 ? "Creative brief" : "Story Studio";
       const id = crypto.randomUUID();
       const snapshot = cloneSnapshot(productionSnapshot);
-      snapshot.generatedBrief = "";
-      const pending: WorkflowRecord = { id, stage: 1, name: snapshot.title || "Untitled drama", snapshot, model: chatModel, createdAt: new Date().toISOString(), updatedAt: "Generating", status: "generating", serverJob: true };
+      if (stage === 1) snapshot.generatedBrief = "";
+      else { snapshot.storyline = ""; snapshot.episodePlan = []; snapshot.characters = []; snapshot.assets = []; snapshot.scenes = []; }
+      const pending: WorkflowRecord = { id, stage, sourceId: stage === 2 && draftSourceId ? draftSourceId : undefined, name: snapshot.title || "Untitled drama", snapshot, model: chatModel, createdAt: new Date().toISOString(), updatedAt: "Generating", status: "generating", serverJob: true };
       setWorkflowRecords(current => [pending, ...current]);
-      setSelectedRecordIds(current => ({ ...current, 1: id }));
+      setSelectedRecordIds(current => ({ ...current, [stage]: id }));
       setWorkspaceView("library");
       setEditingRecordId("");
-      window.history.pushState({}, "", stepPaths[1]);
+      window.history.pushState({}, "", stepPaths[stage]);
       window.scrollTo({ top: 0, behavior: "smooth" });
-      window.localStorage.removeItem(dramaStorageKey("drama-studio:draft-1"));
+      window.localStorage.removeItem(dramaStorageKey("drama-studio:draft-" + stage));
       try {
-        const response = await fetch("/api/drama/brief-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, model: chatModel, snapshot }) });
+        const response = await fetch("/api/drama/brief-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, stage, sourceId: stage === 2 && draftSourceId ? draftSourceId : undefined, model: chatModel, snapshot }) });
         const payload = await readDramaResponse(response) as { job?: { snapshot: ProductionSnapshot; status: "generating" | "ready" | "failed"; error?: string }; message?: string };
         if (payload.job) {
-          setWorkflowRecords(current => current.map(record => record.id === id ? { ...record, ...payload.job, serverConfirmedAt: Date.now(), updatedAt: payload.job!.status } : record));
-          if (payload.job.status === "failed") throw new Error(payload.job.error || "Creative brief generation failed.");
-          if (payload.job.status === "ready") setToast("Creative brief ready.");
-        } else throw new Error(payload.message || "Creative brief generation failed.");
+          setWorkflowRecords(current => current.map(record => record.id === id ? { ...record, ...payload.job, snapshot: stage === 2 && record.status === "ready" && payload.job!.status === "ready" ? record.snapshot : payload.job!.snapshot, serverConfirmedAt: Date.now(), updatedAt: payload.job!.status } : record));
+          if (payload.job.status === "failed") throw new Error(payload.job.error || `${itemLabel} generation failed.`);
+          if (payload.job.status === "ready") setToast(`${itemLabel} ready.`);
+        } else throw new Error(payload.message || `${itemLabel} generation failed.`);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Creative brief generation failed.";
+        const message = error instanceof Error ? error.message : `${itemLabel} generation failed.`;
         setWorkflowRecords(current => current.map(record => record.id === id && record.status !== "ready" ? { ...record, status: "failed", error: message, updatedAt: "Failed" } : record));
         setToast(message, "error");
       }
@@ -3681,7 +3690,7 @@ function WorkflowContextBar({
   };
 
   const recordState = (record: WorkflowRecord) => {
-    if (record.stage === 1) return record.status === "generating" ? "Generating" : record.status === "failed" ? "Failed" : record.snapshot.generatedBrief.trim() ? "Ready" : "Failed";
+    if (record.stage === 1 || record.stage === 2) return record.status === "generating" ? "Generating" : record.status === "failed" ? "Failed" : (record.stage === 1 ? record.snapshot.generatedBrief : record.snapshot.storyline).trim() ? "Ready" : "Failed";
     const generating =
       record.snapshot.assets.some((asset) => asset.status === "generating") ||
       record.snapshot.scenes.some((scene) => scene.status === "generating");
@@ -3758,7 +3767,7 @@ function WorkflowContextBar({
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
           >
-            {(stage === 1 ? ['All', 'Generating', 'Ready', 'Failed'] : ['All', 'Current', 'Generating', 'Ready', 'Saved']).map((option) => (
+            {(stage <= 2 ? ['All', 'Generating', 'Ready', 'Failed'] : ['All', 'Current', 'Generating', 'Ready', 'Saved']).map((option) => (
               <option value={option} key={option}>{option}</option>
             ))}
           </select>
@@ -3776,7 +3785,7 @@ function WorkflowContextBar({
           </select>
           <ChevronDown size={13} />
         </label>
-        {stage === 1 && <button className={`brief-favorites-filter ${favoritesOnly ? "selected" : ""}`} aria-pressed={favoritesOnly} onClick={() => setFavoritesOnly(!favoritesOnly)}><Star size={15} fill={favoritesOnly ? "currentColor" : "none"} /> Favorites</button>}
+        {stage <= 2 && <button className={`brief-favorites-filter ${favoritesOnly ? "selected" : ""}`} aria-pressed={favoritesOnly} onClick={() => setFavoritesOnly(!favoritesOnly)}><Star size={15} fill={favoritesOnly ? "currentColor" : "none"} /> Favorites</button>}
         <span className="stage-library-result-count">
           {visibleRecords.length} of {records.length}
         </span>
@@ -3813,7 +3822,9 @@ function WorkflowContextBar({
           </div>
         )}
         {visibleRecords.map((record) => {
-          if (stage === 1) return <BriefLibraryCard key={record.id} record={record} stories={allRecords.filter(item => item.stage === 2 && item.sourceId === record.id)} onUse={() => onUse(record.id)} onDelete={() => onDelete(record.id)} onToggleFavorite={() => onToggleFavorite(record.id)} />;
+          if (stage === 1 || stage === 2) return <BriefLibraryCard key={record.id} record={record} stories={allRecords.filter(item => item.stage === 2 && item.sourceId === record.id)} onUse={() => onUse(record.id)} onDelete={() => onDelete(record.id)} onToggleFavorite={() => onToggleFavorite(record.id)}>
+            {stage === 2 && <StoryStudioRecord record={record} storyBusyKeys={storyBusyKeys} imageModel={imageModel} setImageModel={setImageModel} chatModel={chatModel} setChatModel={setChatModel} onChangeStory={value => onChange(record.id, value)} onUpdate={patch => onUpdateSnapshot(record.id, patch)} onGenerateAsset={assetId => onGenerateAsset(record.id, assetId)} onGenerateAssetGroup={assetType => onGenerateAssetGroup(record.id, assetType)} onGeneratePrompts={(episodeCount, episodeNumber) => onGeneratePrompts(record.id, episodeCount, episodeNumber)} />}
+          </BriefLibraryCard>;
           const selected = record.id === selectedId;
           const loading = busy === `use-${record.id}`;
           const jobGenerating =
@@ -5160,6 +5171,8 @@ function StageCreationPanel({
       : stage === 5
         ? modelLabel(videoModelOptions, videoModel)
         : modelLabel(chatModelOptions, chatModel);
+
+  if (stage === 2) return <StoryCreationForm snapshot={snapshot} sources={sourceRecords} selectedSourceId={selectedSourceId} model={chatModel} models={chatModelOptions.map(option => ({...option, credits: chatCreditEstimate[option.value] * 2}))} estimatedCost={generationCost} busy={Boolean(busy)} onModel={setChatModel} onUpdate={onUpdateSetup} onSelect={onSelectSource} onGenerate={onGenerate} />;
 
   return (
     <div className="single-column-content">

@@ -32,3 +32,9 @@ Inspect every routed page and Normal Content destination at desktop and mobile w
 `components/page-intro.tsx` supplies compact illustrated page introductions, retaining existing History, filters, counts and action controls. `app/workspace-theme.css` carries Home's cream surfaces, sage Normal Content accents, lilac Drama accents, rounded cards and shared typography into forms, results, libraries, admin and authentication. Decorative artwork is interface illustration, not a generated result or a measured chart. Error/success colors and disabled states retain their meanings.
 
 The centered 1080px canvas and responsive gutters remain unchanged. Normal Content, all five Drama stages, Production Info, Asset Library, all five admin tabs, sign-in, registration, verification, access-denied and not-found states share the visual system. Analyze explicitly labels its demonstration forecast.
+
+## 2026-09-06 — Choosing a saved Creative Brief for Story Studio
+
+- [Notion search](https://www.notion.com/help/search) documents searching titles/content and sorting/filtering results. CABUILD applies text search and newest-first ordering, with Favorites as its existing personal-library filter.
+- [Salt selectable-card guidance](https://www.saltdesignsystem.com/salt/patterns/selectable-card) supports rich descriptive cards and radio-style single selection. CABUILD uses a native radio group in a themed dialog, showing a brief preview, episode format, language and saved date before explicit confirmation. An optional full-text preview supports longer briefs without crowding each card.
+- These references inform interaction patterns; the cream/lilac surfaces, artwork, typography, buttons and shortened dialog retain the existing Creative Brief style. Search/filter changes clear the candidate so hidden results cannot be selected accidentally. Editing the chosen copy affects the new Story Studio only.

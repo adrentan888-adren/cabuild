@@ -20,12 +20,13 @@ await page.evaluate((snapshot) => {
 }, draft.snapshot);
 await page.goto('http://localhost:3100/drama-studio?step=2');
 await page.getByRole('button', {name: /Create new Story Studio/i}).click();
-await page.locator('#create-source-2').selectOption('');
-await page.getByLabel('Your brief', {exact: false}).fill('My independent manual story brief.');
+await page.getByRole('button', {name: 'Use as own input', exact: true}).click();
+await page.getByLabel('Finished brief', {exact: true}).fill('My independent manual story brief.');
 await page.reload();
 await page.getByRole('button', {name: /Create new Story Studio/i}).click();
-assert.equal(await page.locator('#create-source-2').inputValue(), '');
-assert.equal(await page.getByLabel('Your brief', {exact: false}).inputValue(), 'My independent manual story brief.');
+assert.equal(await page.getByRole('button', {name: 'Use as own input', exact: true}).count(), 0);
+assert.equal(await page.getByRole('button', {name: 'Choose saved work', exact: true}).count(), 1);
+assert.equal(await page.getByLabel('Finished brief', {exact: true}).inputValue(), 'My independent manual story brief.');
 
 const appData=await (await page.request.get('http://localhost:3100/api/app')).json();const stamp=new Date().toISOString();appData.competitorResults=[{id:'uat-result',workspaceId:appData.workspace.id,competitorId:'uat',platform:'tiktok',url:'https://example.com/uat-source',title:'UAT source video',description:'A short clip for local UI validation',mediaType:'video',duration:5,views:100,likes:10,comments:1,publishedAt:stamp,capturedAt:stamp}];appData.researchScans=[{id:'uat-scan',workspaceId:appData.workspace.id,url:'https://example.com/uat-source',platform:'tiktok',minViews:0,resultIds:['uat-result'],createdAt:stamp,status:'done'}];
 await context.route('**/api/app',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(appData)}));await page.goto('http://localhost:3100/?view=research');await page.getByRole('button',{name:'Generate Content',exact:true}).click();assert.equal(await page.locator('.modal-backdrop').count(),0);await page.waitForSelector('#research-inline-editor');assert(await page.getByRole('heading',{name:'UAT source video',exact:true}).isVisible());

@@ -39,7 +39,7 @@ const assert = require('node:assert/strict');
  for(const width of [1440,768,390,320]){
   await page.setViewportSize({width,height:900});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`card overflow ${width}`);
-  const titleStyle=await card.locator('.brief-library-title h3').evaluate(el=>getComputedStyle(el).fontWeight);assert(Number(titleStyle)>=700);
+  const titleStyle=await card.locator('.brief-title-heading').evaluate(el=>getComputedStyle(el).fontWeight);assert(Number(titleStyle)>=700);
   await card.getByRole('button',{name:'Info for Lighthouse mystery'}).click();
   const dialog=page.getByRole('dialog');await dialog.waitFor();assert.equal(await dialog.locator('input,textarea,select').count(),0);
   assert.match(await dialog.innerText(),/FINISHED BRIEF[\s\S]*Rough story[\s\S]*Writing model[\s\S]*Used in Story Studio/);

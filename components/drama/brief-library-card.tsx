@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, ChevronDown, Info, LoaderCircle, Trash2, X } from "lucide-react";
+import { ArrowRight, ChevronDown, Info, LoaderCircle, Trash2, X, Star, SlidersHorizontal, BookOpen, FileText } from "lucide-react";
+import { PageArtwork } from "@/components/page-intro";
 import type { WorkflowRecord } from "./drama-studio";
 
-export default function BriefLibraryCard({ record, stories, onUse, onDelete }: {
+export default function BriefLibraryCard({ record, stories, onUse, onDelete, onToggleFavorite }: {
   record: WorkflowRecord;
   stories: WorkflowRecord[];
   onUse: () => void;
   onDelete: () => void;
+  onToggleFavorite: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
@@ -37,10 +39,11 @@ export default function BriefLibraryCard({ record, stories, onUse, onDelete }: {
   return (
     <article className={`stage-record-card brief-library-card ${expanded ? "expanded" : "collapsed"}`}>
       <header className="brief-library-header">
-        <div className="brief-library-title"><h3>{title}</h3><span className={`status-pill brief-status-${state}`} role="status">{state === "generating" && <LoaderCircle size={13} className="brief-status-spinner" />}{label}</span></div>
+        <button className="brief-favorite" onClick={onToggleFavorite} aria-label={`${record.favorite ? "Remove" : "Add"} ${title} ${record.favorite ? "from" : "to"} favorites`} aria-pressed={Boolean(record.favorite)}><Star size={20} fill={record.favorite ? "currentColor" : "none"} /></button>
+        <h3 className="brief-title-heading" aria-label={title}><button className="brief-title-toggle" onClick={() => setExpanded(!expanded)} aria-label={`${expanded ? "Collapse" : "Expand"} ${title}`} aria-expanded={expanded} aria-controls={`brief-content-${record.id}`}><span>{title}</span><ChevronDown size={20} /></button></h3>
+        <span className={`status-pill brief-status-${state}`} role="status">{state === "generating" && <LoaderCircle size={13} className="brief-status-spinner" />}{label}</span>
         <div className="brief-library-actions">
           <button className="secondary-button" onClick={onUse} disabled={!ready} title="Use this brief to set up a Story Studio. Generation starts only when you choose Generate there.">Create Story Studio <ArrowRight size={15} /></button>
-          <button className="icon-button brief-collapse" onClick={() => setExpanded(!expanded)} aria-label={`${expanded ? "Collapse" : "Expand"} ${title}`} aria-expanded={expanded} aria-controls={`brief-content-${record.id}`}><ChevronDown size={18} /></button>
         </div>
       </header>
       {expanded && <div id={`brief-content-${record.id}`} className="brief-library-content">
@@ -50,12 +53,12 @@ export default function BriefLibraryCard({ record, stories, onUse, onDelete }: {
         <div><button ref={infoButton} className="secondary-button" onClick={() => setShowInfo(true)} aria-label={`Info for ${title}`}><Info size={15} /> Info</button><time dateTime={record.createdAt}>{date}</time></div>
         <button className="brief-delete" onClick={onDelete} disabled={state === "generating"} aria-label={`Delete ${title}`}><Trash2 size={15} /> Delete</button>
       </footer>
-      <dialog ref={dialog} className="brief-info-dialog" aria-labelledby={`brief-info-title-${record.id}`} onCancel={event => { event.preventDefault(); close(); }} onClose={() => { setShowInfo(false); infoButton.current?.focus(); }}>
-        <header><div><span>Creative Brief · {label}</span><h2 id={`brief-info-title-${record.id}`}>{title}</h2></div></header>
+      <dialog ref={dialog} className="brief-info-dialog" onClick={event => { if (event.target !== event.currentTarget) return; const bounds = event.currentTarget.getBoundingClientRect(); if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) close(); }} aria-labelledby={`brief-info-title-${record.id}`} onCancel={event => { event.preventDefault(); close(); }} onClose={() => { setShowInfo(false); infoButton.current?.focus(); }}>
+        <header className="theme-lilac"><div><span className="page-intro-kicker">Creative Brief · {label}</span><h2 id={`brief-info-title-${record.id}`}>{title}</h2></div><PageArtwork kind="story" /></header>
         <div className="brief-info-body">
-          <section><h3>Creative brief</h3><div className={`brief-readonly-text ${state === "failed" ? "brief-error" : ""}`}>{ready ? snapshot.generatedBrief : state === "generating" ? "Generation is in progress." : record.error || "This brief has no finished result."}</div></section>
-          <section><h3>Your settings</h3><dl>{settings.map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value || "Not specified"}</dd></div>)}</dl></section>
-          <section><h3>Used in Story Studio</h3>{stories.length ? <ul>{stories.map(story => <li key={story.id}><b>{story.name}</b><time dateTime={story.createdAt}>{new Date(story.createdAt).toLocaleDateString()}</time></li>)}</ul> : <p>This brief has not been used in a saved Story Studio yet.</p>}</section>
+          <section className="brief-info-section"><h3><FileText size={18} /> Creative brief</h3><div className={`brief-readonly-text ${state === "failed" ? "brief-error" : ""}`}>{ready ? snapshot.generatedBrief : state === "generating" ? "Generation is in progress." : record.error || "This brief has no finished result."}</div></section>
+          <section className="brief-info-section"><h3><SlidersHorizontal size={18} /> Your settings</h3><dl>{settings.map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value || "Not specified"}</dd></div>)}</dl></section>
+          <section className="brief-info-section"><h3><BookOpen size={18} /> Used in Story Studio</h3>{stories.length ? <ul>{stories.map(story => <li key={story.id}><b>{story.name}</b><time dateTime={story.createdAt}>{new Date(story.createdAt).toLocaleDateString()}</time></li>)}</ul> : <p>This brief has not been used in a saved Story Studio yet.</p>}</section>
         </div>
         <footer><button className="secondary-button" onClick={close} autoFocus><X size={15} /> Close</button><button className="primary-button" onClick={next} disabled={!ready}>Create Story Studio <ArrowRight size={15} /></button></footer>
       </dialog>

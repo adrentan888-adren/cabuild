@@ -53,6 +53,7 @@ import {
   Settings,
   ShieldAlert,
   Sparkles,
+  Star,
   Square,
   X,
   Zap,
@@ -144,6 +145,7 @@ export type WorkflowRecord = {
   status?: "generating" | "ready" | "failed";
   error?: string;
   serverJob?: boolean;
+  favorite?: boolean;
   serverConfirmedAt?: number;
   id: string;
   stage: number;
@@ -1376,7 +1378,6 @@ export default function DramaStudio({
     return () => window.removeEventListener("popstate", syncHistory);
   }, [applySnapshot, selectedRecordIds, workflowRecords]);
 
-  const readyScenes = scenes.filter((scene) => scene.status === "ready").length;
   const activeRecords = workflowRecords.filter(
     (record) => record.stage === activeStep,
   );
@@ -1487,6 +1488,21 @@ const markChanged = () => {
     window.history.pushState({}, "", stepPaths[step]);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  useEffect(() => {
+    const navigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ href: string; handled: boolean }>).detail;
+      const destination = new URL(detail.href, window.location.origin);
+      saveActiveRecord();
+      if (destination.pathname !== "/drama-studio") return;
+      const step = Number(destination.searchParams.get("step") || 1);
+      if (![1, 2, 3, 4, 5].includes(step)) return;
+      detail.handled = true;
+      openStep(step);
+    };
+    window.addEventListener("drama:navigate", navigate);
+    return () => window.removeEventListener("drama:navigate", navigate);
+  });
 
   const startCreate = (stage: number, sourceId?: string) => {
     const source =
@@ -3021,43 +3037,6 @@ const markChanged = () => {
                   : "story-studio"
             }
           />
-          <div className="page-context-bar drama-context-bar">
-            <div className="page-context-inner">
-              <div className="title-cluster">
-                <div>
-                  <div className="page-title">Create a drama</div>
-                  <div className="breadcrumbs">
-                    Productions <span>/</span> {title || "Untitled"}{" "}
-                    <span>/</span> {steps[activeStep - 1].label}
-                  </div>
-                </div>
-              </div>
-              <div className="topbar-actions">
-                <div className={`save-state ${saved ? "saved" : ""}`}>
-                  {saved ? <Check size={12} /> : <Activity size={12} />}
-                  {workspaceView === "edit" ? "Save edits below" : saved ? "Saved in this browser" : "Draft not saved"}
-                </div>
-                <Link href="/drama-studio?step=1" className="quiet-button">
-                  <Clock3 size={14} />
-                  Production home
-                </Link>
-              </div>
-            </div>
-          </div>
-
-          <div className="production-strip">
-            <div className="production-strip-inner">
-              <div className="strip-stat">
-                <span>Format</span>
-                <b>{episodes} × {episodeLength} min</b>
-              </div>
-              <div className="strip-stat"><span>Scenes planned</span><b>{scenes.length}</b></div>
-              <div className="strip-stat"><span>Assets ready</span><b>{assets.filter((asset) => asset.status === "ready").length}</b></div>
-              <div className="strip-stat"><span>Video ready</span><b>{readyScenes}/{scenes.length}</b></div>
-              <div className="strip-spacer" />
-              <span className="demo-pill"><span className="demo-dot" />Flexible workspace</span>
-            </div>
-          </div>
         </header>
 
         <div className="workspace-content-frame drama-workspace-frame">
@@ -3071,7 +3050,7 @@ const markChanged = () => {
                   : "story-studio"
             }
           />
-          <div className="main-panel">
+          <div className="main-panel" key={activeStep}>
           <PageIntro title={steps[activeStep - 1].label} description={getStepDescription(activeStep)} eyebrow="Drama Studio" tone="lilac" art="story" />
 
 {failureLogs.length > 0 && (
@@ -3132,6 +3111,7 @@ const markChanged = () => {
               stage={activeStep}
               records={activeRecords}
               allRecords={workflowRecords}
+              onToggleFavorite={id => setWorkflowRecords(current => current.map(record => record.id === id ? { ...record, favorite: !record.favorite } : record))}
               selectedId={activeRecord?.id ?? ""}
               busy={busy}
               storyBusyKeys={storyBusyKeys}
@@ -3355,6 +3335,7 @@ function WorkflowContextBar({
   stage,
   records,
   allRecords,
+  onToggleFavorite,
   selectedId,
   busy,
   storyBusyKeys,
@@ -3383,6 +3364,7 @@ function WorkflowContextBar({
   stage: number;
   records: WorkflowRecord[];
   allRecords: WorkflowRecord[];
+  onToggleFavorite: (id: string) => void;
   selectedId: string;
   busy: string | null;
   storyBusyKeys: string[];
@@ -3426,6 +3408,7 @@ function WorkflowContextBar({
   const useLabel = `Use ${currentName.singular.replace("creative ", "")}`;
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [sortOrder, setSortOrder] = useState("Newest");
   const [expandedRecordId, setExpandedRecordId] = useState(
     selectedId || records[0]?.id || "",
@@ -3719,7 +3702,7 @@ function WorkflowContextBar({
         .includes(query.trim().toLowerCase());
       const matchesStatus =
         statusFilter === "All" || recordState(record) === statusFilter;
-      return matchesQuery && matchesStatus;
+      return matchesQuery && matchesStatus && (!favoritesOnly || Boolean(record.favorite));
     })
     .sort((first, second) => {
       if (sortOrder === "Oldest") {
@@ -3793,6 +3776,7 @@ function WorkflowContextBar({
           </select>
           <ChevronDown size={13} />
         </label>
+        {stage === 1 && <button className={`brief-favorites-filter ${favoritesOnly ? "selected" : ""}`} aria-pressed={favoritesOnly} onClick={() => setFavoritesOnly(!favoritesOnly)}><Star size={15} fill={favoritesOnly ? "currentColor" : "none"} /> Favorites</button>}
         <span className="stage-library-result-count">
           {visibleRecords.length} of {records.length}
         </span>
@@ -3821,6 +3805,7 @@ function WorkflowContextBar({
               onClick={() => {
                 setQuery("");
                 setStatusFilter("All");
+                setFavoritesOnly(false);
               }}
             >
               Clear filters
@@ -3828,7 +3813,7 @@ function WorkflowContextBar({
           </div>
         )}
         {visibleRecords.map((record) => {
-          if (stage === 1) return <BriefLibraryCard key={record.id} record={record} stories={allRecords.filter(item => item.stage === 2 && item.sourceId === record.id)} onUse={() => onUse(record.id)} onDelete={() => onDelete(record.id)} />;
+          if (stage === 1) return <BriefLibraryCard key={record.id} record={record} stories={allRecords.filter(item => item.stage === 2 && item.sourceId === record.id)} onUse={() => onUse(record.id)} onDelete={() => onDelete(record.id)} onToggleFavorite={() => onToggleFavorite(record.id)} />;
           const selected = record.id === selectedId;
           const loading = busy === `use-${record.id}`;
           const jobGenerating =

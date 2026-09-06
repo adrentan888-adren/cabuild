@@ -332,22 +332,6 @@ return (
                   : undefined
             }
           />
-          <div className="page-context-bar drama-context-bar">
-            <div className="page-context-inner">
-              <div className="title-cluster">
-                <div>
-                  <div className="page-title">{meta.title}</div>
-                  <div className="breadcrumbs">{meta.breadcrumb}</div>
-                </div>
-              </div>
-              <div className="topbar-actions">
-                <span className="save-state saved">Saved in this browser</span>
-                <Link href="/drama-studio?step=1" className="quiet-button">
-                  <Clock3 size={14} /> Production home
-                </Link>
-              </div>
-            </div>
-          </div>
         </header>
 
         <div className="workspace-content-frame drama-workspace-frame">

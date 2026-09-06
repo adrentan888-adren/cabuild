@@ -1,4 +1,6 @@
 "use client";
+import StatusToast, { useStatusToast } from "@/components/status-toast";
+import BriefChoiceField from "@/components/drama/brief-choice-field";
 import PageIntro from "@/components/page-intro";
 
 import Image from "next/image";
@@ -17,7 +19,6 @@ import {
   writeAssetLibrary,
 } from "@/lib/drama/asset-library";
 import { useKieCredits } from "@/lib/drama/use-kie-credits";
-import type { PersonaMediaAsset } from "@/lib/types";
 import {
   configureCombinedEpisodeOwner,
   readCombinedEpisodes,
@@ -115,6 +116,8 @@ type ProductionSnapshot = {
   completed: number[];
   title: string;
   roughStory: string;
+  seedPrompt?: string;
+  continuity?: string;
   generatedBrief: string;
   episodes: number;
   episodeLength: number;
@@ -197,13 +200,6 @@ const videoModelOptions = [
   { value: "kling-3.0", label: "Kling 3.0 · Quality + sound" },
   { value: "kling-v3-turbo", label: "Kling V3 Turbo · Faster 720p" },
   { value: "seedance-2.0", label: "Seedance 2.0 · 15s + sound" },
-] as const;
-
-const referenceRoleOptions = [
-  { role: "product photo", label: "Product photo", accept: "image/*" },
-  { role: "avatar/persona", label: "Avatar / persona", accept: "image/*" },
-  { role: "logo", label: "Logo", accept: "image/*" },
-  { role: "audio", label: "Audio", accept: "audio/*" },
 ] as const;
 
 const modelLabel = (
@@ -739,6 +735,8 @@ const buildStageGenerationSnapshot = (
   const creativeDirection = {
     title: snapshot.title,
     roughStory: snapshot.roughStory,
+    ...(targetStage === 0 ? { seedPrompt: snapshot.seedPrompt } : {}),
+    continuity: snapshot.continuity ?? "Strict",
     episodes: snapshot.episodes,
     episodeLength: snapshot.episodeLength,
     style: snapshot.style,
@@ -858,12 +856,8 @@ export default function DramaStudio({
   const [briefSeedBusy, setBriefSeedBusy] = useState(false);
   const [storyBusyKeys, setStoryBusyKeys] = useState<string[]>([]);
   const [videoBusyKeys, setVideoBusyKeys] = useState<string[]>([]);
-  const [toast, setToast] = useState<string | null>(null);
+  const { toast, setToast } = useStatusToast();
   const [failureLogs, setFailureLogs] = useState<FailureLogEntry[]>([]);
-  const [referenceAssets, setReferenceAssets] = useState<PersonaMediaAsset[]>([]);
-  const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>([]);
-  const [referenceBusyRole, setReferenceBusyRole] =
-    useState<PersonaMediaAsset["role"] | null>(null);
   const [credentialPrompt, setCredentialPrompt] =
     useState<CredentialPrompt | null>(null);
   const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(null);
@@ -884,6 +878,8 @@ export default function DramaStudio({
     useState(false);
   const [title, setTitle] = useState("Untitled drama");
   const [roughStory, setRoughStory] = useState("");
+  const [seedPrompt, setSeedPrompt] = useState("");
+  const [continuity, setContinuity] = useState("Strict");
   const [generatedBrief, setGeneratedBrief] = useState("");
   const [episodes, setEpisodes] = useState(8);
   const [episodeLength, setEpisodeLength] = useState(1);
@@ -958,28 +954,6 @@ export default function DramaStudio({
     [],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    const loadReferences = async () => {
-      try {
-        const response = await fetch("/api/app", { cache: "no-store" });
-        const payload = (await response.json()) as {
-          personaProfile?: { mediaAssets?: PersonaMediaAsset[] };
-        };
-        if (!cancelled && response.ok) {
-          setReferenceAssets(payload.personaProfile?.mediaAssets ?? []);
-        }
-      } catch {
-        if (!cancelled) {
-          setToast("Persona reference assets could not be loaded.");
-        }
-      }
-    };
-    void loadReferences();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -989,11 +963,15 @@ export default function DramaStudio({
         );
         if (stored) {
           const parsed = JSON.parse(stored) as {
+            chatModel?: ChatModelId;
             imageModel?: ImageModelId;
             videoModel?: VideoModelId;
             videoMode?: "std" | "pro" | "4K";
             videoSound?: boolean;
           };
+          if (chatModelOptions.some(option => option.value === parsed.chatModel)) {
+            setChatModel(parsed.chatModel as ChatModelId);
+          }
           if (imageModelOptions.some((option) => option.value === parsed.imageModel)) {
             setImageModel(parsed.imageModel as ImageModelId);
           }
@@ -1019,10 +997,11 @@ export default function DramaStudio({
     if (!generationPreferencesHydrated) return;
     window.localStorage.setItem(
       dramaStorageKey(GENERATION_PREFERENCES_STORAGE_KEY),
-      JSON.stringify({ imageModel, videoModel, videoMode, videoSound }),
+      JSON.stringify({ chatModel, imageModel, videoModel, videoMode, videoSound }),
     );
   }, [
     generationPreferencesHydrated,
+    chatModel,
     imageModel,
     videoMode,
     videoModel,
@@ -1033,6 +1012,8 @@ export default function DramaStudio({
     setCompleted(snapshot.completed);
     setTitle(snapshot.title);
     setRoughStory(snapshot.roughStory);
+    setSeedPrompt(snapshot.seedPrompt ?? "");
+    setContinuity(snapshot.continuity ?? "Strict");
     setGeneratedBrief(snapshot.generatedBrief ?? snapshot.roughStory ?? "");
     setEpisodes(snapshot.episodes);
     setEpisodeLength(snapshot.episodeLength);
@@ -1155,6 +1136,8 @@ export default function DramaStudio({
       completed,
       title,
       roughStory,
+      seedPrompt,
+      continuity,
       generatedBrief,
       episodes,
       episodeLength,
@@ -1178,6 +1161,8 @@ export default function DramaStudio({
       completed,
       title,
       roughStory,
+      seedPrompt,
+      continuity,
       generatedBrief,
       episodes,
       episodeLength,
@@ -1323,12 +1308,12 @@ export default function DramaStudio({
       return () => window.clearTimeout(timeout);
     } catch {
       const timeout = window.setTimeout(
-        () => setToast("That reusable asset could not be opened."),
+        () => setToast("That reusable asset could not be opened.", "error"),
         0,
       );
       return () => window.clearTimeout(timeout);
     }
-  }, [applySnapshot, hydrated, initialStep, selectedRecordIds, workflowRecords]);
+  }, [applySnapshot, hydrated, initialStep, selectedRecordIds, workflowRecords, setToast]);
 
   useEffect(() => {
     if (!hydrated || workspaceView !== "create") return;
@@ -1372,13 +1357,7 @@ export default function DramaStudio({
       ? workflowRecords.filter((record) => record.stage === activeStep - 1)
       : [];
 
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), 2600);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
-
-  const markChanged = () => {
+const markChanged = () => {
     setSaved(false);
     window.setTimeout(() => setSaved(true), 750);
   };
@@ -1414,7 +1393,7 @@ export default function DramaStudio({
       await navigator.clipboard.writeText(output);
       setToast("Failed-task output copied. You can send it to Codex.");
     } catch {
-      setToast("Copy failed. Select the log text manually.");
+      setToast("Copy failed. Select the log text manually.", "error");
     }
   };
 
@@ -1652,27 +1631,27 @@ export default function DramaStudio({
     const source = workflowRecords.find((record) => record.id === recordId);
     if (!source || source.stage >= 5) return;
     if (source.stage === 1 && !source.snapshot.generatedBrief?.trim()) {
-      setToast("This brief has no finished generated brief to use.");
+      setToast("This brief has no finished generated brief to use.", "error");
       return;
     }
     if (source.stage === 2) {
       if (!source.snapshot.storyline.trim()) {
-        setToast("This Story Studio has no finished storyline to use.");
+        setToast("This Story Studio has no finished storyline to use.", "error");
         return;
       }
       if (!source.snapshot.scenes.length) {
-        setToast("Generate all episode scene prompts before creating videos.");
+        setToast("Generate all episode scene prompts before creating videos.", "error");
         return;
       }
       openStoryStudioAsGenerationJob(source);
       return;
     }
     if (source.stage === 3 && source.snapshot.assets.length === 0) {
-      setToast("This asset pack has no generated assets to use.");
+      setToast("This asset pack has no generated assets to use.", "error");
       return;
     }
     if (source.stage === 4 && source.snapshot.scenes.length === 0) {
-      setToast("This prompt set has no generated scenes to use.");
+      setToast("This prompt set has no generated scenes to use.", "error");
       return;
     }
     setSelectedRecordIds((current) => ({
@@ -1760,59 +1739,11 @@ export default function DramaStudio({
         "New title and story seed generated. Edit either field or regenerate again.",
       );
     } catch (error) {
-      setToast(
-        error instanceof Error
+      setToast(error instanceof Error
           ? error.message
-          : "The working title and premise could not be generated.",
-      );
+          : "The working title and premise could not be generated.", "error");
     } finally {
       setBriefSeedBusy(false);
-    }
-  };
-
-  const uploadReferenceAsset = async (
-    role: PersonaMediaAsset["role"],
-    file: File,
-  ) => {
-    setReferenceBusyRole(role);
-    try {
-      const form = new FormData();
-      form.set("role", role);
-      form.set("file", file);
-      const response = await fetch("/api/drama/references", {
-        method: "POST",
-        body: form,
-      });
-      const payload = (await response.json()) as {
-        asset?: PersonaMediaAsset;
-        error?: string;
-      };
-      if (!response.ok || !payload.asset) {
-        throw new Error(payload.error || "Reference upload failed.");
-      }
-      const replacedIds =
-        role === "product photo"
-          ? []
-          : referenceAssets
-              .filter((asset) => asset.role === role)
-              .map((asset) => asset.id);
-      setReferenceAssets((current) => [
-        ...current.filter(
-          (asset) => role === "product photo" || asset.role !== role,
-        ),
-        payload.asset!,
-      ]);
-      setSelectedReferenceIds((current) => [
-        ...current.filter((id) => !replacedIds.includes(id)),
-        payload.asset!.id,
-      ]);
-      setToast(payload.asset.label + " saved and selected as a reference.");
-    } catch (error) {
-      setToast(
-        error instanceof Error ? error.message : "Reference upload failed.",
-      );
-    } finally {
-      setReferenceBusyRole(null);
     }
   };
 
@@ -1822,7 +1753,6 @@ export default function DramaStudio({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...body,
-        references: selectedReferenceIds.map((id) => ({ id })),
       }),
     });
     const payload = (await response.json()) as {
@@ -1923,7 +1853,7 @@ export default function DramaStudio({
         diagnostic: diagnosticError.diagnostic,
       });
       if (!(error instanceof Error) || error.message !== "KIE AI Key required.") {
-        setToast(error instanceof Error ? error.message : "Image generation failed.");
+        setToast(error instanceof Error ? error.message : "Image generation failed.", "error");
       }
     } finally {
       setStoryOperationBusy(busyKey, false);
@@ -2025,10 +1955,10 @@ export default function DramaStudio({
           `${submittedCount} ${groupLabel} started generating with ${modelLabel(
             imageModelOptions,
             imageModel,
-          )}${failedCount ? `; ${failedCount} failed to submit.` : "."}`,
+          )}${failedCount ? `; ${failedCount} failed to submit.` : "."}`, failedCount ? "error" : "success",
         );
       } else if (failedCount > 0) {
-        setToast(`Kie AI could not start the ${groupLabel}. Check the failed-task output.`);
+        setToast(`Kie AI could not start the ${groupLabel}. Check the failed-task output.`, "error");
       }
     } finally {
       setStoryOperationBusy(busyKey, false);
@@ -2150,9 +2080,7 @@ export default function DramaStudio({
             }.`,
       );
     } catch (error) {
-      setToast(
-        error instanceof Error ? error.message : "Scene prompt generation failed.",
-      );
+      setToast(error instanceof Error ? error.message : "Scene prompt generation failed.", "error");
     } finally {
       setStoryOperationBusy(busyKey, false);
     }
@@ -2259,9 +2187,7 @@ export default function DramaStudio({
         diagnostic: diagnosticError.diagnostic,
       });
       if (!(error instanceof Error) || error.message !== "KIE AI Key required.") {
-        setToast(
-          error instanceof Error ? error.message : "Video regeneration failed.",
-        );
+        setToast(error instanceof Error ? error.message : "Video regeneration failed.", "error");
       }
     } finally {
       setVideoOperationBusy(busyKey, false);
@@ -2396,11 +2322,11 @@ export default function DramaStudio({
           `Episode ${episodeNumber}: ${submittedCount} clips started with ${modelLabel(
             videoModelOptions,
             videoModel,
-          )}${failedCount ? `; ${failedCount} failed to submit.` : "."}`,
+          )}${failedCount ? `; ${failedCount} failed to submit.` : "."}`, failedCount ? "error" : "success",
         );
       } else if (failedCount > 0) {
         setToast(
-          `Episode ${episodeNumber} could not start. Check the failed-task output.`,
+          `Episode ${episodeNumber} could not start. Check the failed-task output.`, "error",
         );
       }
     } finally {
@@ -2435,11 +2361,11 @@ export default function DramaStudio({
 
   const generateCurrentStage = async () => {
     if (activeStep === 1 && !roughStory.trim()) {
-      setToast("Add a rough story before generating the finished brief.");
+      setToast("Add a rough story before generating the finished brief.", "error");
       return;
     }
     const inputError = stageInputError(activeStep, productionSnapshot);
-    if (inputError) { setToast(inputError); return; }
+    if (inputError) { setToast(inputError, "error"); return; }
 
     setBusy("stage-generate");
     try {
@@ -2708,11 +2634,9 @@ export default function DramaStudio({
         !(error instanceof Error) ||
         error.message !== "KIE AI Key required."
       ) {
-        setToast(
-          error instanceof Error
+        setToast(error instanceof Error
             ? error.message
-            : "Kie AI could not generate this stage.",
-        );
+            : "Kie AI could not generate this stage.", "error");
       }
     } finally {
       setBusy(null);
@@ -2934,8 +2858,10 @@ export default function DramaStudio({
           failedTasks[0].message ||
             `Kie AI reported ${failedTasks.length} failed media task${
               failedTasks.length === 1 ? "" : "s"
-            }.`,
+            }.`, "error",
         );
+      } else if (newlyCompletedTask) {
+        setToast("Your generated media is ready to review.");
       } else if (!quiet) {
         setToast("Kie AI task statuses refreshed.");
       }
@@ -2945,11 +2871,9 @@ export default function DramaStudio({
         error.message !== "KIE AI Key required."
       ) {
         if (!quiet) {
-          setToast(
-            error instanceof Error
+          setToast(error instanceof Error
               ? error.message
-              : "Could not refresh Kie tasks.",
-          );
+              : "Could not refresh Kie tasks.", "error");
         }
       }
     } finally {
@@ -3075,101 +2999,7 @@ export default function DramaStudio({
           <div className="main-panel">
           <PageIntro title={steps[activeStep - 1].label} description={getStepDescription(activeStep)} eyebrow="Drama Studio" tone="lilac" art="story" />
 
-          <section className="drama-flexible-start" aria-label="Flexible Drama workflow">
-            <div><b>Start wherever you are</b><p>Use the guided stages, bring your own story, or go straight to video. Only the input for your next action is required.</p></div>
-            <div>{activeStep !== 5 && <button type="button" className="primary-button" disabled={Boolean(busy)} onClick={() => startCreate(5)}>Skip to video <ArrowRight size={14} /></button>}
-              {activeStep === 5 && workspaceView !== "create" && <button type="button" className="primary-button" onClick={() => startCreate(5)}>Write scene prompts <Plus size={14} /></button>}
-              <Link href="/drama-studio/info" className="quiet-button">View final outputs</Link>
-            </div>
-          </section>
-          <details className="drama-reference-panel">
-            <summary>Reference assets · optional · {selectedReferenceIds.length} selected</summary>
-            <div className="drama-reference-head">
-              <div>
-                <span className="context-kicker">Optional continuity controls</span>
-                <h2 id="drama-reference-title">Reference assets</h2>
-                <p>
-                  Select saved Persona media or upload a workspace-owned reference.
-                  Selected assets are included in every new image or video request.
-                </p>
-              </div>
-              <span className="drama-reference-count">
-                {selectedReferenceIds.length} selected
-              </span>
-            </div>
-
-            {referenceAssets.length > 0 ? (
-              <div className="drama-reference-list">
-                {referenceAssets.map((asset) => {
-                  const selected = selectedReferenceIds.includes(asset.id);
-                  return (
-                    <button
-                      type="button"
-                      key={asset.id}
-                      className={"drama-reference-chip " + (selected ? "selected" : "")}
-                      aria-pressed={selected}
-                      onClick={() =>
-                        setSelectedReferenceIds((current) =>
-                          selected
-                            ? current.filter((id) => id !== asset.id)
-                            : [...current, asset.id],
-                        )
-                      }
-                    >
-                      {asset.role === "audio" ? (
-                        <Play size={14} />
-                      ) : (
-                        <ImageIcon size={14} />
-                      )}
-                      <span>
-                        <b>{asset.label}</b>
-                        <small>{asset.role}</small>
-                      </span>
-                      {selected && <Check size={13} />}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="drama-reference-empty">
-                No saved Persona media yet. Upload one below to save and select it.
-              </p>
-            )}
-
-            <div className="drama-reference-uploads">
-              {referenceRoleOptions.map((option) => (
-                <label
-                  className={
-                    "drama-reference-upload " +
-                    (referenceBusyRole === option.role ? "busy" : "")
-                  }
-                  key={option.role}
-                >
-                  <input
-                    type="file"
-                    accept={option.accept}
-                    disabled={referenceBusyRole !== null}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      event.target.value = "";
-                      if (file) void uploadReferenceAsset(option.role, file);
-                    }}
-                  />
-                  <Plus size={14} />
-                  {referenceBusyRole === option.role
-                    ? "Uploading…"
-                    : option.label}
-                </label>
-              ))}
-            </div>
-            <p className="drama-reference-note">
-              References use GPT Image 2 or Seedream 4.5 for images and Seedance
-              2.0 for video. Unsupported model combinations are blocked before a
-              paid task is created.
-            </p>
-          </details>
-
-          {failureLogs.length > 0 && (
+{failureLogs.length > 0 && (
             <section className="temporary-error-log" aria-live="polite">
               <div className="temporary-error-log-head">
                 <div>
@@ -3275,6 +3105,8 @@ export default function DramaStudio({
               values={{
                 title,
                 roughStory,
+                seedPrompt,
+                continuity,
                 episodes,
                 episodeLength,
                 style,
@@ -3288,6 +3120,8 @@ export default function DramaStudio({
               setters={{
                 setTitle,
                 setRoughStory,
+                setSeedPrompt,
+                setContinuity,
                 setEpisodes,
                 setEpisodeLength,
                 setStyle,
@@ -3368,15 +3202,7 @@ export default function DramaStudio({
         </div>
       </main>
 
-      {toast && (
-        <div className="toast" role="status">
-          <CheckCircle2 size={17} />
-          <span>{toast}</span>
-          <button onClick={() => setToast(null)} aria-label="Dismiss">
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      <StatusToast toast={toast} onDismiss={() => setToast(null)} />
 
       {deleteCandidate && (
         <div className="confirmation-scrim" role="presentation">
@@ -5961,6 +5787,8 @@ function StepOne({
   values: {
     title: string;
     roughStory: string;
+    seedPrompt: string;
+    continuity: string;
     episodes: number;
     episodeLength: number;
     style: string;
@@ -5974,6 +5802,8 @@ function StepOne({
   setters: {
     setTitle: (value: string) => void;
     setRoughStory: (value: string) => void;
+    setSeedPrompt: (value: string) => void;
+    setContinuity: (value: string) => void;
     setEpisodes: (value: number) => void;
     setEpisodeLength: (value: number) => void;
     setStyle: (value: string) => void;
@@ -6016,7 +5846,7 @@ function StepOne({
     estimateVideoCredits("seedance-2.0", estimatedSceneDuration, "pro");
 
   return (
-    <div className="content-grid">
+    <div className="content-grid creative-brief-form">
       <div className="content-main">
         <section className="card">
           <div className="card-heading">
@@ -6028,43 +5858,6 @@ function StepOne({
               </p>
             </div>
             <span className="required-pill">Required</span>
-          </div>
-
-          <div className="brief-seed-generator">
-            <div className="brief-seed-copy">
-              <span className="brief-seed-icon">
-                <Sparkles size={16} />
-              </span>
-              <div>
-                <b>Need a strong starting point?</b>
-                <p>
-                  Kie AI will create a working title and premise with a clear
-                  protagonist, central conflict, and distinctive world.
-                </p>
-              </div>
-            </div>
-            <GenerationCost credits={chatCreditEstimate[chatModel]}>
-              <button
-                type="button"
-                className="primary-button brief-seed-button"
-                onClick={onGenerateSeed}
-                disabled={briefSeedBusy}
-              >
-                {briefSeedBusy ? (
-                  <>
-                    <LoadingMark /> Generating title &amp; premise
-                  </>
-                ) : values.roughStory.trim() ? (
-                  <>
-                    <RefreshCcw size={14} /> Regenerate title &amp; premise
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={14} /> Generate title &amp; premise
-                  </>
-                )}
-              </button>
-            </GenerationCost>
           </div>
 
           <div className="field">
@@ -6103,6 +5896,54 @@ function StepOne({
           </div>
         </section>
 
+        <details className="card seed-section">
+          <summary><Sparkles size={18} /><span><b>Generate title &amp; premise</b><small>Optional · give AI a direction to explore</small></span><ChevronDown size={18} /></summary>
+          <div className="seed-section-body">
+            <div className="field"><label htmlFor="seed-prompt">Extra direction for the AI</label>
+              <textarea id="seed-prompt" value={values.seedPrompt} maxLength={2000} onChange={event => update(() => setters.setSeedPrompt(event.target.value))} placeholder="For example: a hopeful mystery set in Singapore, with two estranged siblings and a surprising reunion." />
+              <p>Your direction is added to the selected format and creative settings. Generating replaces the working title and rough story above.</p>
+            </div>
+          <div className="brief-seed-generator">
+            <div className="brief-seed-copy">
+              <span className="brief-seed-icon">
+                <Sparkles size={16} />
+              </span>
+              <div>
+                <b>Need a strong starting point?</b>
+                <p>
+                  Kie AI will create a working title and premise with a clear
+                  protagonist, central conflict, and distinctive world.
+                </p>
+              </div>
+            </div>
+            <GenerationCost credits={chatCreditEstimate[chatModel]}>
+              <button
+                type="button"
+                className="primary-button brief-seed-button"
+                onClick={onGenerateSeed}
+                disabled={briefSeedBusy || Boolean(busy)}
+              >
+                {briefSeedBusy ? (
+                  <>
+                    <LoadingMark /> Generating title &amp; premise
+                  </>
+                ) : values.roughStory.trim() ? (
+                  <>
+                    <RefreshCcw size={14} /> Regenerate title &amp; premise
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} /> Generate title &amp; premise
+                  </>
+                )}
+              </button>
+            </GenerationCost>
+          </div>
+
+
+          </div>
+        </details>
+
         <section className="card">
           <div className="card-heading compact-heading">
             <div>
@@ -6111,8 +5952,8 @@ function StepOne({
             </div>
           </div>
 
-          <div className="form-grid three">
-            <SelectField
+          <div className="brief-format-grid">
+            <BriefChoiceField
               label="Number of episodes"
               value={String(values.episodes)}
               options={["4", "6", "8", "10", "12", "16"]}
@@ -6120,7 +5961,7 @@ function StepOne({
                 update(() => setters.setEpisodes(Number(value)))
               }
             />
-            <SelectField
+            <BriefChoiceField
               label="Length per episode"
               value={String(values.episodeLength)}
               options={["1", "2", "3", "5", "8"]}
@@ -6129,7 +5970,7 @@ function StepOne({
                 update(() => setters.setEpisodeLength(Number(value)))
               }
             />
-            <SelectField
+            <BriefChoiceField
               label="Aspect ratio"
               value={values.aspectRatio}
               options={["16:9", "9:16", "1:1", "2.39:1"]}
@@ -6137,7 +5978,7 @@ function StepOne({
                 update(() => setters.setAspectRatio(value))
               }
             />
-            <SelectField
+            <BriefChoiceField
               label="Visual style"
               value={values.style}
               options={[
@@ -6149,7 +5990,7 @@ function StepOne({
               ]}
               onChange={(value) => update(() => setters.setStyle(value))}
             />
-            <SelectField
+            <BriefChoiceField
               label="Pacing"
               value={values.pacing}
               options={[
@@ -6160,7 +6001,7 @@ function StepOne({
               ]}
               onChange={(value) => update(() => setters.setPacing(value))}
             />
-            <SelectField
+            <BriefChoiceField
               label="Language"
               value={values.language}
               options={[
@@ -6200,8 +6041,8 @@ function StepOne({
               <p>Set the audience, tone, and content boundaries.</p>
             </div>
           </div>
-          <div className="form-grid three">
-            <SelectField
+          <div className="brief-guardrail-grid">
+            <BriefChoiceField
               label="Target audience"
               value={values.audience}
               options={[
@@ -6212,17 +6053,17 @@ function StepOne({
               ]}
               onChange={(value) => update(() => setters.setAudience(value))}
             />
-            <SelectField
+            <BriefChoiceField
               label="Content rating"
               value={values.rating}
               options={["G", "PG", "PG-13", "R"]}
               onChange={(value) => update(() => setters.setRating(value))}
             />
-            <SelectField
+            <BriefChoiceField
               label="Continuity strength"
-              value="Strict"
+              value={values.continuity}
               options={["Strict", "Balanced", "Flexible"]}
-              onChange={markChanged}
+              onChange={(value) => update(() => setters.setContinuity(value))}
             />
           </div>
           <div className="field">
@@ -6235,6 +6076,7 @@ function StepOne({
                     type="button"
                     key={option}
                     className={`tone-chip ${selected ? "selected" : ""}`}
+                    aria-pressed={selected}
                     onClick={() =>
                       update(() =>
                         setters.setTone(
@@ -6271,12 +6113,12 @@ function StepOne({
               <Sparkles size={11} /> Kie AI
             </span>
           </div>
-          <ModelSelect
-            label="Brief generation model"
-            value={chatModel}
-            options={chatModelOptions}
-            onChange={(value) => setChatModel(value as ChatModelId)}
-          />
+          <fieldset className="brief-choices writing-model-choices"><legend>Brief generation model</legend>
+            <div className="brief-choice-options">{chatModelOptions.map(option => <label key={option.value} className={chatModel === option.value ? "selected" : ""}>
+              <input type="radio" name="brief-writing-model" value={option.value} checked={chatModel === option.value} onChange={() => update(() => setChatModel(option.value))} />
+              <span><b>{option.label.split(" · ")[0]}</b><small>{option.label.split(" · ")[1]} · ≈{chatCreditEstimate[option.value]} credits</small></span>
+            </label>)}</div>
+          </fieldset>
         </section>
 
         <div className="step-actions">
@@ -6291,7 +6133,7 @@ function StepOne({
             <button
               className="primary-button"
               onClick={onContinue}
-              disabled={!values.roughStory.trim() || busy === "stage-generate"}
+              disabled={!values.roughStory.trim() || briefSeedBusy || Boolean(busy)}
             >
               {busy === "stage-generate" ? (
                 <>
@@ -6307,81 +6149,6 @@ function StepOne({
         </div>
       </div>
 
-      <aside className="content-side">
-        <section className="side-card creative-director">
-          <div className="side-card-title">
-            <span className="assistant-orb">
-              <Sparkles size={15} />
-            </span>
-            <div>
-              <b>Creative director</b>
-              <small>Brief check</small>
-            </div>
-          </div>
-          <div className="director-score">
-            <div className="score-ring">
-              <span>86</span>
-            </div>
-            <div>
-              <b>Strong foundation</b>
-              <span>
-                Your premise has a clear protagonist, time pressure, and visual
-                world.
-              </span>
-            </div>
-          </div>
-          <ul className="check-list">
-            <li>
-              <CheckCircle2 size={14} /> Central conflict is specific
-            </li>
-            <li>
-              <CheckCircle2 size={14} /> Visual motif is repeatable
-            </li>
-            <li>
-              <CheckCircle2 size={14} /> Episode format is model-friendly
-            </li>
-          </ul>
-          <div className="suggestion-box">
-            <b>Optional improvement</b>
-            <p>
-              Name one thing Aya stands to lose personally if she exposes the
-              signal.
-            </p>
-          </div>
-        </section>
-
-        <section className="side-card">
-          <div className="side-card-title plain">
-            <b>How this works</b>
-            <span className="safe-pill">
-              <Layers3 size={11} /> Flexible
-            </span>
-          </div>
-          <div className="how-list">
-            <div>
-              <span>1</span>
-              <p>
-                <b>Generate</b>
-                <small>AI creates one production layer.</small>
-              </p>
-            </div>
-            <div>
-              <span>2</span>
-              <p>
-                <b>Review & edit</b>
-                <small>You control every word and selection.</small>
-              </p>
-            </div>
-            <div>
-              <span>3</span>
-              <p>
-                <b>Approve</b>
-                <small>Save a new version for the next stage.</small>
-              </p>
-            </div>
-          </div>
-        </section>
-      </aside>
     </div>
   );
 }

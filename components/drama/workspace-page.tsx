@@ -1,4 +1,5 @@
 "use client";
+import StatusToast, { useStatusToast } from "@/components/status-toast";
 import PageIntro from "@/components/page-intro";
 
 import Image from "next/image";
@@ -313,17 +314,11 @@ export default function WorkspacePage({
 }) {
   configureDramaStorageOwner(ownerId);
   configureCombinedEpisodeOwner(ownerId);
-  const [toast, setToast] = useState<string | null>(null);
+  const { toast, setToast } = useStatusToast();
   const kieCredits = useKieCredits();
   const meta = pageMeta[page];
 
-  useEffect(() => {
-    if (!toast) return;
-    const timeout = window.setTimeout(() => setToast(null), 2600);
-    return () => window.clearTimeout(timeout);
-  }, [toast]);
-
-  return (
+return (
     <div className="app-shell">
       <main className="main">
         <header className="topbar">
@@ -396,15 +391,7 @@ export default function WorkspacePage({
         </div>
       </main>
 
-      {toast && (
-        <div className="toast" role="status">
-          <CheckCircle2 size={17} />
-          <span>{toast}</span>
-          <button onClick={() => setToast(null)} aria-label="Dismiss">
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      <StatusToast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 }

@@ -49,3 +49,12 @@ Independent UAT: **Pass** on the final production build. The reviewer checked 10
 - Independent review caught the Research History popup extending beyond the viewport after the hero replacement. The menu now anchors to the left and clamps to its container; the responsive regression suite opens it at every tested width. Muted/faint text token checks exceed 4.5:1 against their intended light surfaces.
 
 - Final independent local verdict: PASS. In addition to the primary 104 checks, the dedicated agent exercised 33 populated editor/builder/result/admin states at 320/390/1440px, Research review/back/failed-queue recovery, Drama skip/manual/draft recovery and populated History menus at all four widths with actual row hit testing. No page exceptions, clipped dynamic controls or actual provider mutations were observed.
+
+## Drama Studio brief refinement — 2026-09-06
+
+- New Creative Brief removes the right-side director/help cards and global start/reference panels. Larger working-title and story inputs, an optional collapsed seed generator below them, and visible format/guardrail/model controls are rendered at 320/390/768/1440px without document overflow.
+- Focused browser checks verify seed prompt and continuity request payloads, selected model, browser draft refresh, generation failure retention, 15s success/30s red failure timing and X dismissal. Provider requests are intercepted; no paid generation is asserted.
+- Shared page tabs fill each row with a moving active indicator. Asset Library is directly accessible in the Drama tab row and a separate desktop hover-menu column; narrow layouts stack the menu columns.
+- Shared notices reserve their measured height outside the scrolling work area. This keeps the final Generate action clear while notices are visible.
+- Final local gates passed: lint (baseline warnings only), production build, tools/uat/drama-brief.cjs, tools/uat/ux-flows.cjs, tools/uat/header-welcome.cjs, and 104 checks in tools/uat/all-pages-style.cjs. The workflow test now verifies Back from creation to Generate & Edit library, then Back to Creative Brief.
+- Independent UAT and production evidence are recorded in the persistent project log.

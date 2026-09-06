@@ -1,4 +1,5 @@
 "use client";
+import StatusToast, { useStatusToast } from "@/components/status-toast";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -273,7 +274,7 @@ export default function Home() {
   const router = useRouter();
   const [data, setData] = useState<AppData | null>(null);
   const [screen, setScreen] = useState("home");
-  const [toast, setToast] = useState("");
+  const { toast, setToast } = useStatusToast();
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
   const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);
   const [directCreateInitial, setDirectCreateInitial] = useState<CreateContentInitial | null>(null);
@@ -336,11 +337,8 @@ export default function Home() {
       return result;
     } catch (error) {
       await refresh();
-      setToast(error instanceof Error ? error.message : "Action failed");
+      setToast(error instanceof Error ? error.message : "Action failed", "error");
       return null;
-    }
-    finally {
-      setTimeout(() => setToast(""), 2200);
     }
   }
 
@@ -360,7 +358,7 @@ export default function Home() {
 
   return (
     <div className={`app-shell ${screen === "home" ? "home-shell" : "workspace-shell"}`}>
-      {toast && <div className="toast">{toast}</div>}
+      <StatusToast toast={toast} onDismiss={() => setToast(null)} />
       <main className="main">
         <header className="topbar">
           <GlobalHeader

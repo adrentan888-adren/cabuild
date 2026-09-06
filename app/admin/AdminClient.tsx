@@ -1,4 +1,5 @@
 "use client";
+import StatusToast, { useStatusToast } from "@/components/status-toast";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -22,7 +23,7 @@ export default function AdminClient({ frontendBaseUrl = "" }: { frontendBaseUrl?
   const [data, setData] = useState<AdminAppData | null>(null);
   const [adminData, setAdminData] = useState<AdminUserData | null>(null);
   const [integrations, setIntegrations] = useState<IntegrationData | null>(null);
-  const [toast, setToast] = useState("");
+  const { toast, setToast } = useStatusToast();
   const [loading, setLoading] = useState(true);
 
   async function refresh() {
@@ -55,10 +56,8 @@ export default function AdminClient({ frontendBaseUrl = "" }: { frontendBaseUrl?
       return result;
     } catch (error) {
       await refresh();
-      setToast(error instanceof Error ? error.message : "Action failed");
+      setToast(error instanceof Error ? error.message : "Action failed", "error");
       return null;
-    } finally {
-      setTimeout(() => setToast(""), 2200);
     }
   }
 
@@ -75,10 +74,8 @@ export default function AdminClient({ frontendBaseUrl = "" }: { frontendBaseUrl?
       return await res.json();
     } catch (error) {
       await refresh();
-      setToast(error instanceof Error ? error.message : "Admin request failed");
+      setToast(error instanceof Error ? error.message : "Admin request failed", "error");
       return null;
-    } finally {
-      setTimeout(() => setToast(""), 2200);
     }
   }
 
@@ -87,7 +84,7 @@ export default function AdminClient({ frontendBaseUrl = "" }: { frontendBaseUrl?
 
   return (
     <div className="admin-shell">
-      {toast && <div className="toast">{toast}</div>}
+      <StatusToast toast={toast} onDismiss={() => setToast(null)} />
       <header className="topbar">
         <GlobalHeader activeMode={null} initialAccount={data.user} frontendBaseUrl={frontendBaseUrl} />
         <div className="page-context-bar"><div className="page-context-inner"><div className="topbar-title">Administration</div><button type="button" aria-label="Refresh admin data" onClick={refresh}><RefreshCcw size={15} />Refresh</button></div></div>

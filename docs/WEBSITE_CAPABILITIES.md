@@ -20,7 +20,7 @@ The Content Agent logo returns Home. The header keeps Home on the left and Norma
 | Analyze | `/?view=analyse` | View published-post count and average opportunity gap score. The engagement forecast is explicitly labeled as an example; it is a fixed demonstration value, not a measured forecast. |
 | Logs | `/?view=logs` | Inspect and filter operational/provider activity, job status and error details for diagnosis. |
 | Settings | `/?view=settings` | Edit workspace name and brand/niche context; obtain a social-account connection link; open permitted admin controls. Account connection requires the external provider's authorization page. |
-| Creative Brief | `/drama-studio?step=1` | Describe a story and production format, audience, language, pacing, tone and rating; optionally generate a creative seed or finished brief; save and review library records. Skip to video at any point. |
+| Creative Brief | `/drama-studio?step=1` | Describe a story and production format, audience, language, pacing, tone and rating; optionally generate a creative seed or finished brief; save and review library records. Open Generate & Edit directly at any point. |
 | Story Studio | `/drama-studio?step=2` | Supply your own brief or reuse saved work; generate and edit the season story, episode outlines, recurring characters, asset descriptions and scene prompts; reuse library images and generate selected assets. |
 | Visual Assets | `/drama-studio?step=3` | Legacy/direct stage for generating a visual asset pack from saved work or your own story direction. |
 | Scene Prompts | `/drama-studio?step=4` | Legacy/direct stage for generating editable scene prompts from saved work or your own story direction. |
@@ -47,9 +47,9 @@ The Content Agent logo returns Home. The header keeps Home on the left and Norma
 ### Drama: guided or direct
 
 - Guided: Creative Brief → Story Studio → Generate & Edit → Production Info.
-- Direct: choose **Skip to video**, write a scene prompt, set duration/model, then generate selected clips. Earlier AI stages are optional.
+- Direct: open **Generate & Edit**, choose **Create new generation job**, write a scene prompt, set duration/model, then generate selected clips. Earlier AI stages are optional.
 - Existing work: choose a saved source in the stage editor. You can also paste a brief or story direction into later stages.
-- Reference images: expand **Reference assets** when needed. Their absence or unfinished status does not require another generation step.
+- Reusable images: open **Asset Library** directly from the page tabs or its own Drama hover-menu column. Reuse saved assets in Story Studio; the global Reference assets panel has been removed.
 - Validation: a selected scene needs a non-empty prompt and a whole-number duration from 3 to 15 seconds. Skipping never marks earlier stages as completed. Browsing/skipping does not start a provider job.
 - Unfinished input is saved separately per stage in this browser. Reopen the stage's create action to resume it. Manual edits to a library record use the explicit Save action.
 - Generation results, references and combined-episode indexes use owner-scoped browser storage in Drama. Generated provider jobs/assets also hand off to the server-backed My Contents queue. Browser-only drafts and library metadata do not automatically sync between devices.
@@ -73,3 +73,12 @@ Implementation sources: `app/page.tsx`, `components/global-header.tsx`, `compone
 See [UX research and decisions](UX_RESEARCH_AND_DECISIONS.md) and [UX acceptance checks](UX_ACCEPTANCE.md).
 
 All page families use the same visual system as Home: compact illustrated introductions, cream surfaces, sage/lilac accents, consistent cards and controls. Existing actions remain inside their pages; the design does not add a prerequisite step or change provider workflows. See [prioritized UX suggestions](UX_IMPROVEMENT_BACKLOG.md).
+
+
+## Drama brief refinement — 2026-09-06
+
+- Full-width animated page navigation includes direct Asset Library access. The Drama hover directory separates creation pages and the library into columns (stacked on narrow phones).
+- The new brief uses a full-width readable editor and an optional collapsed title/premise generator below the story, with extra direction included in the seed prompt.
+- Episode/duration sliders and presets, ratio previews, visible style/pacing/language/audience/rating/continuity choices, tone toggles and model cards replace brief dropdowns. Draft settings, extra direction and writing-model preference survive browser refresh.
+- Continuity strength now reaches the writing prompt; older drafts default to Strict.
+- Shared status notices appear bottom-right with X dismissal: success 15 seconds, red failure 30 seconds. Their measured height reserves a footer area outside the scrolling workspace so controls remain unobstructed.

@@ -1,0 +1,91 @@
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+// No-spend local acceptance checks. Provider work and all content writes are intercepted.
+(async () => {
+  const browser = await chromium.launch({ headless: true, channel: 'chrome' });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  const errors = [], calls = []; let fail = false;
+  page.on('pageerror', error => errors.push(error.message));
+  await context.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/account/credits') return route.fulfill({ json: { user: { name: 'Demo', email: 'demo@example.test', role: 'owner' }, workspace: { credits: 1000 }, providers: [] } });
+    if (path.includes('credentials')) return route.fulfill({ json: { configured: true, statuses: { kie: { connected: true } } } });
+    if (path.includes('credits')) return route.fulfill({ json: { credits: 1000 } });
+    if (path === '/api/drama/generate/stage') {
+      const body = route.request().postDataJSON(); calls.push(body);
+      return route.fulfill(fail ? { status: 400, json: { message: 'UAT simulated provider failure' } } : { json: { ok: true, result: body.targetStage === 0 ? { title: 'The Last Lantern', roughStory: 'Two siblings uncover a hopeful mystery in Singapore.' } : { brief: 'A hopeful family mystery. Preserve the city and family relationships.' } } });
+    }
+    if (route.request().method() !== 'GET' && path !== '/api/auth/login') return route.fulfill({ status: 400, json: { message: 'UAT blocked mutation' } });
+    return route.continue();
+  });
+  await page.goto('http://localhost:3100/login');
+  await page.getByRole('button', { name: 'Enter workspace' }).click();
+  await page.locator('.global-header').waitFor();
+  await page.goto('http://localhost:3100/drama-studio?step=1');
+  assert.equal(await page.locator('.drama-flexible-start,.drama-reference-panel').count(), 0);
+  const nav = page.locator('.workspace-navigation');
+  assert.equal(await nav.getByRole('link', { name: 'Asset Library' }).count(), 1);
+  await nav.getByRole('link', { name: 'Asset Library' }).click();
+  await page.waitForURL('**/drama-studio/assets');
+  assert.equal(await page.locator('.workspace-navigation [aria-current=page]').innerText(), 'Asset Library');
+  await page.locator('.workspace-navigation').getByRole('link', { name: 'Creative Brief' }).click();
+  await page.getByRole('button', { name: /Create new.*brief/i }).first().click();
+  await page.locator('#project-title').fill('My draft');
+  await page.locator('#rough-story').fill('My own existing story, before generation.');
+  assert.equal(await page.locator('.creative-brief-form select').count(), 0);
+  assert.equal(await page.locator('.creative-brief-form .content-side').count(), 0);
+  assert.equal(await page.locator('.seed-section').getAttribute('open'), null);
+  await page.locator('.seed-section summary').click();
+  await page.locator('#seed-prompt').fill('A hopeful mystery in Singapore, with two estranged siblings.');
+  await page.getByRole('group', { name: 'Number of episodes', exact: true }).getByText('6', { exact: true }).click();
+  await page.getByRole('group', { name: 'Continuity strength' }).getByText('Flexible', { exact: true }).click();
+  await page.getByRole('group', { name: 'Language', exact: true }).getByText('Mandarin', { exact: true }).click();
+  await page.getByRole('group', { name: 'Brief generation model' }).getByText('Gemini 2.5 Flash', { exact: true }).click();
+  await page.reload();
+  await page.getByRole('button', { name: /Create new.*brief/i }).first().click();
+  await page.locator('.seed-section summary').click();
+  assert.match(await page.locator('#seed-prompt').inputValue(), /Singapore/);
+  assert(await page.getByRole('group', { name: 'Continuity strength' }).getByRole('radio', { name: 'Flexible' }).isChecked());
+  assert(await page.getByRole('group', { name: 'Language', exact: true }).getByRole('radio', { name: 'Mandarin' }).isChecked());
+  if (await page.locator(".status-notice").count()) await page.getByRole("button", { name: "Dismiss notification" }).click();
+  // Accelerate only the browser's clock; providers remain intercepted.
+  await page.clock.install();
+  await page.getByRole('button', { name: /Regenerate title & premise/ }).click();
+  await page.locator('.status-notice.is-success').waitFor();
+  assert.equal(calls.at(-1).snapshot.seedPrompt, 'A hopeful mystery in Singapore, with two estranged siblings.');
+  assert.equal(calls.at(-1).snapshot.continuity, 'Flexible');
+  assert.equal(calls.at(-1).model, 'gemini-2.5-flash');
+  assert.equal(await page.locator('#project-title').inputValue(), 'The Last Lantern');
+  await page.clock.runFor(14900); assert(await page.locator('.status-notice').isVisible());
+  await page.clock.runFor(200); assert.equal(await page.locator('.status-notice').count(), 0);
+  fail = true;
+  await page.getByRole('button', { name: /Regenerate title & premise/ }).click();
+  await page.locator('.status-notice.is-error').waitFor();
+  assert.equal(await page.locator('.status-notice').getAttribute('role'), 'alert');
+  await page.clock.runFor(29900); assert(await page.locator('.status-notice').isVisible());
+  await page.clock.runFor(200); assert.equal(await page.locator('.status-notice').count(), 0);
+  await page.getByRole('button', { name: /Regenerate title & premise/ }).click();
+  await page.locator('.status-notice.is-error').waitFor();
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
+  assert.equal(await page.locator('.status-notice').count(), 0);
+  assert.equal(await page.locator('#project-title').inputValue(), 'The Last Lantern');
+  for (const width of [1440, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.clock.runFor(400);
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `overflow ${width}`);
+    const font = await page.locator('#project-title').evaluate(el => parseFloat(getComputedStyle(el).fontSize)); assert(font >= 24);
+    await page.screenshot({ path: `.playwright-mcp/brief-${width}.png`, fullPage: true });
+    await page.getByRole('button', { name: 'Show Drama Studio pages' }).hover();
+    await page.clock.runFor(400);
+    const columns = await page.locator('.drama-menu-column').evaluateAll(els => els.map(el => ({ x: el.getBoundingClientRect().x, width: el.getBoundingClientRect().width })));
+    if (width > 420) assert(columns[1].x > columns[0].x + columns[0].width);
+    await page.keyboard.press('Escape');
+    await page.mouse.move(0, 0);
+  }
+  assert.deepEqual(errors, []);
+  fs.writeFileSync('.playwright-mcp/drama-brief-result.json', JSON.stringify({ passed: true, viewports: [1440,768,390,320], interceptedRequests: calls.length, errors }));
+  console.log('PASS brief controls, draft recovery, prompt payload, library navigation, success 15s / failure 30s / X, responsive layouts');
+  await browser.close();
+})().catch(error => { console.error(error); process.exit(1); });

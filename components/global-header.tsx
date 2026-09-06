@@ -225,11 +225,16 @@ export default function GlobalHeader({
             </div>
             <div className="global-nav-menu drama-menu" role="menu">
               <div className="global-menu-heading"><span>Drama Studio</span><small>From brief to production library</small></div>
-              <div className="global-menu-grid one-column">
-                {dramaPages.map(({ id, label, detail, href, icon: Icon }) => (
-                  <Link key={id} href={destination(href)} className={`global-menu-item ${activeMode === "drama" && activePage === id ? "active" : ""}`} onClick={() => { setOpenPanel(null); setSuppressedPanel("drama"); }} role="menuitem">
-                    <span><Icon size={14} /></span><span><b>{label}</b><small>{detail}</small></span>
-                  </Link>
+              <div className="drama-menu-columns">
+                {[dramaPages.filter(page => page.id !== "asset-library"), dramaPages.filter(page => page.id === "asset-library")].map((pages, index) => (
+                  <div className="drama-menu-column" key={index}>
+                    <span className="drama-menu-column-label">{index === 0 ? "Create a drama" : "Your library"}</span>
+                    {pages.map(({ id, label, detail, href, icon: Icon }) => (
+                      <Link key={id} href={destination(href)} className={`global-menu-item ${activeMode === "drama" && activePage === id ? "active" : ""}`} onClick={() => { setOpenPanel(null); setSuppressedPanel("drama"); }} role="menuitem">
+                        <span><Icon size={14} /></span><span><b>{label}</b><small>{detail}</small></span>
+                      </Link>
+                    ))}
+                  </div>
                 ))}
               </div>
             </div>

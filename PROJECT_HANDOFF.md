@@ -374,3 +374,12 @@ Demo web app login:
 - Added UX_IMPROVEMENT_BACKLOG.md with prioritized optional next steps. Independent UAT and production evidence are recorded in the persistent project log after release.
 
 - Independent review caught the Research History popup extending beyond the viewport after the hero replacement. The menu now anchors to the left and clamps to its container; the responsive regression suite opens it at every tested width. Muted/faint text token checks exceed 4.5:1 against their intended light surfaces.
+
+## 2026-09-06 — Drama Studio brief and navigation refinement
+
+- Simplified new Creative Brief to a full-width editor with larger working title/readable story text, removing the Creative director/How this works sidebar and the global Start wherever/Reference assets panels. Direct video entry remains in Generate & Edit.
+- Added a separate collapsible seed generator below the story with a persisted extra-direction input passed through frontend and server prompt filtering for stage 0 only.
+- Replaced brief dropdowns with accessible native radio choices, ratio previews, episode/duration sliders and model cards. Continuity selection now persists and reaches writing prompts; writing-model preferences survive refresh.
+- Full-width shared page navigation animates its active indicator and includes Asset Library. Drama hover navigation separates the library into its own responsive column.
+- Consolidated Normal, Drama and admin notices into a shared component: bottom-right success 15s, explicit red failure 30s, accessible announcements and X dismissal. Dynamic footer reservation prevents notices covering scrollable work controls.
+- Focused no-spend regression: tools/uat/drama-brief.cjs; existing direct-video regression follows Generate & Edit after the requested banner removal. Local/independent UAT and release evidence are recorded in the project log.

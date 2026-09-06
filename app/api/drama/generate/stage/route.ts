@@ -11,6 +11,8 @@ type GenerationRequest = {
   snapshot?: {
     title?: string;
     roughStory?: string;
+    seedPrompt?: string;
+    continuity?: string;
     generatedBrief?: string;
     episodes?: number;
     episodeLength?: number;
@@ -213,6 +215,8 @@ function stageContext(
   const creativeDirection = {
     title: source.title,
     roughStory: source.roughStory,
+    ...(targetStage === 0 ? { seedPrompt: typeof source.seedPrompt === "string" ? source.seedPrompt.slice(0, 2000) : "" } : {}),
+    continuity: ["Strict", "Balanced", "Flexible"].includes(source.continuity ?? "") ? source.continuity : "Strict",
     episodes: source.episodes,
     episodeLength: source.episodeLength,
     style: source.style,
@@ -264,7 +268,8 @@ number and length of episodes. Treat any existing title or premise as optional
 inspiration, make fresh creative choices instead of merely paraphrasing it, and
 respect the selected genre, audience, rating, language, tone, and pacing. Keep
 the premise focused and useful as editable creator input rather than formatting
-it as a finished creative brief.
+it as a finished creative brief. Follow the creator's seedPrompt as additional
+direction when provided, and respect the selected continuity strength.
 
 CURRENT CREATIVE DIRECTION:
 ${context}`;

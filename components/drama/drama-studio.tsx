@@ -1,6 +1,7 @@
 "use client";
 import StatusToast, { useStatusToast } from "@/components/status-toast";
 import { readDramaResponse } from "@/lib/drama/read-response";
+import BriefLibraryCard from "@/components/drama/brief-library-card";
 import BriefChoiceField from "@/components/drama/brief-choice-field";
 import PageIntro from "@/components/page-intro";
 
@@ -113,7 +114,7 @@ type CharacterProfile = {
   arc: string;
 };
 
-type ProductionSnapshot = {
+export type ProductionSnapshot = {
   completed: number[];
   title: string;
   roughStory: string;
@@ -139,7 +140,11 @@ type ProductionSnapshot = {
   episodeDrafts: number;
 };
 
-type WorkflowRecord = {
+export type WorkflowRecord = {
+  status?: "generating" | "ready" | "failed";
+  error?: string;
+  serverJob?: boolean;
+  serverConfirmedAt?: number;
   id: string;
   stage: number;
   name: string;
@@ -903,6 +908,8 @@ export default function DramaStudio({
   const [selectedRecordIds, setSelectedRecordIds] = useState<
     Record<number, string>
   >({});
+  const briefSubmission = useRef(false);
+  const deletedBriefIds = useRef(new Set<string>());
   const [hydrated, setHydrated] = useState(false);
   const reusableAssetHandled = useRef(false);
   const creditRefreshTimeout = useRef<number | null>(null);
@@ -1203,6 +1210,36 @@ export default function DramaStudio({
       } satisfies WorkflowLibrary),
     );
   }, [hydrated, selectedRecordIds, workflowRecords]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      const requestedAt = Date.now();
+      try {
+        const response = await fetch("/api/drama/brief-jobs", { cache: "no-store" });
+        const payload = await readDramaResponse(response) as { jobs?: Array<{ id: string; snapshot: ProductionSnapshot; model: string; status: "generating" | "ready" | "failed"; error?: string; createdAt: string }> };
+        if (!stopped && response.ok && payload.jobs) {
+          setWorkflowRecords(current => {
+            const returnedIds = new Set(payload.jobs!.map(job => job.id));
+            const merged = new Map(current.filter(record => !record.serverJob || !record.serverConfirmedAt || record.serverConfirmedAt >= requestedAt || returnedIds.has(record.id)).map(record => [record.id, record]));
+            for (const job of payload.jobs!) {
+              if (deletedBriefIds.current.has(job.id)) continue;
+              const existing = merged.get(job.id);
+              // A slow poll must not downgrade a completed response.
+              if (job.status === "generating" && existing?.status !== "generating" && existing?.serverConfirmedAt && existing.serverConfirmedAt >= requestedAt) continue;
+              merged.set(job.id, { ...existing, ...job, stage: 1, serverJob: true, serverConfirmedAt: Date.now(), name: job.snapshot.title || "Untitled drama", updatedAt: job.status });
+            }
+            return [...merged.values()];
+          });
+        }
+      } catch { /* Keep saved state while connectivity recovers. */ }
+      if (!stopped) timer = setTimeout(refresh, 5000);
+    };
+    void refresh();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [hydrated]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1526,9 +1563,16 @@ const markChanged = () => {
     setToast(`${source.name} selected. Generation has not started.`);
   };
 
-  const deleteWorkflowRecord = (recordId: string) => {
+  const deleteWorkflowRecord = async (recordId: string) => {
     const record = workflowRecords.find((item) => item.id === recordId);
     if (!record) return;
+    if (record.serverJob) {
+      try {
+        const response = await fetch("/api/drama/brief-jobs?id=" + encodeURIComponent(recordId), { method: "DELETE" });
+        if (!response.ok) { const payload = await readDramaResponse(response); throw new Error(String(payload.message || "Could not delete this brief.")); }
+        deletedBriefIds.current.add(recordId);
+      } catch (error) { setToast(error instanceof Error ? error.message : "Could not delete this brief.", "error"); return; }
+    }
     const remaining = workflowRecords.filter(
       (item) => item.stage === record.stage && item.id !== recordId,
     );
@@ -2368,6 +2412,36 @@ const markChanged = () => {
     const inputError = stageInputError(activeStep, productionSnapshot);
     if (inputError) { setToast(inputError, "error"); return; }
 
+    if (activeStep === 1) {
+      if (briefSubmission.current) return;
+      briefSubmission.current = true;
+      queueMicrotask(() => { briefSubmission.current = false; });
+      const id = crypto.randomUUID();
+      const snapshot = cloneSnapshot(productionSnapshot);
+      snapshot.generatedBrief = "";
+      const pending: WorkflowRecord = { id, stage: 1, name: snapshot.title || "Untitled drama", snapshot, model: chatModel, createdAt: new Date().toISOString(), updatedAt: "Generating", status: "generating", serverJob: true };
+      setWorkflowRecords(current => [pending, ...current]);
+      setSelectedRecordIds(current => ({ ...current, 1: id }));
+      setWorkspaceView("library");
+      setEditingRecordId("");
+      window.history.pushState({}, "", stepPaths[1]);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.localStorage.removeItem(dramaStorageKey("drama-studio:draft-1"));
+      try {
+        const response = await fetch("/api/drama/brief-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, model: chatModel, snapshot }) });
+        const payload = await readDramaResponse(response) as { job?: { snapshot: ProductionSnapshot; status: "generating" | "ready" | "failed"; error?: string }; message?: string };
+        if (payload.job) {
+          setWorkflowRecords(current => current.map(record => record.id === id ? { ...record, ...payload.job, serverConfirmedAt: Date.now(), updatedAt: payload.job!.status } : record));
+          if (payload.job.status === "failed") throw new Error(payload.job.error || "Creative brief generation failed.");
+          if (payload.job.status === "ready") setToast("Creative brief ready.");
+        } else throw new Error(payload.message || "Creative brief generation failed.");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Creative brief generation failed.";
+        setWorkflowRecords(current => current.map(record => record.id === id && record.status !== "ready" ? { ...record, status: "failed", error: message, updatedAt: "Failed" } : record));
+        setToast(message, "error");
+      }
+      return;
+    }
     setBusy("stage-generate");
     try {
       const snapshot = cloneSnapshot(productionSnapshot);
@@ -3624,6 +3698,7 @@ function WorkflowContextBar({
   };
 
   const recordState = (record: WorkflowRecord) => {
+    if (record.stage === 1) return record.status === "generating" ? "Generating" : record.status === "failed" ? "Failed" : record.snapshot.generatedBrief.trim() ? "Ready" : "Failed";
     const generating =
       record.snapshot.assets.some((asset) => asset.status === "generating") ||
       record.snapshot.scenes.some((scene) => scene.status === "generating");
@@ -3700,7 +3775,7 @@ function WorkflowContextBar({
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
           >
-            {['All', 'Current', 'Generating', 'Ready', 'Saved'].map((option) => (
+            {(stage === 1 ? ['All', 'Generating', 'Ready', 'Failed'] : ['All', 'Current', 'Generating', 'Ready', 'Saved']).map((option) => (
               <option value={option} key={option}>{option}</option>
             ))}
           </select>
@@ -3729,8 +3804,7 @@ function WorkflowContextBar({
             <Sparkles size={22} />
             <h3>No finished {currentName.plural} yet</h3>
             <p>
-              Create one with Kie AI. It will appear here only after generation
-              succeeds.
+              {stage === 1 ? "Create a brief to see its progress and finished result here." : "Create one with Kie AI. It will appear here after generation succeeds."}
             </p>
             <button className="primary-button" onClick={onCreate}>
               <Plus size={14} /> Create {currentName.singular}
@@ -3754,6 +3828,7 @@ function WorkflowContextBar({
           </div>
         )}
         {visibleRecords.map((record) => {
+          if (stage === 1) return <BriefLibraryCard key={record.id} record={record} stories={allRecords.filter(item => item.stage === 2 && item.sourceId === record.id)} onUse={() => onUse(record.id)} onDelete={() => onDelete(record.id)} />;
           const selected = record.id === selectedId;
           const loading = busy === `use-${record.id}`;
           const jobGenerating =
@@ -5936,32 +6011,7 @@ function StepOne({
 
           </div>
         </details>
-        <div className="step-actions">
-          <div>
-            <b>Ready to generate the finished brief?</b>
-            <span>
-              Kie AI turns these inputs into a polished creative brief and
-              saves only the finished result to the Brief library.
-            </span>
-          </div>
-          <GenerationCost credits={chatCreditEstimate[chatModel]}>
-            <button
-              className="primary-button"
-              onClick={onContinue}
-              disabled={!values.roughStory.trim() || briefSeedBusy || Boolean(busy)}
-            >
-              {busy === "stage-generate" ? (
-                <>
-                  <LoadingMark /> Generating with Kie AI
-                </>
-              ) : (
-                <>
-                  Generate finished brief <Sparkles size={15} />
-                </>
-              )}
-            </button>
-          </GenerationCost>
-        </div>
+
         </section>
 
         <section className="card">
@@ -6140,6 +6190,12 @@ function StepOne({
             </label>)}</div>
           </fieldset>
         </section>
+        <div className="brief-generate-footer">
+          <span>Estimated cost: ≈ {chatCreditEstimate[chatModel]} credits</span>
+          <button className="primary-button" onClick={onContinue} disabled={!values.roughStory.trim() || briefSeedBusy || Boolean(busy)}>
+            {busy === "stage-generate" ? <LoadingMark /> : <Sparkles size={15} />} Generate
+          </button>
+        </div>
 
 
       </div>

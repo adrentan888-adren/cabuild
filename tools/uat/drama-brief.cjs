@@ -13,6 +13,11 @@ const fs = require('node:fs');
     if (path === '/api/account/credits') return route.fulfill({ json: { user: { name: 'Demo', email: 'demo@example.test', role: 'owner' }, workspace: { credits: 1000 }, providers: [] } });
     if (path.includes('credentials')) return route.fulfill({ json: { configured: true, statuses: { kie: { connected: true } } } });
     if (path.includes('credits')) return route.fulfill({ json: { credits: 1000 } });
+    if (path === '/api/drama/brief-jobs') {
+      if (route.request().method() === 'GET') return route.fulfill({ json: { ok: true, jobs: [] } });
+      const body = route.request().postDataJSON(); calls.push({ ...body, targetStage: 1 });
+      return route.fulfill({ json: { ok: true, job: { ...body, status: 'ready', createdAt: new Date().toISOString(), snapshot: { ...body.snapshot, generatedBrief: 'A hopeful family mystery.' } } } });
+    }
     if (path === '/api/drama/generate/stage') {
       const body = route.request().postDataJSON(); calls.push(body);
       return route.fulfill(fail ? { status: 500, contentType: 'text/plain', body: longFailure } : { json: { ok: true, result: body.targetStage === 0 ? { title: 'The Last Lantern', roughStory: 'Two siblings uncover a hopeful mystery in Singapore.' } : { brief: 'A hopeful family mystery. Preserve the city and family relationships.' } } });
@@ -22,7 +27,7 @@ const fs = require('node:fs');
   });
   await page.goto('http://localhost:3100/login');
   await page.getByRole('button', { name: 'Enter workspace' }).click();
-  await page.locator('.global-header').waitFor();
+  await page.locator('.global-header').waitFor(); await page.waitForURL(url => !url.pathname.startsWith('/login'));
   await page.goto('http://localhost:3100/drama-studio?step=1');
   assert.equal(await page.locator('.drama-flexible-start,.drama-reference-panel').count(), 0);
   const nav = page.locator('.workspace-navigation');
@@ -43,7 +48,9 @@ const fs = require('node:fs');
   assert.equal(await page.locator('.numeric-choices input[type=radio]').count(), 0);
   assert.equal(await page.locator('.numeric-choices').first().locator('.brief-slider-points>span').count(), 6);
   assert.equal(await page.locator('.brief-story-section .seed-section').count(), 1);
-  assert.equal(await page.locator('.brief-story-section').getByRole('button', { name: 'Generate finished brief' }).count(), 1);
+  assert.equal(await page.locator('.brief-story-section').getByRole('button', { name: 'Generate', exact: true }).count(), 0);
+  assert.equal(await page.locator('.creative-brief-form .content-main > :last-child').getAttribute('class'), 'brief-generate-footer');
+  assert.match(await page.locator('.brief-generate-footer').innerText(), /Estimated cost/);
   assert.equal(await page.getByText(/Strong seeds mention/).count(), 0);
   await page.getByRole('group', { name: 'Continuity strength' }).getByText('Flexible', { exact: true }).click();
   await page.getByRole('group', { name: 'Language', exact: true }).getByText('Mandarin', { exact: true }).click();
@@ -92,7 +99,7 @@ const fs = require('node:fs');
     await page.mouse.move(0, 0);
   }
   fail = false;
-  await page.getByRole('button', { name: 'Generate finished brief', exact: true }).click();
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
   await page.locator('.creative-brief-form').waitFor({ state: 'detached' });
   assert.equal(calls.at(-1).targetStage, 1);
   assert.match(await page.locator('.main-panel').innerText(), /The Last Lantern/);

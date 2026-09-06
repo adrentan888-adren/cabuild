@@ -134,3 +134,59 @@
 .status-notice.is-error>.status-notice-message:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 @media(max-width:900px){.brief-guardrail-grid{grid-template-columns:1fr}.brief-guardrail-grid>.brief-choices .brief-choice-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.brief-format-grid>.brief-choices,.brief-guardrail-grid>.brief-choices{padding:14px}.drama-embedded-root .creative-brief-form .tone-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.brief-story-section .seed-section>summary{padding:16px}.brief-story-section .seed-section-body{padding:0 16px 16px}.brief-slider-points>span{font-size:11px}}
+
+/* Creative brief generation and read-only library review. */
+.drama-embedded-root .brief-generate-footer { display:flex; align-items:center; justify-content:flex-end; gap:18px; padding:8px 0 20px; }
+.drama-embedded-root .brief-generate-footer > span { color:#716a77; font-size:13px; }
+.drama-embedded-root .brief-library-card { display:block; padding:20px; }
+.drama-embedded-root .brief-library-header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+.drama-embedded-root .brief-library-title { display:flex; flex-wrap:wrap; align-items:center; gap:10px; min-width:0; }
+.drama-embedded-root .brief-library-title h3 { font-size:20px; font-weight:750; line-height:1.4; overflow-wrap:anywhere; margin:0; }
+.drama-embedded-root .brief-library-actions { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.drama-embedded-root .brief-collapse { min-width:36px; height:36px; }
+.drama-embedded-root .brief-collapse svg { transition:transform .2s ease; }
+.drama-embedded-root .brief-collapse[aria-expanded=true] svg { transform:rotate(180deg); }
+.drama-embedded-root .brief-library-content { padding:22px 0 4px; }
+.drama-embedded-root .brief-readonly-text { white-space:pre-wrap; overflow-wrap:anywhere; font-size:15px; line-height:1.8; color:#403748; }
+.drama-embedded-root .brief-library-footer { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:24px; padding-top:16px; border-top:1px solid rgba(160,140,190,.16); }
+.drama-embedded-root .brief-library-footer > div { display:flex; align-items:center; flex-wrap:wrap; gap:16px; }
+.drama-embedded-root .brief-library-footer time { font-size:14px; color:#716a77; }
+.drama-embedded-root .brief-delete { display:flex; align-items:center; gap:7px; color:#a62f3e; background:transparent; border:0; padding:9px; cursor:pointer; }
+.drama-embedded-root .brief-delete:disabled { opacity:.45; cursor:not-allowed; }
+.drama-embedded-root .brief-status-generating { color:#65417f; background:rgba(154,105,240,.18); }
+.drama-embedded-root .brief-status-ready { color:#226943; background:rgba(44,176,110,.13); }
+.drama-embedded-root .brief-status-failed { color:#a62f3e; background:rgba(221,55,65,.16); }
+.drama-embedded-root .brief-error { color:#a62f3e; white-space:pre-wrap; overflow-wrap:anywhere; }
+.drama-embedded-root .brief-status-spinner { animation:brief-spin 1.2s linear infinite; }
+@keyframes brief-spin { to { transform:rotate(360deg); } }
+.drama-embedded-root .brief-info-dialog { width:min(760px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); padding:0; color:#403748; background:#fffefb; border:1px solid #d8cce1; border-radius:18px; box-shadow:0 24px 100px #0008; }
+.drama-embedded-root .brief-info-dialog[open] { display:flex; flex-direction:column; }
+.drama-embedded-root .brief-info-dialog::backdrop { background:rgba(8,5,16,.75); }
+.drama-embedded-root .brief-info-dialog > header, .drama-embedded-root .brief-info-dialog > footer { flex-shrink:0; padding:22px 24px; }
+.drama-embedded-root .brief-info-dialog > header { border-bottom:1px solid #e5dbea; }
+.drama-embedded-root .brief-info-dialog > header span { color:#716a77; font-size:13px; }
+.drama-embedded-root .brief-info-dialog h2 { font-size:24px; font-weight:750; margin:8px 0 0; overflow-wrap:anywhere; }
+.drama-embedded-root .brief-info-dialog > footer { display:flex; justify-content:space-between; gap:12px; border-top:1px solid #e5dbea; }
+.drama-embedded-root .brief-info-body { padding:24px; overflow-y:auto; overscroll-behavior:contain; }
+.drama-embedded-root .brief-info-body section + section { margin-top:30px; }
+.drama-embedded-root .brief-info-body h3 { font-size:16px; margin:0 0 16px; }
+.drama-embedded-root .brief-info-body dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; margin:0; }
+.drama-embedded-root .brief-info-body dl > div:nth-child(-n+3) { grid-column:1/-1; }
+.drama-embedded-root .brief-info-body dt { color:#716a77; font-size:12px; margin-bottom:6px; }
+.drama-embedded-root .brief-info-body dd { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.65; }
+.drama-embedded-root .brief-info-body li time { display:block; color:#716a77; margin-top:6px; }
+@media(max-width:640px) {
+ .drama-embedded-root .brief-library-header { flex-direction:column; gap:16px; }
+ .drama-embedded-root .brief-library-actions { width:100%; justify-content:flex-end; }
+ .drama-embedded-root .brief-library-footer > div { align-items:flex-start; flex-direction:column; gap:10px; }
+ .drama-embedded-root .brief-library-footer { align-items:flex-end; }
+ .drama-embedded-root .brief-info-dialog > header, .drama-embedded-root .brief-info-dialog > footer, .drama-embedded-root .brief-info-body { padding:18px; }
+ .drama-embedded-root .brief-info-dialog > footer { flex-wrap:wrap; }
+ .drama-embedded-root .brief-info-body dl { grid-template-columns:1fr; }
+ .drama-embedded-root .brief-generate-footer { flex-wrap:wrap; }
+}
+@media(prefers-reduced-motion:reduce) { .drama-embedded-root .brief-status-spinner { animation:none; } .drama-embedded-root .brief-collapse svg { transition:none; } }
+.drama-embedded-root .brief-generate-footer .primary-button,
+.drama-embedded-root .brief-info-dialog .primary-button { background:#79638c; border-color:#79638c; color:#fff; }
+.drama-embedded-root .brief-generate-footer .primary-button:hover:not(:disabled),
+.drama-embedded-root .brief-info-dialog .primary-button:hover:not(:disabled) { background:#674f7b; border-color:#674f7b; }

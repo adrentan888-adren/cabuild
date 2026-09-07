@@ -302,3 +302,102 @@
 .saved-work-empty { text-align:center; padding:30px 18px; color:#79638c; }
 .drama-embedded-root .story-library-card .brief-library-content { padding:20px; }
 @media(max-width:640px) { .saved-work-toolbar { flex-wrap:wrap; } .saved-work-search { flex-basis:100%; } .saved-work-card { padding:14px; gap:10px; } .drama-embedded-root .story-library-card .brief-library-content { padding:12px; } .drama-embedded-root .story-source-summary>div { min-width:100%; } }
+
+/* Story Studio uses the same quiet lilac surfaces and readable editors as Creative Brief. */
+.drama-embedded-root .brief-library-card.expanded .brief-library-header { background:#746c7b; }
+.drama-embedded-root .story-studio-workspace { display:grid; gap:24px; }
+.drama-embedded-root .story-studio-section { padding:24px; border:1px solid #e1d8e7; border-radius:18px; background:#fffefb; box-shadow:0 3px 12px #65526f06; }
+.drama-embedded-root .story-studio-section-head { gap:18px; padding-bottom:18px; margin-bottom:20px; border-bottom:1px solid #ece4f1; }
+.drama-embedded-root .story-studio-section-head h3 { font-size:24px; line-height:1.35; color:#615569; letter-spacing:-.025em; }
+.drama-embedded-root .story-studio-section-head > div > span,
+.drama-embedded-root .story-studio-subsection-head > div > span { color:#83758d; font-size:12px; letter-spacing:.06em; }
+.drama-embedded-root .story-studio-storyline,
+.drama-embedded-root .story-studio-episodes textarea,
+.drama-embedded-root .story-studio-scenes textarea,
+.drama-embedded-root .story-image-prompt textarea { font-size:16px; line-height:1.85; padding:18px; background:#fffefb; border:1px solid #ded4e5; border-radius:12px; color:#504857; }
+.drama-embedded-root .story-studio-storyline { min-height:250px; }
+.drama-embedded-root .story-studio-episodes { display:grid; grid-template-columns:1fr; gap:20px; }
+.drama-embedded-root .story-studio-episode { padding:22px; border:1px solid #e2d8e9; border-radius:16px; background:linear-gradient(115deg,#f7f2fa,#fcfafc); }
+.drama-embedded-root .story-studio-episode > span { display:inline-block; color:#79638c; font-size:13px; font-weight:700; margin-bottom:12px; }
+.drama-embedded-root .story-studio-episodes input { width:100%; font-size:24px; font-weight:700; min-height:56px; padding:10px 14px; margin-bottom:14px; color:#615569; background:#fffefb; border:1px solid #e1d5e9; border-radius:10px; }
+.drama-embedded-root .story-studio-episodes textarea { min-height:180px; }
+.drama-embedded-root .prompt-section-head { display:grid; grid-template-columns:1fr; }
+.drama-embedded-root .story-studio-section-actions { display:flex; align-items:flex-start; width:100%; gap:18px; }
+.drama-embedded-root .story-studio-prompt-controls { display:grid; gap:20px; flex:1; min-width:0; width:100%; }
+.drama-embedded-root .studio-model-choices { width:100%; min-width:0; margin:0; }
+.drama-embedded-root .studio-model-choices legend { font-size:14px; font-weight:700; color:#6c5c79; margin-bottom:10px; }
+.drama-embedded-root .studio-model-choices .brief-choice-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(185px,100%),1fr)); gap:10px; }
+.drama-embedded-root .studio-model-choices label { padding:14px; min-height:72px; }
+.drama-embedded-root .studio-model-choices b { display:block; font-size:15px; }
+.drama-embedded-root .studio-model-choices small { display:block; margin-top:6px; font-size:12px; color:#7b6e84; }
+.drama-embedded-root .studio-episode-range { padding:18px; border:1px solid #e2d8e9; border-radius:12px; background:#f8f4fa; }
+.drama-embedded-root .studio-episode-range label { display:flex; justify-content:space-between; font-size:14px; font-weight:650; color:#6c5c79; }
+.drama-embedded-root .studio-episode-range output { color:#79638c; font-size:18px; }
+.drama-embedded-root .studio-episode-range input { width:100%; margin:20px 0 10px; accent-color:#84718f; }
+.drama-embedded-root .studio-range-points { display:flex; justify-content:space-between; font-size:12px; color:#85768e; }
+.drama-embedded-root .story-studio-workspace :is(.primary-button,.secondary-button,.regenerate-episode-prompts) { min-height:44px; padding:12px 16px; font-size:14px; border-radius:11px; font-weight:650; }
+.drama-embedded-root .story-studio-workspace .primary-button { background:#796b84; border-color:#796b84; color:#fff; }
+.drama-embedded-root .story-studio-workspace .secondary-button { background:#f5eff9; border:1px solid #ccbdd7; color:#675570; }
+.drama-embedded-root .story-studio-workspace button:disabled { opacity:.5; cursor:not-allowed; box-shadow:none; }
+.drama-embedded-root .story-studio-scene-episode-head { flex-wrap:wrap; padding:18px; background:#f0eaf5; border-radius:12px; gap:12px; margin-bottom:14px; }
+.drama-embedded-root .story-studio-scene-episode-head > b { font-size:20px; line-height:1.4; color:#63546e; }
+.drama-embedded-root .story-studio-scene-episode-head > span { font-size:13px; font-weight:700; color:#79638c; }
+.drama-embedded-root .story-studio-scenes { display:grid; grid-template-columns:1fr; gap:12px; }
+.drama-embedded-root .studio-prompt-card { background:#fffefb; border:1px solid #ded3e6; border-radius:14px; overflow:hidden; min-width:0; }
+.drama-embedded-root .studio-prompt-card > summary { list-style:none; display:flex; justify-content:space-between; align-items:center; gap:16px; padding:18px 20px; cursor:pointer; background:#f5eff8; color:#675570; }
+.drama-embedded-root .studio-prompt-card > summary::-webkit-details-marker { display:none; }
+.drama-embedded-root .studio-prompt-card summary b { display:block; margin-top:5px; font-size:20px; line-height:1.4; overflow-wrap:anywhere; }
+.drama-embedded-root .studio-prompt-card summary small { color:#85738f; font-size:12px; }
+.drama-embedded-root .studio-prompt-card summary svg { flex-shrink:0; transition:transform .18s; }
+.drama-embedded-root .studio-prompt-card[open] > summary { background:#eee7f2; }
+.drama-embedded-root .studio-prompt-card[open] > summary svg { transform:rotate(180deg); }
+.drama-embedded-root .studio-prompt-card > textarea { width:calc(100% - 32px); margin:16px; min-height:180px; }
+.drama-embedded-root .story-image-prompt summary { padding:14px; font-size:15px; font-weight:650; }
+.drama-embedded-root .story-image-prompt label { display:block; padding:14px; }
+.drama-embedded-root .story-studio-subsection-head { flex-wrap:wrap; gap:18px; padding:0 0 18px; }
+.drama-embedded-root .story-studio-subsection-head h4 { font-size:22px; color:#65576f; }
+.drama-embedded-root .story-studio-bulk-controls { display:grid; gap:16px; width:100%; }
+.drama-embedded-root .story-studio-asset-copy h4 { font-size:21px; line-height:1.4; color:#62526d; }
+.drama-embedded-root .story-studio-asset-copy > p { font-size:14px; line-height:1.7; }
+.drama-embedded-root .saved-work-copy { gap:0; }
+@media(max-width:640px) {
+ .drama-embedded-root .story-studio-section { padding:16px; }
+ .drama-embedded-root .story-studio-section-head h3 { font-size:21px; }
+ .drama-embedded-root .story-studio-episode { padding:14px; }
+ .drama-embedded-root .story-studio-episodes input { font-size:21px; }
+ .drama-embedded-root .story-studio-section-actions { flex-wrap:wrap; }
+ .drama-embedded-root .studio-model-choices .brief-choice-options { grid-template-columns:1fr; }
+ .drama-embedded-root .story-studio-scene-episode-head .generation-cost { width:100%; }
+ .drama-embedded-root .studio-prompt-card > summary { padding:16px; }
+}
+@media(prefers-reduced-motion:reduce) { .drama-embedded-root .studio-prompt-card summary svg { transition:none; } }
+.drama-embedded-root .story-studio-scene-episode-head { display:flex; }
+.drama-embedded-root .story-studio-scene-episode-head > b { flex:1; min-width:120px; }
+.drama-embedded-root .story-studio-workspace .generation-cost-action { max-width:100%; min-width:0; }
+.drama-embedded-root .story-studio-workspace button { white-space:normal; }
+.drama-embedded-root .story-studio-workspace .primary-button { white-space:normal; }
+.drama-embedded-root .story-studio-workspace :is(button,summary):focus-visible { outline:2px solid #746c7b; outline-offset:3px; }
+.drama-embedded-root .studio-range-points { gap:2px; }
+@media(max-width:640px) { .drama-embedded-root .story-studio-bulk-controls { min-width:0; } .drama-embedded-root .story-studio-scene-episode-head > .generation-cost-action { width:100%; } }
+.drama-embedded-root .story-studio-prompt-controls,
+.drama-embedded-root .story-studio-bulk-controls { grid-template-columns:minmax(0,1fr); justify-content:stretch; align-items:stretch; }
+.drama-embedded-root .story-studio-workspace .generation-cost-tooltip { width:min(280px,100%); max-width:100%; box-sizing:border-box; border-color:#d8c9e2; }
+.drama-embedded-root .story-studio-workspace .generation-cost-tooltip b { font-size:13px; }
+.drama-embedded-root .story-studio-workspace .generation-cost-tooltip :is(span,small) { font-size:12px; }
+.drama-embedded-root .story-studio-workspace .generation-cost-chip { font-size:11px; padding:5px 9px; background:#f5eff9; border-color:#d7c8e1; color:#71617d; }
+.drama-embedded-root .story-studio-section-head > div:first-child > span { color:#83758d; font-size:12px; }
+@media(max-width:640px) {
+ .drama-embedded-root .story-studio-asset-actions { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; }
+ .drama-embedded-root .story-studio-asset-actions > button,
+ .drama-embedded-root .story-studio-asset-actions .generation-cost-action > button { width:100%; }
+}
+.drama-embedded-root .story-studio-asset-grid { grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:16px; }
+.drama-embedded-root .story-studio-asset { grid-template-columns:minmax(0,1fr); border-radius:14px; }
+.drama-embedded-root .story-studio-asset-visual { background-color:#f0eaf4; }
+.drama-embedded-root .story-studio-asset-actions { display:grid; grid-template-columns:minmax(0,1fr); gap:10px; }
+.drama-embedded-root .story-studio-asset-actions .generation-cost-action { flex-wrap:wrap; }
+.drama-embedded-root .story-studio-asset-actions button { width:100%; }
+.drama-embedded-root .story-image-prompt label > span { display:block; font-size:13px; color:#766780; margin-bottom:8px; }
+.drama-embedded-root .story-studio-asset-error { font-size:12px; line-height:1.6; padding:10px; }
+.drama-embedded-root .story-studio-generating { font-size:11px; line-height:1.5; }
+.drama-embedded-root .story-studio-asset-copy > span { font-size:11px; }

@@ -4,8 +4,14 @@ import { currentUser } from "@/lib/session";
 import { getProviderApiKey } from "@/lib/apiKeyOverrides";
 import { id, mutateDb, readDb } from "@/lib/store";
 import type { GenerationAssetReference } from "@/lib/types";
+import { finishDramaMediaTask, getDramaMediaResult, getDramaMediaTask, saveDramaMediaTask, type DramaMediaTask, type DramaMediaResult } from "@/lib/drama/media-tasks";
+
+import { issueMediaTaskReceipt, recoverMediaTaskReceipt, requireMediaReceiptSecret } from "@/lib/drama/media-receipt";
 
 export const runtime = "nodejs";
+class MediaTaskPersistenceError extends Error {
+  constructor(public task: DramaMediaTask, public recoveryReceipt: string) { super("Media task storage is temporarily unavailable."); }
+}
 
 type MediaRequest = {
   kind?: unknown;
@@ -150,8 +156,8 @@ async function persistTask(args: {
     dramaRecordId: recordId,
     dramaItemId: itemId,
   };
-  await mutateDb((db) => {
-    db.assets.push({
+  const task: DramaMediaTask = { taskId: args.taskId, workspaceId: args.credential.workspaceId,
+    asset: {
       id: assetId,
       workspaceId: args.credential.workspaceId,
       briefId: recordId || "drama-studio",
@@ -166,8 +172,8 @@ async function persistTask(args: {
       generationSettings,
       prompt: args.prompt,
       assetReferences: args.references,
-    });
-    db.publishQueue.push({
+    },
+    publishItem: {
       id: publishItemId,
       workspaceId: args.credential.workspaceId,
       assetId,
@@ -184,15 +190,41 @@ async function persistTask(args: {
       prompt: args.prompt,
       assetReferences: args.references,
       createdAt: now,
-    });
-    db.activity.push({
+    },
+  };
+  const recoveryReceipt = issueMediaTaskReceipt(task);
+  let savedTask: DramaMediaTask;
+  try { savedTask = await saveDramaMediaTask(task); }
+  catch { throw new MediaTaskPersistenceError(task, recoveryReceipt); }
+  // The immutable ledger is authoritative even if the shared library projection
+  // suffers another writer's update or is temporarily unavailable.
+  await projectTask(savedTask).catch(() => console.warn("Drama media library synchronization deferred."));
+  return { assetId: savedTask.asset.id, publishItemId: savedTask.publishItem.id, recoveryReceipt };
+}
+
+async function projectTask(task: DramaMediaTask, result?: DramaMediaResult) {
+  await mutateDb((db) => {
+    let asset = db.assets.find(item => item.id === task.asset.id && item.workspaceId === task.workspaceId);
+    const firstProjection = !asset;
+    if (!asset) { asset = structuredClone(task.asset); db.assets.push(asset); }
+    let publishItem = db.publishQueue.find(item => item.id === task.publishItem.id && item.workspaceId === task.workspaceId);
+    if (!publishItem) { publishItem = structuredClone(task.publishItem); db.publishQueue.push(publishItem); }
+    const wasReady = asset.status === "ready";
+    if (result) {
+      asset.status = result.state === "success" ? "ready" : "failed";
+      asset.progress = result.progress;
+      if (result.resultUrls[0]) { asset.assetUrl = result.resultUrls[0]; publishItem.assetUrl = result.resultUrls[0]; }
+      if (result.state === "fail") { asset.error = result.message; publishItem.error = result.message; }
+      // Do not undo a publish/schedule action performed from My Contents.
+      if (publishItem.status === "generating" || publishItem.status === "failed") publishItem.status = result.state === "success" ? "done" : "failed";
+    }
+    if (firstProjection || (result?.state === "success" && !wasReady)) db.activity.push({
       id: id("act"),
-      workspaceId: args.credential.workspaceId,
-      message: `Queued ${args.modelLabel} generation from Drama Studio: "${title}".`,
-      createdAt: now,
+      workspaceId: task.workspaceId,
+      message: result?.state === "success" ? `Drama Studio generation completed: "${asset.title}".` : `Queued Drama Studio generation: "${asset.title}".`,
+      createdAt: new Date().toISOString(),
     });
   });
-  return { assetId, publishItemId };
 }
 
 async function getKieCredential() {
@@ -253,6 +285,10 @@ function extractResultUrls(value: unknown): string[] {
 }
 
 export async function POST(request: Request) {
+  try { return await createMedia(request); }
+  catch { return NextResponse.json({ error: "storage_unavailable", message: "Media generation is temporarily unavailable. Please try again when saved account information is available." }, { status: 503 }); }
+}
+async function createMedia(request: Request) {
   const requestId = randomUUID();
   const user = await currentUser();
   if (!user) {
@@ -269,7 +305,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (body.kind !== "image" && body.kind !== "video") {
+  if (!body || (body.kind !== "image" && body.kind !== "video")) {
     return NextResponse.json(
       { error: 'kind must be exactly "image" or "video".' },
       { status: 400 },
@@ -366,6 +402,8 @@ export async function POST(request: Request) {
     savedAt: null,
   };
 
+  // Validate recovery capability before submitting a potentially billable task.
+  requireMediaReceiptSecret();
   const originalPrompt = body.prompt.trim();
   const videoPromptLimit = 2400;
   const prompt =
@@ -563,7 +601,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const persisted = await persistTask({
+    let persisted: { assetId: string; publishItemId: string; recoveryReceipt: string };
+    try { persisted = await persistTask({
       credential,
       taskId: payload.data.taskId,
       requestBody: body,
@@ -574,7 +613,16 @@ export async function POST(request: Request) {
       aspectRatio,
       duration: isVideo ? durationNumber : undefined,
       references,
-    });
+    }); } catch (error) {
+      return NextResponse.json({ error: "storage_unavailable", taskId: payload.data.taskId,
+        ...(error instanceof MediaTaskPersistenceError ? { accepted: true, storagePending: true, state: "waiting",
+          assetId: error.task.asset.id, publishItemId: error.task.publishItem.id, recoveryReceipt: error.recoveryReceipt,
+          model: "Kie AI · " + modelLabel, modelId: body.model,
+        } : {}),
+        message: "Kie AI accepted this media task. Saving its recovery information is temporarily delayed; automatic checks will recover the existing task without generating it again.",
+        diagnostic: { ...requestDiagnostic, task: { taskId: payload.data.taskId }, phase: "persist_task" },
+      }, { status: 503 });
+    }
     return NextResponse.json({
       ok: true,
       provider: "Kie AI",
@@ -583,16 +631,8 @@ export async function POST(request: Request) {
       taskId: payload.data.taskId,
       assetId: persisted.assetId,
       publishItemId: persisted.publishItemId,
+      recoveryReceipt: persisted.recoveryReceipt,
       state: "waiting",
-      diagnostic: {
-        ...requestDiagnostic,
-        upstream: {
-          httpStatus: response.status,
-          code: payload.code,
-          message: safeLogValue(payload.msg),
-          taskId: payload.data.taskId,
-        },
-      },
     });
   } catch (error) {
     return NextResponse.json(
@@ -612,6 +652,10 @@ export async function POST(request: Request) {
   }
 }
 export async function GET(request: Request) {
+  try { return await checkMedia(request); }
+  catch { return NextResponse.json({ error: "storage_unavailable", message: "Saved media task information is temporarily unavailable. Your task has not been restarted." }, { status: 503 }); }
+}
+async function checkMedia(request: Request) {
   const requestId = randomUUID();
   const user = await currentUser();
   if (!user) {
@@ -622,18 +666,44 @@ export async function GET(request: Request) {
   if (!taskId) {
     return NextResponse.json({ error: "taskId is required." }, { status: 400 });
   }
-  const db = await readDb();
-  const ownedAsset = db.assets.find(
-    (asset) =>
-      asset.workspaceId === user.workspaceId &&
-      asset.provider === "kie" &&
-      asset.providerTaskId === taskId,
-  );
-  if (!ownedAsset) {
-    return NextResponse.json(
-      { error: "Drama media task was not found in this workspace." },
-      { status: 404 },
-    );
+  let task: DramaMediaTask | null;
+  let cached: DramaMediaResult | null;
+  try {
+    task = await getDramaMediaTask(user.workspaceId, taskId);
+    if (!task) {
+      const db = await readDb();
+      const asset = db.assets.find(item => item.workspaceId === user.workspaceId && item.provider === "kie" && item.providerTaskId === taskId);
+      const publish = db.publishQueue.find(item => item.workspaceId === user.workspaceId && item.provider === "kie" && item.providerRequestId === taskId);
+      // Only surviving server-owned records can establish legacy ownership.
+      if (asset || publish) {
+        const recoveredAsset = asset || {
+          id: publish!.assetId, workspaceId: user.workspaceId, briefId: String(publish!.generationSettings?.dramaRecordId || "drama-studio"),
+          title: publish!.title, type: publish!.generationType === "video" ? "video" as const : "image" as const,
+          status: "rendering" as const, progress: 10, createdAt: publish!.createdAt || publish!.scheduledAt,
+          provider: "kie" as const, providerTaskId: taskId, generationModel: publish!.generationModel,
+          generationSettings: publish!.generationSettings, prompt: publish!.prompt, assetReferences: publish!.assetReferences,
+        };
+        task = await saveDramaMediaTask({ taskId, workspaceId: user.workspaceId, asset: recoveredAsset, publishItem: publish || {
+          id: id("pub"), workspaceId: user.workspaceId, assetId: recoveredAsset.id, title: recoveredAsset.title,
+          platform: "TikTok", scheduledAt: recoveredAsset.createdAt, createdAt: recoveredAsset.createdAt,
+          status: "generating", provider: "kie", providerRequestId: taskId, generationModel: recoveredAsset.generationModel,
+          generationType: recoveredAsset.type === "video" ? "video" : "image", generationSettings: recoveredAsset.generationSettings,
+          prompt: recoveredAsset.prompt, assetReferences: recoveredAsset.assetReferences,
+        } });
+      }
+    }
+    if (!task) {
+      const recovered = recoverMediaTaskReceipt(request.headers.get("X-Drama-Task-Receipt"), user.workspaceId, taskId);
+      if (recovered) task = await saveDramaMediaTask(recovered);
+    }
+    if (!task) return NextResponse.json({ error: "task_not_found", message: "Drama media task was not found in this workspace. Its saved ownership record is unavailable; automatic checks have stopped." }, { status: 404 });
+    cached = await getDramaMediaResult(user.workspaceId, taskId);
+  } catch {
+    return NextResponse.json({ error: "storage_unavailable", message: "Saved media task information is temporarily unavailable. Your task has not been restarted." }, { status: 503 });
+  }
+  if (cached) {
+    await projectTask(task, cached).catch(() => console.warn("Drama media library synchronization deferred."));
+    return NextResponse.json({ ok: true, assetId: task.asset.id, ...cached });
   }
 
   const apiKey = await getProviderApiKey("kie");
@@ -715,14 +785,16 @@ export async function GET(request: Request) {
           (!payload.data ? safeLogValue(responseText) : ""),
       },
     };
-    if (!response.ok || !payload.data) {
+    if (!response.ok || Number(payload.code) !== 200 || !payload.data || (payload.data.taskId && payload.data.taskId !== taskId)) {
       return NextResponse.json(
         {
           error: "provider_error",
           message: providerError(response.status, payload.msg),
           diagnostic: statusDiagnostic,
         },
-        { status: response.status >= 500 ? 502 : 400 },
+        // Upstream failures do not invalidate this already-owned task. Preserve
+        // a retryable response so polling can recover without another creation.
+        { status: response.status === 429 || Number(payload.code) === 429 ? 429 : 502 },
       );
     }
 
@@ -736,55 +808,31 @@ export async function GET(request: Request) {
       }
     }
 
-    const providerState = payload.data.state || "waiting";
+    // Some provider completions expose their download URL a little later. This
+    // remains quiet progress, not a failed task or an immutable empty result.
+    const providerState = payload.data.state === "success" && !resultUrls.length ? "generating" : payload.data.state || "waiting";
     const isReady = providerState === "success";
     const isFailed = providerState === "fail";
     const progress = isReady
       ? 100
-      : Math.max(10, Math.min(99, payload.data.progress ?? 10));
-    const primaryUrl = resultUrls[0];
-    await mutateDb((nextDb) => {
-      const asset = nextDb.assets.find(
-        (item) =>
-          item.id === ownedAsset.id &&
-          item.workspaceId === credential.workspaceId,
-      );
-      if (!asset) return;
-      const wasReady = asset.status === "ready";
-      asset.status = isReady ? "ready" : isFailed ? "failed" : "rendering";
-      asset.progress = progress;
-      if (primaryUrl) asset.assetUrl = primaryUrl;
-      if (isFailed) {
-        asset.error =
-          safeLogValue(payload.data?.failMsg) || "Kie AI generation failed.";
-      }
-      const publishItem = nextDb.publishQueue.find(
-        (item) =>
-          item.assetId === asset.id &&
-          item.workspaceId === credential.workspaceId,
-      );
-      if (publishItem) {
-        publishItem.status = isReady
-          ? "done"
-          : isFailed
-            ? "failed"
-            : "generating";
-        if (primaryUrl) publishItem.assetUrl = primaryUrl;
-        if (isFailed) publishItem.error = asset.error;
-      }
-      if (isReady && !wasReady) {
-        nextDb.activity.push({
-          id: id("act"),
-          workspaceId: credential.workspaceId,
-          message: 'Drama Studio generation completed: "' + asset.title + '".',
-          createdAt: new Date().toISOString(),
-        });
-      }
-    });
+      : payload.data.state === "success" ? 99 : Math.max(10, Math.min(99, payload.data.progress ?? 10));
+    let finalResult: DramaMediaResult | null;
+    try {
+      finalResult = isReady || isFailed ? await finishDramaMediaTask(user.workspaceId, taskId, {
+        state: isReady ? "success" : "fail", progress, resultUrls,
+        message: isFailed ? safeLogValue(payload.data.failMsg, 5000) || "Kie AI generation failed." : "",
+        failCode: isFailed ? safeLogValue(payload.data.failCode) : "", model: payload.data.model ?? "",
+      }) : await getDramaMediaResult(user.workspaceId, taskId);
+    } catch {
+      return NextResponse.json({ error: "storage_unavailable", message: "Media progress could not be saved safely. Your task has not been restarted." }, { status: 503 });
+    }
+    await projectTask(task, finalResult || undefined).catch(() => console.warn("Drama media library synchronization deferred."));
+    if (finalResult) return NextResponse.json({ ok: true, assetId: task.asset.id, ...finalResult,
+      diagnostic: finalResult.state === "fail" ? statusDiagnostic : undefined });
 
     return NextResponse.json({
       ok: true,
-      assetId: ownedAsset.id,
+      assetId: task.asset.id,
       state: providerState,
       progress,
       resultUrls,

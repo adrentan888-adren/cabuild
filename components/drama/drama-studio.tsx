@@ -81,6 +81,9 @@ type Asset = {
   selected: boolean;
   status: "planned" | "generating" | "ready";
   taskId?: string;
+  recoveryReceipt?: string;
+  taskRecoveryPending?: boolean;
+  taskRecoveryBlocked?: boolean;
   resultUrl?: string;
   progress?: number;
   error?: string;
@@ -99,7 +102,11 @@ type Scene = {
   selected: boolean;
   status: "draft" | "queued" | "generating" | "ready" | "rerouted";
   taskId?: string;
+  recoveryReceipt?: string;
+  taskRecoveryPending?: boolean;
+  taskRecoveryBlocked?: boolean;
   resultUrl?: string;
+  error?: string;
 };
 
 type EpisodeOutline = {
@@ -911,6 +918,8 @@ export default function DramaStudio({
   const [selectedRecordIds, setSelectedRecordIds] = useState<
     Record<number, string>
   >({});
+  const storyOperations = useRef(new Set<string>());
+  const mediaPolls = useRef(new Set<string>());
   const briefSubmission = useRef(false);
   const deletedBriefIds = useRef(new Set<string>());
   const [hydrated, setHydrated] = useState(false);
@@ -937,6 +946,7 @@ export default function DramaStudio({
   }, []);
 
   const setStoryOperationBusy = useCallback((key: string, active: boolean) => {
+    if (active) storyOperations.current.add(key); else storyOperations.current.delete(key);
     setStoryBusyKeys((current) =>
       active
         ? current.includes(key)
@@ -1418,7 +1428,7 @@ const markChanged = () => {
       timestamp: entry.timestamp ?? new Date().toISOString(),
     };
     setFailureLogs((current) => {
-      if (current.some((item) => item.id === log.id)) return current;
+      if (current.some((item) => item.id === log.id || (item.operation === log.operation && item.taskId === log.taskId && item.item === log.item && item.message === log.message))) return current;
       return [log, ...current].slice(0, 20);
     });
   };
@@ -1827,6 +1837,8 @@ const markChanged = () => {
       error?: string;
       message?: string;
       taskId?: string;
+      recoveryReceipt?: string;
+      storagePending?: boolean;
       model?: string;
       diagnostic?: KieDiagnostic;
     };
@@ -1838,13 +1850,15 @@ const markChanged = () => {
       error.diagnostic = payload.diagnostic;
       throw error;
     }
-    if (!response.ok || !payload.taskId) {
+    const storagePending = response.status === 503 && payload.error === "storage_unavailable" && Boolean(payload.taskId);
+    if ((!response.ok && !storagePending) || !payload.taskId) {
       const error = new Error(
         payload.message ?? "Kie AI media generation failed.",
       ) as DiagnosticError;
       error.diagnostic = payload.diagnostic;
       throw error;
     }
+    if (storagePending) addFailureLog({operation:"media_task_persistence", item:String(body.title || "Media generation"), model:payload.model || "Kie AI", taskId:payload.taskId, message:payload.message || "The task was accepted and its tracking information is recovering. Do not submit it again.", diagnostic:payload.diagnostic});
     scheduleCreditRefresh();
     window.parent.postMessage(
       { type: "cabuild:drama-queue-updated" },
@@ -1852,6 +1866,9 @@ const markChanged = () => {
     );
     return {
       taskId: payload.taskId,
+      recoveryReceipt: payload.recoveryReceipt,
+      storagePending,
+      message: payload.message || "The task was accepted. Recovering its tracking information without resubmitting.",
       model: payload.model ?? "Kie AI",
     };
   };
@@ -1864,6 +1881,8 @@ const markChanged = () => {
     if (!record || assetIndex < 0) return;
     const asset = record.snapshot.assets[assetIndex];
     const busyKey = `story-asset-${recordId}-${assetId}`;
+    const groupKey = `story-assets-${recordId}-${asset.type === "Character" ? "characters" : "world"}`;
+    if (asset.status === "generating" || storyOperations.current.has(busyKey) || storyOperations.current.has(groupKey)) return;
     setStoryOperationBusy(busyKey, true);
     try {
       const task = await submitMediaTask({
@@ -1895,9 +1914,12 @@ const markChanged = () => {
                       ? {
                           ...currentAsset,
                           taskId: task.taskId,
+                          recoveryReceipt: task.recoveryReceipt,
+                          taskRecoveryPending: task.storagePending || undefined,
+                          taskRecoveryBlocked: undefined,
                           resultUrl: undefined,
                           progress: 0,
-                          error: undefined,
+                          error: task.storagePending ? task.message : undefined,
                           libraryAssetId: undefined,
                           libraryAssetName: undefined,
                           status: "generating" as const,
@@ -1908,7 +1930,7 @@ const markChanged = () => {
               },
         ),
       );
-      setToast(`${asset.name} image generation started with ${task.model}.`);
+      setToast(task.storagePending ? task.message : `${asset.name} image generation started with ${task.model}.`, task.storagePending ? "error" : "success");
     } catch (error) {
       const diagnosticError = error as DiagnosticError;
       addFailureLog({
@@ -1952,9 +1974,11 @@ const markChanged = () => {
     const groupName = assetType === "Character" ? "characters" : "world";
     const groupLabel = assetType === "Character" ? "characters" : "venues and objects";
     const busyKey = `story-assets-${recordId}-${groupName}`;
+    if (storyOperations.current.has(busyKey) || targets.some(({asset}) => asset.status === "generating" || storyOperations.current.has(`story-asset-${recordId}-${asset.id}`))) return;
     setStoryOperationBusy(busyKey, true);
     let submittedCount = 0;
     let failedCount = 0;
+    let recoveryCount = 0;
     try {
       for (const { asset, index } of targets) {
         try {
@@ -1973,6 +1997,7 @@ const markChanged = () => {
             aspectRatio: record.snapshot.aspectRatio,
           });
           submittedCount += 1;
+          if (task.storagePending) recoveryCount += 1;
           setWorkflowRecords((current) =>
             current.map((item) =>
               item.id !== recordId
@@ -1988,9 +2013,12 @@ const markChanged = () => {
                           ? {
                               ...currentAsset,
                               taskId: task.taskId,
+                          recoveryReceipt: task.recoveryReceipt,
+                          taskRecoveryPending: task.storagePending || undefined,
+                          taskRecoveryBlocked: undefined,
                               resultUrl: undefined,
                               progress: 0,
-                              error: undefined,
+                              error: task.storagePending ? task.message : undefined,
                               libraryAssetId: undefined,
                               libraryAssetName: undefined,
                               status: "generating" as const,
@@ -2017,7 +2045,9 @@ const markChanged = () => {
           }
         }
       }
-      if (submittedCount > 0) {
+      if (recoveryCount > 0) {
+        setToast(`${recoveryCount} accepted media tasks are recovering their tracking records. Generation stays locked while status is confirmed.`, "error");
+      } else if (submittedCount > 0) {
         setToast(
           `${submittedCount} ${groupLabel} started generating with ${modelLabel(
             imageModelOptions,
@@ -2039,6 +2069,7 @@ const markChanged = () => {
   ) => {
     const record = workflowRecords.find((item) => item.id === recordId);
     if (!record) return;
+    if ([...storyOperations.current].some(key => key === `story-prompts-${recordId}` || key.startsWith(`story-prompts-${recordId}-`))) return;
     const orderedEpisodePlan = [...record.snapshot.episodePlan].sort(
       (first, second) => first.number - second.number,
     );
@@ -2214,6 +2245,9 @@ const markChanged = () => {
                       ? {
                           ...currentScene,
                           taskId: task.taskId,
+                          recoveryReceipt: task.recoveryReceipt,
+                          taskRecoveryPending: task.storagePending || undefined,
+                          taskRecoveryBlocked: undefined,
                           provider: task.model,
                           resultUrl: undefined,
                           status: "generating" as const,
@@ -2224,7 +2258,7 @@ const markChanged = () => {
               },
         ),
       );
-      setToast(`${scene.title} is regenerating with ${task.model}.`);
+      setToast(task.storagePending ? task.message : `${scene.title} is regenerating with ${task.model}.`, task.storagePending ? "error" : "success");
     } catch (error) {
       setWorkflowRecords((current) =>
         current.map((item) =>
@@ -2300,6 +2334,7 @@ const markChanged = () => {
     );
     let submittedCount = 0;
     let failedCount = 0;
+    let recoveryCount = 0;
     try {
       for (const scene of targets) {
         try {
@@ -2321,6 +2356,7 @@ const markChanged = () => {
             sound: videoSound,
           });
           submittedCount += 1;
+          if (task.storagePending) recoveryCount += 1;
           submittedSceneIds.add(scene.id);
           setWorkflowRecords((current) =>
             current.map((item) =>
@@ -2337,6 +2373,9 @@ const markChanged = () => {
                           ? {
                               ...currentScene,
                               taskId: task.taskId,
+                          recoveryReceipt: task.recoveryReceipt,
+                          taskRecoveryPending: task.storagePending || undefined,
+                          taskRecoveryBlocked: undefined,
                               provider: task.model,
                               resultUrl: undefined,
                               status: "generating" as const,
@@ -2384,7 +2423,9 @@ const markChanged = () => {
           }
         }
       }
-      if (submittedCount > 0) {
+      if (recoveryCount > 0) {
+        setToast(`${recoveryCount} accepted media tasks are recovering their tracking records. Generation stays locked while status is confirmed.`, "error");
+      } else if (submittedCount > 0) {
         setToast(
           `Episode ${episodeNumber}: ${submittedCount} clips started with ${modelLabel(
             videoModelOptions,
@@ -2598,12 +2639,16 @@ const markChanged = () => {
                 ),
                 aspectRatio: snapshot.aspectRatio,
               });
+              if (task.storagePending) generationNotice = task.message;
               submitted.push({
                 ...asset,
                 taskId: task.taskId,
+                          recoveryReceipt: task.recoveryReceipt,
+                          taskRecoveryPending: task.storagePending || undefined,
+                          taskRecoveryBlocked: undefined,
                 resultUrl: undefined,
                 progress: 0,
-                error: undefined,
+                error: task.storagePending ? task.message : undefined,
                 status: "generating",
               });
             } catch (error) {
@@ -2671,10 +2716,14 @@ const markChanged = () => {
               mode: videoMode,
               sound: videoSound,
             });
+            if (task.storagePending) generationNotice = task.message;
             submittedCount += 1;
             submittedScenes.push({
               ...scene,
               taskId: task.taskId,
+                          recoveryReceipt: task.recoveryReceipt,
+                          taskRecoveryPending: task.storagePending || undefined,
+                          taskRecoveryBlocked: undefined,
               provider: task.model,
               status: "generating",
             });
@@ -2745,15 +2794,15 @@ const markChanged = () => {
 
   const refreshKieTasks = async (recordId: string, quiet = false) => {
     const record = workflowRecords.find((item) => item.id === recordId);
-    if (!record) return;
+    if (!record || mediaPolls.current.has(recordId)) return;
     const taskIds = Array.from(
       new Set(
         [
           ...record.snapshot.assets
-            .filter((asset) => !quiet || asset.status === "generating")
+            .filter((asset) => !quiet || (asset.status === "generating" && !asset.taskRecoveryBlocked))
             .map((asset) => asset.taskId),
           ...record.snapshot.scenes
-            .filter((scene) => !quiet || scene.status === "generating")
+            .filter((scene) => !quiet || (scene.status === "generating" && !scene.taskRecoveryBlocked))
             .map((scene) => scene.taskId),
         ].filter((taskId): taskId is string => Boolean(taskId)),
       ),
@@ -2763,6 +2812,7 @@ const markChanged = () => {
       return;
     }
 
+    mediaPolls.current.add(recordId);
     if (!quiet) setBusy(`refresh-${recordId}`);
     try {
       const statuses = new Map<
@@ -2776,113 +2826,28 @@ const markChanged = () => {
           progress?: number;
         }
       >();
-      await Promise.all(
-        taskIds.map(async (taskId) => {
-          const response = await fetch(
-            `/api/drama/generate/media?taskId=${encodeURIComponent(taskId)}`,
-          );
-          const payload = (await readDramaResponse(response)) as {
-            error?: string;
-            message?: string;
-            state?: string;
-            resultUrls?: string[];
-            failCode?: string;
-            model?: string;
-            progress?: number;
-            diagnostic?: KieDiagnostic;
-          };
-          if (response.status === 401 && payload.error === "missing_credential") {
-            if (!quiet) {
-              showKieCredentialPrompt(
-                "Add your KIE AI Key to check Kie image and video tasks.",
-              );
-            }
-            addFailureLog({
-              id: `missing-credential-${taskId}`,
-              operation: "media_task_status",
-              item: record.name,
-              model: record.model ?? "Kie AI",
-              taskId,
-              message: payload.message ?? "KIE AI Key required.",
-              diagnostic: payload.diagnostic,
-            });
-            if (quiet) {
-              setWorkflowRecords((current) =>
-                current.map((item) =>
-                  item.id !== recordId
-                    ? item
-                    : {
-                        ...item,
-                        snapshot: {
-                          ...item.snapshot,
-                          assets: item.snapshot.assets.map((asset) =>
-                            asset.taskId === taskId
-                              ? { ...asset, status: "planned" as const }
-                              : asset,
-                          ),
-                          scenes: item.snapshot.scenes.map((scene) =>
-                            scene.taskId === taskId
-                              ? { ...scene, status: "queued" as const }
-                              : scene,
-                          ),
-                        },
-                      },
-                ),
-              );
-            }
-            throw new Error("KIE AI Key required.");
-          }
-          if (!response.ok || !payload.state) {
-            addFailureLog({
-              operation: "media_task_status",
-              item: record.name,
-              model: payload.model ?? record.model ?? "Kie AI",
-              taskId,
-              message: payload.message ?? "Could not refresh a Kie task.",
-              diagnostic: payload.diagnostic,
-            });
-            throw new Error(payload.message ?? "Could not refresh a Kie task.");
-          }
-          if (payload.state === "fail") {
-            addFailureLog({
-              id: `failed-task-${taskId}-${payload.failCode ?? "unknown"}`,
-              operation: "media_task_failed",
-              item:
-                record.snapshot.assets.find(
-                  (asset) => asset.taskId === taskId,
-                )?.name ??
-                record.snapshot.scenes.find(
-                  (scene) => scene.taskId === taskId,
-                )?.title ??
-                record.name,
-              model: payload.model ?? record.model ?? "Kie AI",
-              taskId,
-              message:
-                payload.message ||
-                `Kie AI marked this task as failed${
-                  payload.failCode ? ` (${payload.failCode})` : ""
-                }.`,
-              diagnostic: payload.diagnostic,
-            });
-          }
-          const resultUrl = payload.resultUrls?.[0];
-          const effectiveState =
-            payload.state === "success" && !resultUrl
-              ? "generating"
-              : payload.state;
-          statuses.set(taskId, {
-            state: effectiveState,
-            resultUrl,
-            message: payload.message,
-            failCode: payload.failCode,
-            model: payload.model,
-            progress:
-              effectiveState === "generating" && payload.state === "success"
-                ? 99
-                : payload.progress,
-          });
-        }),
-      );
+      const statusErrors: string[] = [];
+      const checks = await Promise.allSettled(taskIds.map(async taskId => {
+        const sourceTask = record.snapshot.assets.find(asset=>asset.taskId===taskId) || record.snapshot.scenes.find(scene=>scene.taskId===taskId);
+        const response = await fetch(`/api/drama/generate/media?taskId=${encodeURIComponent(taskId)}`, {cache:"no-store", headers: sourceTask?.recoveryReceipt ? {"X-Drama-Task-Receipt":sourceTask.recoveryReceipt} : undefined});
+        const payload = await readDramaResponse(response) as {error?:string; message?:string; state?:string; resultUrls?:string[]; failCode?:string; model?:string; progress?:number; diagnostic?:KieDiagnostic};
+        if (!response.ok || !payload.state) {
+          const message = payload.message || "Could not refresh this media task.";
+          statusErrors.push(message);
+          if (response.status === 401 && payload.error === "missing_credential" && !quiet) showKieCredentialPrompt("Add your KIE AI Key to check image and video tasks.");
+          addFailureLog({operation:"media_task_status", item:record.name, model:payload.model || "Kie AI", taskId, message, diagnostic:payload.diagnostic});
+          // Permanent lookup/auth failures stop automatic polling; preserve the task ID for review.
+          if ([400,401,403,404,410].includes(response.status)) statuses.set(taskId,{state:sourceTask?.taskRecoveryPending ? "recovery" : "fail",message,failCode:String(response.status)});
+          return;
+        }
+        if (payload.state === "fail") addFailureLog({operation:"media_task_failed", item:record.snapshot.assets.find(asset=>asset.taskId===taskId)?.name || record.snapshot.scenes.find(scene=>scene.taskId===taskId)?.title || record.name, model:payload.model || "Kie AI", taskId, message:payload.message || "The provider could not complete this media task.", diagnostic:payload.diagnostic});
+        const resultUrl = payload.resultUrls?.[0];
+        const effectiveState = payload.state === "success" && !resultUrl ? "generating" : payload.state;
+        statuses.set(taskId,{state:effectiveState,resultUrl,message:payload.message,failCode:payload.failCode,model:payload.model,progress:effectiveState === "generating" && payload.state === "success" ? 99 : payload.progress});
+      }));
+      checks.forEach((check,index) => {
+        if(check.status === "rejected") { statusErrors.push(check.reason instanceof Error ? check.reason.message : "Could not check this media task."); addFailureLog({operation:"media_task_status", item:record.name, model:"Kie AI", taskId:taskIds[index], message:check.reason instanceof Error ? check.reason.message : "Could not check this media task. Automatic checks will retry."}); }
+      });
 
       const newlyCompletedTask = [...statuses.entries()].some(
         ([taskId, task]) =>
@@ -2911,6 +2876,8 @@ const markChanged = () => {
             if (!task) return asset;
             return {
               ...asset,
+              taskRecoveryPending: task.state === "recovery" || undefined,
+              taskRecoveryBlocked: task.state === "recovery" || undefined,
               status:
                 task.state === "success"
                   ? "ready"
@@ -2925,7 +2892,7 @@ const markChanged = () => {
                     ? undefined
                     : task.progress ?? asset.progress,
               error:
-                task.state === "fail"
+                task.state === "fail" || task.state === "recovery"
                   ? task.message ||
                     `Kie AI failed to generate this image${
                       task.failCode ? ` (${task.failCode})` : ""
@@ -2938,6 +2905,9 @@ const markChanged = () => {
             if (!task) return scene;
             return {
               ...scene,
+              taskRecoveryPending: task.state === "recovery" || undefined,
+              taskRecoveryBlocked: task.state === "recovery" || undefined,
+              error: task.state === "recovery" || task.state === "fail" ? task.message : undefined,
               status:
                 task.state === "success"
                   ? "ready"
@@ -2960,6 +2930,8 @@ const markChanged = () => {
               failedTasks.length === 1 ? "" : "s"
             }.`, "error",
         );
+      } else if (!quiet && statusErrors.length) {
+        setToast(`Some media statuses could not be refreshed. ${statusErrors[0]}`, "error");
       } else if (newlyCompletedTask) {
         setToast("Your generated media is ready to review.");
       } else if (!quiet) {
@@ -2977,18 +2949,19 @@ const markChanged = () => {
         }
       }
     } finally {
+      mediaPolls.current.delete(recordId);
       if (!quiet) setBusy(null);
     }
   };
 
   const pendingMediaTasks = workflowRecords.flatMap((record) => [
     ...record.snapshot.assets.flatMap((asset) =>
-      asset.taskId && asset.status === "generating"
+      asset.taskId && asset.status === "generating" && !asset.taskRecoveryBlocked
         ? [{ recordId: record.id, taskId: asset.taskId }]
         : [],
     ),
     ...record.snapshot.scenes.flatMap((scene) =>
-      scene.taskId && scene.status === "generating"
+      scene.taskId && scene.status === "generating" && !scene.taskRecoveryBlocked
         ? [{ recordId: record.id, taskId: scene.taskId }]
         : [],
     ),
@@ -3149,6 +3122,7 @@ const markChanged = () => {
               onGenerateAsset={(recordId, assetId) =>
                 void generateStoryAsset(recordId, assetId)
               }
+              onCheckMedia={recordId => void refreshKieTasks(recordId)}
               onGenerateAssetGroup={(recordId, assetType) =>
                 void generateStoryAssetGroup(recordId, assetType)
               }
@@ -3365,6 +3339,7 @@ function WorkflowContextBar({
   videoSound,
   setVideoSound,
   onGenerateAsset,
+  onCheckMedia,
   onGenerateAssetGroup,
   onGeneratePrompts,
   onRegenerateVideo,
@@ -3397,6 +3372,7 @@ function WorkflowContextBar({
   videoSound: boolean;
   setVideoSound: (value: boolean) => void;
   onGenerateAsset: (recordId: string, assetId: string) => void;
+  onCheckMedia: (recordId:string)=>void;
   onGenerateAssetGroup: (
     recordId: string,
     assetType: "Character" | "World",
@@ -3823,7 +3799,7 @@ function WorkflowContextBar({
         )}
         {visibleRecords.map((record) => {
           if (stage === 1 || stage === 2) return <BriefLibraryCard key={record.id} record={record} stories={allRecords.filter(item => item.stage === 2 && item.sourceId === record.id)} onUse={() => onUse(record.id)} onDelete={() => onDelete(record.id)} onToggleFavorite={() => onToggleFavorite(record.id)}>
-            {stage === 2 && <StoryStudioRecord record={record} storyBusyKeys={storyBusyKeys} imageModel={imageModel} setImageModel={setImageModel} chatModel={chatModel} setChatModel={setChatModel} onChangeStory={value => onChange(record.id, value)} onUpdate={patch => onUpdateSnapshot(record.id, patch)} onGenerateAsset={assetId => onGenerateAsset(record.id, assetId)} onGenerateAssetGroup={assetType => onGenerateAssetGroup(record.id, assetType)} onGeneratePrompts={(episodeCount, episodeNumber) => onGeneratePrompts(record.id, episodeCount, episodeNumber)} />}
+            {stage === 2 && <StoryStudioRecord record={record} storyBusyKeys={storyBusyKeys} imageModel={imageModel} setImageModel={setImageModel} chatModel={chatModel} setChatModel={setChatModel} onChangeStory={value => onChange(record.id, value)} onUpdate={patch => onUpdateSnapshot(record.id, patch)} onGenerateAsset={assetId => onGenerateAsset(record.id, assetId)} onCheckStatus={() => onCheckMedia(record.id)} onGenerateAssetGroup={assetType => onGenerateAssetGroup(record.id, assetType)} onGeneratePrompts={(episodeCount, episodeNumber) => onGeneratePrompts(record.id, episodeCount, episodeNumber)} />}
           </BriefLibraryCard>;
           const selected = record.id === selectedId;
           const loading = busy === `use-${record.id}`;
@@ -3946,6 +3922,7 @@ function WorkflowContextBar({
                       onGenerateAsset={(assetId) =>
                         onGenerateAsset(record.id, assetId)
                       }
+                      onCheckStatus={() => onCheckMedia(record.id)}
                       onGenerateAssetGroup={(assetType) =>
                         onGenerateAssetGroup(record.id, assetType)
                       }
@@ -4540,6 +4517,11 @@ function WorkflowContextBar({
   );
 }
 
+function StudioModelChoices({ label, value, options, onChange }: { label: string; value: string; options: ReadonlyArray<{value:string; label:string}>; onChange:(value:string)=>void }) {
+  const name = useId();
+  return <fieldset className="brief-choices studio-model-choices"><legend>{label}</legend><div className="brief-choice-options">{options.map(option => <label key={option.value} className={option.value === value ? "selected" : ""}><input type="radio" name={name} value={option.value} checked={option.value === value} onChange={() => onChange(option.value)}/><span><b>{option.label.split(" · ")[0]}</b><small>{option.label.split(" · ")[1]}</small></span></label>)}</div></fieldset>;
+}
+
 function StoryStudioRecord({
   record,
   storyBusyKeys,
@@ -4550,6 +4532,7 @@ function StoryStudioRecord({
   onChangeStory,
   onUpdate,
   onGenerateAsset,
+  onCheckStatus,
   onGenerateAssetGroup,
   onGeneratePrompts,
 }: {
@@ -4562,6 +4545,7 @@ function StoryStudioRecord({
   onChangeStory: (value: string) => void;
   onUpdate: (patch: Partial<ProductionSnapshot>) => void;
   onGenerateAsset: (assetId: string) => void;
+  onCheckStatus: () => void;
   onGenerateAssetGroup: (assetType: "Character" | "World") => void;
   onGeneratePrompts: (episodeCount: number, episodeNumber?: number) => void;
 }) {
@@ -4569,7 +4553,7 @@ function StoryStudioRecord({
   const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
   const [libraryTargetId, setLibraryTargetId] = useState("");
   const [promptEpisodeCount, setPromptEpisodeCount] = useState(
-    Math.max(1, snapshot.episodes),
+    Math.max(1, snapshot.episodePlan.length),
   );
   const [hiddenSections, setHiddenSections] = useState({
     prompts: false,
@@ -4612,6 +4596,9 @@ function StoryStudioRecord({
               selected: true,
               status: "ready",
               taskId: undefined,
+              recoveryReceipt: undefined,
+              taskRecoveryPending: undefined,
+              taskRecoveryBlocked: undefined,
               progress: 100,
               error: undefined,
               resultUrl: libraryAsset.resultUrl,
@@ -4636,9 +4623,7 @@ function StoryStudioRecord({
 
   const renderAsset = (asset: Asset) => {
     const generating = asset.status === "generating";
-    const itemBusy = storyBusyKeys.includes(
-      `story-asset-${record.id}-${asset.id}`,
-    );
+    const itemBusy = storyBusyKeys.includes(`story-asset-${record.id}-${asset.id}`) || storyBusyKeys.includes(`story-assets-${record.id}-${asset.type === "Character" ? "characters" : "world"}`);
     return (
       <article className={`story-studio-asset ${asset.status}`} key={asset.id}>
         <div
@@ -4652,11 +4637,10 @@ function StoryStudioRecord({
           {!asset.resultUrl && (generating || itemBusy ? <LoadingMark /> : <ImageIcon size={22} />)}
           {(generating || itemBusy) && (
             <span className="story-studio-generating">
-              Generating
+              {asset.taskRecoveryPending ? "Recovering tracking" : "Generating"}
               {typeof asset.progress === "number"
                 ? ` · ${asset.progress}%`
                 : ""}
-              {" · checking every 4s"}
             </span>
           )}
         </div>
@@ -4669,7 +4653,7 @@ function StoryStudioRecord({
             </span>
           )}
           <p>{asset.detail}</p>
-          <label>
+          <details className="studio-prompt-card story-image-prompt"><summary><span>Image prompt · {asset.name}</span><ChevronDown size={18}/></summary><label>
             <span>Editable image prompt</span>
             <textarea
               value={asset.visualPrompt ?? asset.detail}
@@ -4683,7 +4667,7 @@ function StoryStudioRecord({
                 })
               }
             />
-          </label>
+          </label></details>
           {asset.error && (
             <div className="story-studio-asset-error" role="alert">
               <ShieldAlert size={13} />
@@ -4691,6 +4675,7 @@ function StoryStudioRecord({
             </div>
           )}
           <div className="story-studio-asset-actions">
+            {asset.taskRecoveryBlocked && <button className="secondary-button" onClick={onCheckStatus}><RefreshCcw size={14}/>Check status</button>}
             <GenerationCost credits={imageCreditEstimate[imageModel]}>
               <button
                 className={asset.status === "ready" ? "secondary-button" : "primary-button"}
@@ -4708,7 +4693,7 @@ function StoryStudioRecord({
             </GenerationCost>
             <button
               className="secondary-button"
-              disabled={generating || !libraryAssets.length}
+              disabled={generating || itemBusy || !libraryAssets.length}
               onClick={() => setLibraryTargetId(asset.id)}
               title={
                 libraryAssets.length
@@ -4731,12 +4716,13 @@ function StoryStudioRecord({
     (asset) => asset.type !== "Character",
   );
   const generatingCharacters =
-    storyBusyKeys.includes(`story-assets-${record.id}-characters`);
+    storyBusyKeys.includes(`story-assets-${record.id}-characters`) || characterAssets.some(asset => asset.status === "generating" || storyBusyKeys.includes(`story-asset-${record.id}-${asset.id}`));
   const generatingLocations =
-    storyBusyKeys.includes(`story-assets-${record.id}-world`);
+    storyBusyKeys.includes(`story-assets-${record.id}-world`) || worldAssets.some(asset => asset.status === "generating" || storyBusyKeys.includes(`story-asset-${record.id}-${asset.id}`));
   const generatingPromptSet = storyBusyKeys.includes(
     `story-prompts-${record.id}`,
   );
+  const anyPromptsBusy = generatingPromptSet || storyBusyKeys.some(key => key.startsWith(`story-prompts-${record.id}-`));
   return (
     <div className="story-studio-workspace">
       <section className="story-studio-section">
@@ -4749,6 +4735,7 @@ function StoryStudioRecord({
         </div>
         <textarea
           className="story-studio-storyline"
+          aria-label="Series storyline"
           value={snapshot.storyline}
           onChange={(event) => onChangeStory(event.target.value)}
         />
@@ -4806,27 +4793,19 @@ function StoryStudioRecord({
           </div>
           <div className="story-studio-section-actions">
             <div className="story-studio-prompt-controls">
-              <ModelSelect
+              <StudioModelChoices
                 label="Prompt model"
                 value={chatModel}
                 options={chatModelOptions}
                 onChange={(value) => setChatModel(value as ChatModelId)}
               />
-              <SelectField
-                label="Episodes to generate"
-                value={String(promptEpisodeCount)}
-                options={Array.from(
-                  { length: Math.max(1, snapshot.episodes) },
-                  (_, index) => String(index + 1),
-                )}
-                onChange={(value) => setPromptEpisodeCount(Number(value))}
-              />
+              <div className="studio-episode-range"><label htmlFor={`prompt-count-${record.id}`}>Episodes to generate <output>{promptEpisodeCount}</output></label><input id={`prompt-count-${record.id}`} type="range" min={1} max={Math.max(1,snapshot.episodePlan.length)} step={1} value={Math.min(promptEpisodeCount, Math.max(1,snapshot.episodePlan.length))} onChange={event=>setPromptEpisodeCount(Number(event.target.value))}/><div className="studio-range-points" aria-hidden="true">{snapshot.episodePlan.map((_,index)=><span key={index}>{index+1}</span>)}</div></div>
               <GenerationCost
                 credits={chatCreditEstimate[chatModel] * promptEpisodeCount}
               >
                 <button
                   className={snapshot.scenes.length ? "secondary-button" : "primary-button"}
-                  disabled={!canGeneratePrompts || generatingPromptSet}
+                  disabled={!canGeneratePrompts || anyPromptsBusy}
                   title={
                     canGeneratePrompts
                       ? "Generate prompts from the episode storylines; completed asset images are optional"
@@ -4872,8 +4851,8 @@ function StoryStudioRecord({
                     <small>{episodeScenes.length} prompts</small>
                     <GenerationCost credits={chatCreditEstimate[chatModel]}>
                       <button
-                        className="regenerate-episode-prompts"
-                        disabled={!canGeneratePrompts || episodeBusy}
+                        className="secondary-button regenerate-episode-prompts"
+                        disabled={!canGeneratePrompts || anyPromptsBusy}
                         title={
                           canGeneratePrompts
                             ? `Generate prompts for Episode ${episode.number}`
@@ -4893,9 +4872,7 @@ function StoryStudioRecord({
                     <div className="story-studio-scenes">
                       {snapshot.scenes.map((scene, sceneIndex) =>
                         scene.episode === episode.number ? (
-                          <article key={`${scene.id}-${sceneIndex}`}>
-                            <span>{scene.id} · {scene.duration}s · {scene.safety}</span>
-                            <h4>{scene.title}</h4>
+                          <details className="studio-prompt-card" key={`${scene.id}-${sceneIndex}`}><summary><span><small>{scene.duration}s · {scene.safety}</small><b>{scene.title}</b></span><ChevronDown size={20}/></summary>
                             <textarea
                               value={scene.prompt}
                               aria-label={`Editable prompt for ${scene.title}`}
@@ -4909,7 +4886,7 @@ function StoryStudioRecord({
                                 })
                               }
                             />
-                          </article>
+                          </details>
                         ) : null,
                       )}
                     </div>
@@ -4950,8 +4927,8 @@ function StoryStudioRecord({
                   <h4>{snapshot.characters.length} recurring characters</h4>
                 </div>
                 <div className="story-studio-bulk-controls">
-                  <ModelSelect
-                    label="Character image model"
+                  <StudioModelChoices
+                    label="Image generation model"
                     value={imageModel}
                     options={imageModelOptions}
                     onChange={(value) => setImageModel(value as ImageModelId)}

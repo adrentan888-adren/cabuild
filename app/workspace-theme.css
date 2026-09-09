@@ -401,3 +401,96 @@
 .drama-embedded-root .story-studio-asset-error { font-size:12px; line-height:1.6; padding:10px; }
 .drama-embedded-root .story-studio-generating { font-size:11px; line-height:1.5; }
 .drama-embedded-root .story-studio-asset-copy > span { font-size:11px; }
+
+/* Local tabs keep long Drama workspaces compact without shrinking their editors. */
+.drama-embedded-root .studio-tabs { min-width:0; width:100%; }
+.drama-embedded-root .studio-tablist { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr)); gap:8px; padding:6px; border:1px solid #ddd2e5; border-radius:14px; background:#f5eff8; margin-bottom:16px; }
+.drama-embedded-root .studio-tab { flex:1 1 125px; min-width:0; max-width:100%; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:6px; padding:12px 14px; min-height:66px; border:1px solid transparent; border-radius:10px; background:transparent; color:#65556f; text-align:left; cursor:pointer; transition:background .16s,border-color .16s,box-shadow .16s; }
+.drama-embedded-root .studio-tab.selected { background:#fffefb; border-color:#bdaacb; box-shadow:0 2px 6px #68537510; }
+.drama-embedded-root .studio-tab:hover { background:#eee6f3; }
+.drama-embedded-root .studio-tab.selected:hover { background:#fffefb; }
+.drama-embedded-root .studio-tab-label { font-size:16px; font-weight:700; line-height:1.35; overflow-wrap:anywhere; }
+.drama-embedded-root .studio-tab-status { display:flex; align-items:center; gap:6px; font-size:12px; line-height:1.4; color:#75667c; overflow-wrap:anywhere; }
+.drama-embedded-root .studio-tab-status i { width:7px; height:7px; border-radius:50%; background:currentColor; flex-shrink:0; }
+.drama-embedded-root .studio-tab-status.ready { color:#386348; }
+.drama-embedded-root .studio-tab-status.generating { color:#72508c; }
+.drama-embedded-root .studio-tab-status.failed { color:#a33544; }
+.drama-embedded-root .studio-tab-panel { min-width:0; animation:studio-panel-enter .16s ease-out; }
+.drama-embedded-root .studio-tab-panel[hidden] { display:none !important; }
+.drama-embedded-root :is(.studio-tab,.studio-tab-panel,.studio-generation-settings > summary):focus-visible { outline:2px solid #79638c; outline-offset:3px; }
+.drama-embedded-root .compact-story-workspace { gap:16px; }
+.drama-embedded-root .compact-story-workspace > .studio-tabs > .studio-tablist { margin-bottom:12px; }
+.drama-embedded-root .compact-story-workspace > .studio-tabs > .studio-tablist .studio-tab { flex-basis:100px; }
+.drama-embedded-root .compact-story-workspace .story-studio-section { padding:18px; }
+.drama-embedded-root .studio-generation-settings { border:1px solid #ded4e5; border-radius:12px; background:#fcfafc; margin-bottom:16px; }
+.drama-embedded-root .studio-generation-settings > summary { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:14px 16px; cursor:pointer; list-style:none; color:#665570; font-size:15px; font-weight:650; min-height:48px; }
+.drama-embedded-root .studio-generation-settings > summary::-webkit-details-marker { display:none; }
+.drama-embedded-root .studio-generation-settings > summary small { font-size:13px; color:#75657f; font-weight:400; margin-left:auto; }
+.drama-embedded-root .studio-generation-settings > summary svg { flex-shrink:0; }
+.drama-embedded-root .studio-generation-settings[open] > summary svg:last-child { transform:rotate(180deg); }
+.drama-embedded-root .studio-generation-settings > :not(summary) { padding:16px; margin:0; }
+.drama-embedded-root .studio-generation-settings[open] > summary { border-bottom:1px solid #e4dae9; }
+.drama-embedded-root .compact-story-workspace .story-studio-episode { padding:16px; margin-bottom:16px; }
+.drama-embedded-root .compact-story-workspace .story-studio-episode label { display:block; margin-bottom:8px; font-size:14px; font-weight:650; color:#675570; }
+.drama-embedded-root .compact-story-workspace .story-studio-episodes textarea { min-height:140px; width:100%; }
+.drama-embedded-root .compact-story-workspace .story-studio-scene-episode-head { padding:14px; }
+.drama-embedded-root .compact-story-workspace .studio-episode-range p { font-size:13px; color:#75657f; line-height:1.5; margin:8px 0 0; }
+.drama-embedded-root .compact-image-workspace .story-studio-subsection-head { display:flex; justify-content:space-between; align-items:center; gap:14px; }
+.drama-embedded-root .compact-image-workspace .story-studio-subsection-head h3 { font-size:22px; color:#615569; }
+.drama-embedded-root .compact-image-workspace .story-studio-asset { display:grid; grid-template-columns:minmax(180px,.65fr) minmax(0,1fr); align-items:start; gap:20px; }
+.drama-embedded-root .compact-image-workspace .story-studio-asset-visual { min-height:230px; aspect-ratio:1; border-radius:12px; background-size:contain; background-repeat:no-repeat; background-position:center; }
+.drama-embedded-root .compact-image-workspace .story-studio-asset-copy { min-width:0; }
+.drama-embedded-root .compact-image-workspace .story-studio-asset-copy > p { margin:10px 0; }
+@keyframes studio-panel-enter { from {opacity:.65; transform:translateY(3px)} to {opacity:1; transform:translateY(0)} }
+@media(max-width:700px) {
+ .drama-embedded-root .compact-image-workspace .story-studio-asset { grid-template-columns:minmax(0,1fr); gap:14px; }
+ .drama-embedded-root .compact-image-workspace .story-studio-asset-visual { min-height:180px; max-height:280px; aspect-ratio:4/3; }
+ .drama-embedded-root .compact-story-workspace .story-studio-section { padding:12px; }
+ .drama-embedded-root .studio-tablist { gap:6px; padding:5px; }
+ .drama-embedded-root .studio-tab { padding:10px; flex-basis:110px; }
+ .drama-embedded-root .compact-story-workspace > .studio-tabs > .studio-tablist .studio-tab { flex-basis:80px; }
+ .drama-embedded-root .studio-generation-settings > summary small { width:100%; margin-left:28px; }
+}
+@media(prefers-reduced-motion:reduce) { .drama-embedded-root .studio-tab { transition:none; } .drama-embedded-root .studio-tab-panel { animation:none; } }
+@media(max-width:700px) {
+ .drama-embedded-root .studio-tablist { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .drama-embedded-root .studio-tab { width:100%; min-height:64px; }
+ .drama-embedded-root .compact-story-workspace .story-studio-section { padding:8px; }
+ .drama-embedded-root .compact-story-workspace .story-studio-episode { padding:12px; }
+ .drama-embedded-root .studio-generation-settings > summary { padding:12px; gap:8px; }
+ .drama-embedded-root .studio-generation-settings > summary > span { flex:1; }
+ .drama-embedded-root .studio-generation-settings > summary > small { order:3; margin-left:0; }
+ .drama-embedded-root .compact-image-workspace .story-studio-asset { min-width:0; }
+ .drama-embedded-root .compact-image-workspace .story-studio-asset-copy { padding:12px; }
+ .drama-embedded-root .compact-image-workspace :is(.generation-cost,.generation-cost-action,.story-studio-asset-actions) { min-width:0; max-width:100%; }
+ .drama-embedded-root .compact-image-workspace .story-studio-asset-actions button { overflow-wrap:anywhere; }
+}
+.drama-embedded-root .compact-image-workspace .story-studio-asset-visual { min-width:0; width:100%; max-width:100%; box-sizing:border-box; }
+/* Cost explanations must fit the active panel, including narrow clip workspaces. */
+.drama-embedded-root .compact-library-card .generation-cost-action,
+.drama-embedded-root .create-stage-card .generation-cost-action { min-width:0; max-width:100%; flex-wrap:wrap; }
+.drama-embedded-root .compact-library-card .generation-cost-tooltip,
+.drama-embedded-root .create-stage-card .generation-cost-tooltip { width:min(280px,100%); max-width:100%; box-sizing:border-box; }
+.drama-embedded-root .compact-library-card .generation-cost-tooltip :is(b,span,small),
+.drama-embedded-root .create-stage-card .generation-cost-tooltip :is(b,span,small) { overflow-wrap:anywhere; }
+.drama-embedded-root .compact-library-card :is(.generated-video-frame,.generated-video-info) { min-width:0; max-width:100%; }
+.drama-embedded-root .compact-library-card :is(button,.generation-cost-chip) { white-space:normal; overflow-wrap:anywhere; }
+@media(max-width:700px) { .drama-embedded-root .studio-tab { padding-inline:6px; } }
+/* Older mobile styles reserved a now-removed action column beside every result. */
+.drama-embedded-root .compact-library-card > .stage-record-body { grid-template-columns:minmax(0,1fr); }
+.drama-embedded-root .compact-library-card .brief-library-footer > div { flex:1; min-width:0; }
+.drama-embedded-root .compact-library-card .brief-library-footer .brief-delete { flex:none; white-space:nowrap; overflow-wrap:normal; min-height:40px; }
+@media(max-width:700px) { .drama-embedded-root .compact-library-card > .stage-record-body { padding:8px; } }
+.drama-embedded-root .compact-library-card .generated-episode-info { white-space:nowrap; overflow-wrap:normal; min-width:100px; }
+@media(max-width:760px) {
+ .drama-embedded-root .compact-library-card .generated-video-episode-actions { display:grid; grid-template-columns:minmax(0,1fr) 40px; }
+ .drama-embedded-root .compact-library-card .generated-video-episode-actions > span { grid-column:1 / -1; }
+}
+/* Carry Story Studio's readable lilac controls into the clip workspace. */
+.drama-embedded-root .compact-library-card .episode-generation-bar { background:#f5eff8; border-color:#ded3e6; color:#675570; }
+.drama-embedded-root .compact-library-card .episode-generation-bar > div > b { font-size:14px; line-height:1.5; }
+.drama-embedded-root .compact-library-card .episode-generation-bar > div > span,
+.drama-embedded-root .compact-library-card .generated-video-episode-head > div > span { font-size:12px; color:#75657f; letter-spacing:0; }
+.drama-embedded-root .compact-library-card .generated-video-episode-actions > span { font-size:12px; line-height:1.4; letter-spacing:0; text-transform:none; padding:6px 10px; }
+.drama-embedded-root .compact-library-card :is(.generated-episode-button,.generated-video-regenerate) { background:#796b84; border-color:#796b84; color:#fff; font-size:14px; line-height:1.4; min-height:44px; padding:10px 14px; }
+.drama-embedded-root .compact-library-card :is(.generated-episode-combine,.generated-episode-info,.generated-episode-collapse) { background:#f5eff9; border-color:#ccbdd7; color:#675570; font-size:14px; line-height:1.4; min-height:44px; }

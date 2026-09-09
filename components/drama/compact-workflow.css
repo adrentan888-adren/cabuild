@@ -1,0 +1,128 @@
+.drama-embedded-root .generated-job-settings {
+  display: block;
+  padding: 18px 20px;
+  border: 1px solid #ddd4e5;
+  border-radius: 14px;
+  background: #f7f2fa;
+}
+.drama-embedded-root .generated-job-setting-fields,
+.drama-embedded-root .create-stage-card > .form-grid:has(.studio-model-choices),
+.drama-embedded-root .create-stage-card .model-choice-panel > .form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+.drama-embedded-root .generated-job-setting-fields .studio-model-choices,
+.drama-embedded-root .create-stage-card .studio-model-choices {
+  min-width: 0;
+  width: 100%;
+}
+.drama-embedded-root .generated-job-setting-fields .brief-choice-options,
+.drama-embedded-root .create-stage-card .brief-choice-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+}
+.drama-embedded-root .generated-video-grid.compact-video-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.drama-embedded-root .compact-video-grid .generated-video-card {
+  display: grid;
+  grid-template-columns: minmax(180px, .8fr) minmax(0, 1.2fr);
+  align-items: start;
+}
+.drama-embedded-root .compact-video-grid .generated-video-frame {
+  max-height: 420px;
+  border-radius: 12px;
+}
+.drama-embedded-root .compact-video-grid .generated-video-info h4,
+.drama-embedded-root .generated-video-episode-head h4,
+.drama-embedded-root .source-preview-card h3 {
+  font-size: 20px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.drama-embedded-root .compact-video-grid .generated-video-prompt textarea,
+.drama-embedded-root .compact-create-scene-list textarea,
+.drama-embedded-root .result-editor-stack textarea,
+.drama-embedded-root .create-stage-card > .field textarea {
+  font-size: 16px;
+  line-height: 1.65;
+  min-height: 150px;
+}
+.drama-embedded-root .compact-create-scene-list input,
+.drama-embedded-root .result-editor-stack input {
+  font-size: 16px;
+  min-height: 44px;
+}
+.drama-embedded-root .compact-create-scene-list .scene-generation-details {
+  gap: 8px;
+}
+.drama-embedded-root .compact-create-scene-list .scene-generation-details > span {
+  font-size: 12px;
+}
+.drama-embedded-root .compact-create-scene-list .create-scene-row {
+  border: 1px solid #ded3e6;
+  border-radius: 14px;
+  background: #fffefb;
+}
+.drama-embedded-root .result-editor-stack > .studio-tabs,
+.drama-embedded-root .generated-video-episodes {
+  min-width: 0;
+}
+@media (max-width: 760px) {
+  .drama-embedded-root .compact-video-grid .generated-video-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .drama-embedded-root .generated-job-settings {
+    padding: 16px;
+  }
+  .drama-embedded-root .compact-create-scene-list .form-grid.three {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.drama-embedded-root .compact-settings {
+  min-width: 0;
+  border: 1px solid #ddd4e5;
+  border-radius: 14px;
+  background: #f7f2fa;
+  padding: 18px 20px;
+  margin-block: 16px;
+}
+.drama-embedded-root .compact-settings > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  list-style: none;
+  cursor: pointer;
+  color: #675570;
+}
+.drama-embedded-root .compact-settings > summary::-webkit-details-marker { display: none; }
+.drama-embedded-root .compact-settings > summary b { font-size: 17px; }
+.drama-embedded-root .compact-settings > summary small { display: block; margin-top: 4px; font-size: 13px; overflow-wrap: anywhere; }
+.drama-embedded-root .compact-settings > summary svg { flex-shrink: 0; }
+.drama-embedded-root .compact-settings[open] > summary { margin-bottom: 20px; }
+.drama-embedded-root .compact-settings[open] > summary > svg { transform: rotate(180deg); }
+.drama-embedded-root .compact-settings > summary:focus-visible { outline: 3px solid #a390b2; outline-offset: 5px; border-radius: 6px; }
+.drama-embedded-root .compact-settings > .form-grid { grid-template-columns: minmax(0, 1fr); }
+.drama-embedded-root .compact-library-card > .stage-record-body { padding: 24px; }
+.drama-embedded-root .compact-record-source { font-size: 13px; color: #716a77; overflow-wrap: anywhere; }
+.drama-embedded-root .compact-library-card .brief-title-heading { font-size: 20px; font-weight: 750; }
+@media (max-width: 760px) {
+  .drama-embedded-root .compact-library-card > .stage-record-body { padding: 16px; }
+}
+.drama-embedded-root .compact-selected-asset { display: grid; grid-template-columns: minmax(180px,.8fr) minmax(0,1.2fr); gap: 20px; align-items: start; }
+.drama-embedded-root .compact-asset-preview { display: grid; gap: 10px; text-align: center; color: #675570; text-decoration: none; }
+.drama-embedded-root .compact-asset-preview > span { display: block; width: 100%; height: 320px; background-size: contain; background-position: center; background-repeat: no-repeat; background-color: #f5eff8; border-radius: 12px; }
+.drama-embedded-root .compact-result-copy { min-width: 0; }
+.drama-embedded-root .compact-result-copy h3 { margin: 8px 0 16px; font-size: 22px; line-height: 1.35; overflow-wrap: anywhere; }
+.drama-embedded-root .compact-result-copy label { display: grid; gap: 10px; font-size: 15px; }
+.drama-embedded-root .compact-result-copy textarea { width: 100%; min-height: 190px; font-size: 16px; line-height: 1.65; }
+.drama-embedded-root .compact-production-title { display: grid; gap: 10px; font-size: 16px; font-weight: 650; }
+.drama-embedded-root .compact-production-title input { min-height: 60px; font-size: 26px; font-weight: 700; line-height: 1.35; }
+@media (max-width: 760px) {
+  .drama-embedded-root .compact-selected-asset { grid-template-columns: minmax(0,1fr); }
+  .drama-embedded-root .compact-asset-preview > span { height: 240px; }
+  .drama-embedded-root .compact-production-title input { font-size: 23px; }
+}

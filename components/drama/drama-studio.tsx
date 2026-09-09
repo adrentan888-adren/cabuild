@@ -2,6 +2,8 @@
 import StatusToast, { useStatusToast } from "@/components/status-toast";
 import { readDramaResponse } from "@/lib/drama/read-response";
 import StoryCreationForm from "@/components/drama/story-creation-form";
+import StudioTabs, { type StudioTab } from "@/components/drama/studio-tabs";
+import "@/components/drama/compact-workflow.css";
 import BriefLibraryCard from "@/components/drama/brief-library-card";
 import BriefChoiceField from "@/components/drama/brief-choice-field";
 import PageIntro from "@/components/page-intro";
@@ -56,6 +58,7 @@ import {
   Sparkles,
   Star,
   Square,
+  Trash2,
   X,
   Zap,
 } from "lucide-react";
@@ -2083,7 +2086,8 @@ const markChanged = () => {
     const busyKey = episodeNumber
       ? `story-prompts-${recordId}-${episodeNumber}`
       : `story-prompts-${recordId}`;
-    setStoryOperationBusy(busyKey, true);
+    const operationKeys = Array.from(new Set([busyKey, ...selectedEpisodePlan.map(episode => `story-prompts-${recordId}-${episode.number}`)]));
+    operationKeys.forEach(key => setStoryOperationBusy(key, true));
     try {
       const response = await fetch("/api/drama/generate/stage", {
         method: "POST",
@@ -2180,7 +2184,7 @@ const markChanged = () => {
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Scene prompt generation failed.", "error");
     } finally {
-      setStoryOperationBusy(busyKey, false);
+      operationKeys.forEach(key => setStoryOperationBusy(key, false));
     }
   };
 
@@ -3399,6 +3403,9 @@ function WorkflowContextBar({
     selectedId || records[0]?.id || "",
   );
   const [expandedEpisodeKey, setExpandedEpisodeKey] = useState("");
+  const [selectedVideoEpisodes, setSelectedVideoEpisodes] = useState<Record<string, string>>({});
+  const [selectedVideoClips, setSelectedVideoClips] = useState<Record<string, string>>({});
+  const [selectedRecordItems, setSelectedRecordItems] = useState<Record<string, string>>({});
   const initializedEpisodeRecords = useRef(new Set<string>());
   const [autoCombineEpisodes, setAutoCombineEpisodes] = useState<
     Record<string, boolean>
@@ -3667,16 +3674,11 @@ function WorkflowContextBar({
 
   const recordState = (record: WorkflowRecord) => {
     if (record.stage === 1 || record.stage === 2) return record.status === "generating" ? "Generating" : record.status === "failed" ? "Failed" : (record.stage === 1 ? record.snapshot.generatedBrief : record.snapshot.storyline).trim() ? "Ready" : "Failed";
-    const generating =
-      record.snapshot.assets.some((asset) => asset.status === "generating") ||
-      record.snapshot.scenes.some((scene) => scene.status === "generating");
-    if (generating) return "Generating";
-    if (record.id === selectedId) return "Current";
-    const ready =
-      record.snapshot.completed.includes(stage) ||
-      record.snapshot.assets.some((asset) => asset.status === "ready") ||
-      record.snapshot.scenes.some((scene) => scene.status === "ready");
-    return ready ? "Ready" : "Saved";
+    if (record.stage === 4) return record.snapshot.scenes.length > 0 && record.snapshot.scenes.every(scene => scene.prompt.trim()) ? "Ready" : "Not generated";
+    const items = record.stage === 3 ? record.snapshot.assets : record.snapshot.scenes;
+    if (items.some(item => item.status === "generating")) return "Generating";
+    if (items.some(item => Boolean(item.error))) return "Failed";
+    return items.length > 0 && items.every(item => item.status === "ready" && item.resultUrl) ? "Ready" : "Not generated";
   };
 
   const visibleRecords = records
@@ -3698,7 +3700,7 @@ function WorkflowContextBar({
       }
       return Date.parse(second.createdAt) - Date.parse(first.createdAt);
     });
-  const effectiveExpandedId = visibleRecords.some(
+  const effectiveExpandedId = expandedRecordId === "" ? "" : visibleRecords.some(
     (record) => record.id === expandedRecordId,
   )
     ? expandedRecordId
@@ -3743,7 +3745,7 @@ function WorkflowContextBar({
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
           >
-            {(stage <= 2 ? ['All', 'Generating', 'Ready', 'Failed'] : ['All', 'Current', 'Generating', 'Ready', 'Saved']).map((option) => (
+            {(stage <= 2 ? ['All', 'Generating', 'Ready', 'Failed'] : ['All', 'Generating', 'Ready', 'Failed', 'Not generated']).map((option) => (
               <option value={option} key={option}>{option}</option>
             ))}
           </select>
@@ -3761,7 +3763,7 @@ function WorkflowContextBar({
           </select>
           <ChevronDown size={13} />
         </label>
-        {stage <= 2 && <button className={`brief-favorites-filter ${favoritesOnly ? "selected" : ""}`} aria-pressed={favoritesOnly} onClick={() => setFavoritesOnly(!favoritesOnly)}><Star size={15} fill={favoritesOnly ? "currentColor" : "none"} /> Favorites</button>}
+        {<button className={`brief-favorites-filter ${favoritesOnly ? "selected" : ""}`} aria-pressed={favoritesOnly} onClick={() => setFavoritesOnly(!favoritesOnly)}><Star size={15} fill={favoritesOnly ? "currentColor" : "none"} /> Favorites</button>}
         <span className="stage-library-result-count">
           {visibleRecords.length} of {records.length}
         </span>
@@ -3830,79 +3832,24 @@ function WorkflowContextBar({
           const videoEpisodes = Array.from(
             new Set(record.snapshot.scenes.map((scene) => scene.episode)),
           ).sort((first, second) => first - second);
+          const selectedAssetId = record.snapshot.assets.some(asset => asset.id === selectedRecordItems[record.id]) ? selectedRecordItems[record.id] : record.snapshot.assets[0]?.id ?? "";
+          const selectedPromptId = record.snapshot.scenes.some(scene => scene.id === selectedRecordItems[record.id]) ? selectedRecordItems[record.id] : record.snapshot.scenes[0]?.id ?? "";
+          const selectedVideoEpisode = videoEpisodes.some(number => String(number) === selectedVideoEpisodes[record.id]) ? selectedVideoEpisodes[record.id] : String(videoEpisodes[0] ?? "");
           return (
             <article
-              className={`stage-record-card ${
+              className={`stage-record-card brief-library-card compact-library-card ${
                 selected ? "selected" : ""
               } ${stage === 5 ? "video-job-card" : ""} ${
                 expanded ? "expanded" : "collapsed"
               }`}
               key={record.id}
             >
-              <div className="stage-record-header">
-                <button
-                  className="record-collapse-button"
-                  onClick={() =>
-                    setExpandedRecordId(expanded ? "" : record.id)
-                  }
-                  aria-expanded={expanded}
-                  aria-controls={`record-content-${record.id}`}
-                >
-                  <span className="record-title-stack">
-                    <span className="record-title-line">
-                      <h3>{record.name}</h3>
-                      <span
-                        className={`status-pill ${
-                          jobGenerating || assetsGenerating
-                            ? "warning"
-                            : jobReady || recordState(record) === "Ready"
-                              ? "ready"
-                              : "outline"
-                        }`}
-                      >
-                        {jobGenerating || assetsGenerating
-                          ? "Generating"
-                          : recordState(record)}
-                      </span>
-                    </span>
-                    <span className="record-detail-line">
-                      <span>
-                        <Clock3 size={11} /> Produced {formatProducedAt(record.createdAt)}
-                      </span>
-                      {stage > 1 && (
-                        <span>
-                          <FolderKanban size={11} /> Source: {source?.name ?? "Your own scene prompts"}
-                        </span>
-                      )}
-                    </span>
-                  </span>
-                  <ChevronDown
-                    size={16}
-                    className={`record-collapse-chevron ${expanded ? "open" : ""}`}
-                  />
-                </button>
-                <div className="stage-record-header-actions">
-                  {stage !== 5 && (
-                    <button
-                      className="record-arrow-button"
-                      onClick={() => onUse(record.id)}
-                      disabled={Boolean(busy) || !storyReady}
-                      aria-label={`${useLabel}: ${record.name}`}
-                      title={useLabel}
-                    >
-                      {loading ? <LoadingMark /> : <ArrowRight size={18} />}
-                    </button>
-                  )}
-                  <button
-                    className="delete-record-button"
-                    aria-label={`Delete ${record.name}`}
-                    onClick={() => onDelete(record.id)}
-                    title="Delete result"
-                  >
-                    <X size={17} />
-                  </button>
-                </div>
-              </div>
+              <header className="brief-library-header">
+                <button className="brief-favorite" onClick={() => onToggleFavorite(record.id)} aria-label={(record.favorite ? "Remove " : "Add ") + record.name + (record.favorite ? " from favorites" : " to favorites")} aria-pressed={Boolean(record.favorite)}><Star size={20} fill={record.favorite ? "currentColor" : "none"}/></button>
+                <h3 className="brief-title-heading"><button className="brief-title-toggle record-collapse-button" onClick={() => setExpandedRecordId(expanded ? "" : record.id)} aria-expanded={expanded} aria-controls={"record-content-" + record.id} aria-label={(expanded ? "Collapse " : "Expand ") + record.name}><span>{record.name}</span><ChevronDown size={20}/></button></h3>
+                <span className={"status-pill " + (jobGenerating || assetsGenerating ? "warning" : recordState(record) === "Ready" ? "ready" : recordState(record) === "Failed" ? "brief-status-failed" : "outline")} role="status">{jobGenerating || assetsGenerating ? "Generating" : recordState(record)}</span>
+                {stage !== 5 && <div className="brief-library-actions"><button className="secondary-button" onClick={() => onUse(record.id)} disabled={Boolean(busy) || !storyReady || assetsGenerating || jobGenerating} aria-label={useLabel + ": " + record.name}>{loading ? <LoadingMark/> : <>{stage === 3 ? "Create scene prompts" : "Generate & Edit"}<ArrowRight size={15}/></>}</button></div>}
+              </header>
               {expanded && (
               <div
                 className="stage-record-body"
@@ -3932,80 +3879,24 @@ function WorkflowContextBar({
                     />
                   )}
                   {stage === 3 && record.snapshot.assets.length > 0 && (
-                    <div className="generated-asset-strip">
-                      {record.snapshot.assets.map((asset) =>
-                        asset.resultUrl ? (
-                            <a
-                              href={asset.resultUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              key={asset.id}
-                              aria-label={`Open generated image for ${asset.name}`}
-                            >
-                              <span
-                                role="img"
-                                aria-label={asset.name}
-                                style={{
-                                  backgroundImage: `url(${JSON.stringify(
-                                    asset.resultUrl,
-                                  )})`,
-                                }}
-                              />
-                              <b>{asset.name}</b>
-                            </a>
-                          ) : (
-                            <div
-                              className={`generated-asset-placeholder ${asset.status}`}
-                              key={asset.id}
-                              aria-live={
-                                asset.status === "generating"
-                                  ? "polite"
-                                  : undefined
-                              }
-                            >
-                              <span>
-                                {asset.status === "generating" ? (
-                                  <LoadingMark />
-                                ) : (
-                                  <ImageIcon size={17} />
-                                )}
-                                <b>
-                                  {asset.status === "generating"
-                                    ? `Generating${
-                                        typeof asset.progress === "number"
-                                          ? ` · ${asset.progress}%`
-                                          : ""
-                                      }`
-                                    : "Not generated"}
-                                </b>
-                              </span>
-                              <b>{asset.name}</b>
-                              {asset.error && (
-                                <small
-                                  className="generated-asset-error"
-                                  role="alert"
-                                >
-                                  {asset.error}
-                                </small>
-                              )}
-                            </div>
-                          ),
-                      )}
-                    </div>
+                    <StudioTabs label={"Images in " + record.name} value={selectedAssetId} onChange={value => setSelectedRecordItems(current => ({...current,[record.id]:value}))} items={record.snapshot.assets.map(asset => ({id:asset.id,label:asset.name,status:asset.status === "generating" ? "Generating" : asset.error ? "Needs attention" : asset.status === "ready" && asset.resultUrl ? "Ready" : "Not generated",tone:asset.status === "generating" ? "generating" : asset.error ? "failed" : asset.status === "ready" && asset.resultUrl ? "ready" : "pending"}))}>
+                      {record.snapshot.assets.filter(asset => asset.id === selectedAssetId).map(asset => <article className="compact-selected-asset" key={asset.id}>
+                        {asset.resultUrl ? <a className="compact-asset-preview" href={asset.resultUrl} target="_blank" rel="noreferrer" aria-label={"Open generated image for " + asset.name}><span role="img" aria-label={asset.name} style={{backgroundImage:"url(" + JSON.stringify(asset.resultUrl) + ")"}}/><b>Open image</b></a> : <div className={"generated-asset-placeholder " + asset.status} role="status">{asset.status === "generating" ? <LoadingMark/> : <ImageIcon size={28}/>}<b>{asset.status === "generating" ? "Generating" + (typeof asset.progress === "number" ? " · " + asset.progress + "%" : "") : "Not generated"}</b></div>}
+                        <div className="compact-result-copy"><span className="context-kicker">{asset.type}</span><h3>{asset.name}</h3>{asset.error && <p className="story-studio-asset-error" role="alert">{asset.error}</p>}<label>Image prompt<textarea aria-label={"Image prompt for " + asset.name} value={asset.visualPrompt ?? asset.detail} onChange={event => onUpdateSnapshot(record.id,{assets:record.snapshot.assets.map(item => item.id === asset.id ? {...item,visualPrompt:event.target.value,detail:event.target.value} : item)})}/></label></div>
+                      </article>)}
+                    </StudioTabs>
+                  )}
+                  {stage === 4 && record.snapshot.scenes.length > 0 && (
+                    <StudioTabs label={"Prompts in " + record.name} value={selectedPromptId} onChange={value => setSelectedRecordItems(current => ({...current,[record.id]:value}))} items={record.snapshot.scenes.map(scene => ({id:scene.id,label:"E" + scene.episode + " · " + scene.title,status:scene.prompt.trim() ? "Prompt ready" : "Needs prompt",tone:scene.prompt.trim() ? "ready" : "pending"}))}>
+                      {record.snapshot.scenes.filter(scene => scene.id === selectedPromptId).map(scene => <article className="compact-result-copy" key={scene.id}><span className="context-kicker">Episode {scene.episode} · {scene.duration}s · {scene.safety}</span><h3>{scene.title}</h3><label>Scene prompt<textarea aria-label={"Editable prompt for " + scene.title} value={scene.prompt} onChange={event => onUpdateSnapshot(record.id,{scenes:record.snapshot.scenes.map(item => item.id === scene.id ? {...item,prompt:event.target.value} : item)})}/></label></article>)}
+                    </StudioTabs>
                   )}
                   {stage === 5 && (
                     <div className="generated-job-workspace">
-                      <section className="generated-job-settings">
-                        <div>
-                          <span>Generation settings</span>
-                          <h4>Settings for episode and clip generation</h4>
-                          <p>
-                            These choices apply to every Generate Episode and
-                            Regenerate Video action in this job.
-                          </p>
-                        </div>
+                      <details className="generated-job-settings compact-settings">
+                        <summary><span><b>Generation settings</b><small>{modelLabel(videoModelOptions, videoModel)} · {videoModel === "kling-3.0" ? videoMode + " · " : ""}{videoModel === "kling-v3-turbo" ? "720p" : videoSound ? "Sound on" : "Sound off"}</small></span><ChevronDown size={18}/></summary>
                         <div className="generated-job-setting-fields">
-                          <ModelSelect
+                          <StudioModelChoices
                             label="Video model"
                             value={videoModel}
                             options={videoModelOptions}
@@ -4014,20 +3905,20 @@ function WorkflowContextBar({
                             }
                           />
                           {videoModel === "kling-3.0" && (
-                            <SelectField
+                            <StudioModelChoices
                               label="Kling quality"
                               value={videoMode}
-                              options={["std", "pro", "4K"]}
+                              options={["std", "pro", "4K"].map(value => ({value, label:value}))}
                               onChange={(value) =>
                                 setVideoMode(value as "std" | "pro" | "4K")
                               }
                             />
                           )}
                           {videoModel !== "kling-v3-turbo" && (
-                            <SelectField
+                            <StudioModelChoices
                               label="Generate sound"
                               value={videoSound ? "On" : "Off"}
-                              options={["On", "Off"]}
+                              options={["On", "Off"].map(value => ({value, label:value}))}
                               onChange={(value) =>
                                 setVideoSound(value === "On")
                               }
@@ -4042,9 +3933,16 @@ function WorkflowContextBar({
                             </div>
                           )}
                         </div>
-                      </section>
+                      </details>
+                      <StudioTabs label={`Episodes for ${record.name}`} value={selectedVideoEpisode} onChange={value => { setSelectedVideoEpisodes(current => ({...current, [record.id]: value})); setExpandedEpisodeKey(`${record.id}-${value}`); }} items={videoEpisodes.map(number => {
+                        const clips = record.snapshot.scenes.filter(scene => scene.episode === number);
+                        const ready = clips.filter(scene => scene.status === "ready" && scene.resultUrl).length;
+                        const running = clips.some(scene => scene.status === "generating") || videoBusyKeys.some(key => key === `generate-episode-generate-${record.id}-${number}` || key === `generate-episode-generate-combine-${record.id}-${number}`);
+                        const failed = clips.some(scene => Boolean(scene.error));
+                        return { id: String(number), label: `Episode ${number}`, status: `${ready}/${clips.length} clips ready${running ? " · Generating" : failed ? " · Needs attention" : ""}`, tone: running ? "generating" : failed ? "failed" : ready === clips.length && ready > 0 ? "ready" : "pending" };
+                      })}>
                       <div className="generated-video-episodes">
-                      {videoEpisodes.map((episodeNumber) => {
+                      {videoEpisodes.filter(number => String(number) === selectedVideoEpisode).map((episodeNumber) => {
                         const episodeScenes = record.snapshot.scenes.filter(
                           (scene) => scene.episode === episodeNumber,
                         );
@@ -4079,6 +3977,8 @@ function WorkflowContextBar({
                           );
                         const episodeCombining = combiningEpisodeKey === episodeKey;
                         const combinedEpisode = combinedEpisodes[episodeKey];
+                        const selectedVideoClip = episodeScenes.some(scene => scene.id === selectedVideoClips[episodeKey]) ? selectedVideoClips[episodeKey] : episodeScenes[0]?.id ?? "";
+                        const episodeGenerating = episodeScenes.some(scene => scene.status === "generating") || episodeGenerateBusy || episodeGenerateCombineBusy;
                         const episodeGenerationCost = estimateSceneCredits(
                           episodeScenes,
                           videoModel,
@@ -4152,7 +4052,7 @@ function WorkflowContextBar({
                                 <GenerationCost credits={episodeGenerationCost}>
                                   <button
                                     className="generated-episode-button"
-                                    disabled={episodeGenerateBusy}
+                                    disabled={episodeGenerating}
                                     onClick={() => {
                                       setAutoCombineEpisodes((current) => {
                                         const next = { ...current };
@@ -4179,7 +4079,7 @@ function WorkflowContextBar({
                                   <button
                                     className="generated-episode-button generate-and-combine"
                                     disabled={
-                                      episodeGenerateCombineBusy ||
+                                      episodeGenerating ||
                                       episodeAutoCombineQueued ||
                                       episodeCombining
                                     }
@@ -4373,11 +4273,12 @@ function WorkflowContextBar({
                               />
                             </button>
                             {expandedClipKeys.includes(episodeKey) && (
+                            <StudioTabs label={`Clips for Episode ${episodeNumber}`} value={selectedVideoClip} onChange={value => setSelectedVideoClips(current => ({...current,[episodeKey]:value}))} items={episodeScenes.map(scene => ({id:scene.id,label:scene.title,status:scene.status === "generating" ? "Generating" : scene.error ? "Needs attention" : scene.status === "ready" && scene.resultUrl ? "Ready" : "Not generated",tone:scene.status === "generating" ? "generating" : scene.error ? "failed" : scene.status === "ready" && scene.resultUrl ? "ready" : "pending"}))}>
                             <div
-                              className="generated-video-grid"
+                              className="generated-video-grid compact-video-grid"
                               id={`episode-clips-${episodeKey}`}
                             >
-                              {episodeScenes.map((scene) => {
+                              {episodeScenes.filter(scene => scene.id === selectedVideoClip).map((scene) => {
                                 const regenerating =
                                   scene.status === "generating" ||
                                   videoBusyKeys.includes(
@@ -4482,6 +4383,7 @@ function WorkflowContextBar({
                                 );
                               })}
                             </div>
+                            </StudioTabs>
                             )}
                             </div>
                             )}
@@ -4489,26 +4391,14 @@ function WorkflowContextBar({
                         );
                       })}
                       </div>
+                      </StudioTabs>
                     </div>
                   )}
-                  {stage !== 2 && stage !== 5 && (
-                    <textarea
-                      className="stage-record-editor"
-                      aria-label={`Editable content for ${record.name}`}
-                      value={preview(record)}
-                      onChange={(event) => onChange(record.id, event.target.value)}
-                    />
-                  )}
-                  {record.model && (
-                    <div className="stage-record-meta">
-                      <span>
-                        <Sparkles size={11} /> {record.model}
-                      </span>
-                    </div>
-                  )}
+                  {((stage === 3 && !record.snapshot.assets.length) || (stage === 4 && !record.snapshot.scenes.length)) && <p className="compact-empty-library">No generated items are available yet.</p>}
                 </div>
               </div>
               )}
+              <footer className="brief-library-footer"><div><time dateTime={record.createdAt}>{formatProducedAt(record.createdAt)}</time>{source && <span className="compact-record-source">From {source.name}</span>}</div><button className="brief-delete" onClick={() => onDelete(record.id)} disabled={jobGenerating || assetsGenerating || record.status === "generating" || videoBusyKeys.some(key => key.includes(record.id))} aria-label={"Delete " + record.name}><Trash2 size={15}/> Delete</button></footer>
             </article>
           );
         })}
@@ -4555,17 +4445,10 @@ function StoryStudioRecord({
   const [promptEpisodeCount, setPromptEpisodeCount] = useState(
     Math.max(1, snapshot.episodePlan.length),
   );
-  const [hiddenSections, setHiddenSections] = useState({
-    prompts: false,
-    assets: false,
-  });
-
-  const toggleSection = (section: keyof typeof hiddenSections) => {
-    setHiddenSections((current) => ({
-      ...current,
-      [section]: !current[section],
-    }));
-  };
+  const [workspaceTab, setWorkspaceTab] = useState("episodes");
+  const [selectedEpisode, setSelectedEpisode] = useState("");
+  const [imageGroup, setImageGroup] = useState("characters");
+  const [selectedImages, setSelectedImages] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const timeout = window.setTimeout(
@@ -4611,16 +4494,6 @@ function StoryStudioRecord({
     setLibraryAssets(markLibraryAssetUsed(libraryAsset.id));
     setLibraryTargetId("");
   };
-  const readyAssets = snapshot.assets.filter(
-    (asset) => asset.status === "ready",
-  ).length;
-  const allAssetsReady =
-    snapshot.assets.length > 0 && readyAssets === snapshot.assets.length;
-  const canGeneratePrompts = snapshot.episodePlan.length > 0;
-  const promptedEpisodes = new Set(
-    snapshot.scenes.map((scene) => scene.episode),
-  ).size;
-
   const renderAsset = (asset: Asset) => {
     const generating = asset.status === "generating";
     const itemBusy = storyBusyKeys.includes(`story-asset-${record.id}-${asset.id}`) || storyBusyKeys.includes(`story-assets-${record.id}-${asset.type === "Character" ? "characters" : "world"}`);
@@ -4723,272 +4596,76 @@ function StoryStudioRecord({
     `story-prompts-${record.id}`,
   );
   const anyPromptsBusy = generatingPromptSet || storyBusyKeys.some(key => key.startsWith(`story-prompts-${record.id}-`));
+  const episode = snapshot.episodePlan.find(item => String(item.number) === selectedEpisode) || snapshot.episodePlan[0];
+  const episodeScenes = episode ? snapshot.scenes.filter(scene => scene.episode === episode.number) : [];
+  const episodeStatus = (number: number): Pick<StudioTab, "status" | "tone"> => {
+    const scenes = snapshot.scenes.filter(scene => scene.episode === number);
+    const isBusy = storyBusyKeys.includes(`story-prompts-${record.id}-${number}`);
+    if (isBusy) return {status: "Generating prompts", tone: "generating"};
+    const ready = scenes.filter(scene => scene.prompt.trim()).length;
+    return {status: ready && ready === scenes.length ? `${ready} ${ready === 1 ? "prompt" : "prompts"} ready` : ready ? `${ready}/${scenes.length} prompts ready` : "Needs prompts", tone: ready && ready === scenes.length ? "ready" : "pending"};
+  };
+  const assetStatus = (asset: Asset): Pick<StudioTab, "status" | "tone"> => {
+    if (asset.taskRecoveryPending) return {status:"Recovering", tone:"generating"};
+    if (asset.status === "generating" || storyBusyKeys.includes(`story-asset-${record.id}-${asset.id}`)) return {status:"Generating", tone:"generating"};
+    if (asset.error) return {status:"Failed", tone:"failed"};
+    return asset.status === "ready" ? {status:"Ready", tone:"ready"} : {status:"Not generated", tone:"pending"};
+  };
+  const imageSummary = (assets: Asset[], submitting = false): Pick<StudioTab, "status" | "tone"> => {
+    const ready = assets.filter(asset => asset.status === "ready").length;
+    const failed = assets.filter(asset => assetStatus(asset).tone === "failed").length;
+    const generating = assets.filter(asset => assetStatus(asset).tone === "generating").length;
+    return {status: `${ready}/${assets.length} ready${generating ? ` · ${generating} generating` : submitting ? " · generating" : ""}${failed ? ` · ${failed} failed` : ""}`, tone: failed ? "failed" : generating || submitting ? "generating" : assets.length && ready === assets.length ? "ready" : "pending"};
+  };
+  const promptedCount = snapshot.episodePlan.filter(item => episodeStatus(item.number).tone === "ready").length;
+  const groupAssets = imageGroup === "characters" ? characterAssets : worldAssets;
+  const currentAsset = groupAssets.find(asset => asset.id === selectedImages[imageGroup]) || groupAssets[0];
+  const groupBusy = imageGroup === "characters" ? generatingCharacters : generatingLocations;
+  const promptCount = Math.min(promptEpisodeCount, Math.max(1, snapshot.episodePlan.length));
+  const generatingEpisodeCount = snapshot.episodePlan.filter(item => storyBusyKeys.includes(`story-prompts-${record.id}-${item.number}`)).length;
   return (
-    <div className="story-studio-workspace">
-      <section className="story-studio-section">
-        <div className="story-studio-section-head">
-          <div>
-            <span>Full-season story</span>
-            <h3>Series storyline</h3>
-          </div>
-          <span className="status-pill ready">Editable</span>
-        </div>
-        <textarea
-          className="story-studio-storyline"
-          aria-label="Series storyline"
-          value={snapshot.storyline}
-          onChange={(event) => onChangeStory(event.target.value)}
-        />
-      </section>
-
-      <section className="story-studio-section">
-        <div className="story-studio-section-head">
-          <div>
-            <span>Every episode</span>
-            <h3>{snapshot.episodePlan.length} complete episode storylines</h3>
-          </div>
-        </div>
-        <div className="story-studio-episodes">
-          {snapshot.episodePlan.map((episode, index) => (
-            <article className="story-studio-episode" key={episode.number}>
-              <span>Episode {episode.number}</span>
-              <input
-                value={episode.title}
-                aria-label={`Episode ${episode.number} title`}
-                onChange={(event) =>
-                  onUpdate({
-                    episodePlan: snapshot.episodePlan.map((item, itemIndex) =>
-                      itemIndex === index
-                        ? { ...item, title: event.target.value }
-                        : item,
-                    ),
-                  })
-                }
-              />
-              <textarea
-                value={episode.summary}
-                aria-label={`Episode ${episode.number} storyline`}
-                onChange={(event) =>
-                  onUpdate({
-                    episodePlan: snapshot.episodePlan.map((item, itemIndex) =>
-                      itemIndex === index
-                        ? { ...item, summary: event.target.value }
-                        : item,
-                    ),
-                  })
-                }
-              />
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="story-studio-section collapsible-studio-section">
-        <div className="story-studio-section-head prompt-section-head">
-          <div>
-            <span>Episode prompts</span>
-            <h3>
-              {snapshot.scenes.length} prompts across {promptedEpisodes} episodes
-            </h3>
-          </div>
-          <div className="story-studio-section-actions">
+    <div className="story-studio-workspace compact-story-workspace">
+      <StudioTabs label="Story workspace" value={workspaceTab} onChange={setWorkspaceTab} items={[
+        {id:"series", label:"Series", status: snapshot.storyline.trim() ? "Story ready" : "Needs story", tone:snapshot.storyline.trim() ? "ready" : "pending"},
+        {id:"episodes", label:"Episodes", status:anyPromptsBusy ? "Generating prompts" : `${promptedCount}/${snapshot.episodePlan.length} with prompts`, tone:anyPromptsBusy ? "generating" : promptedCount && promptedCount === snapshot.episodePlan.length ? "ready" : "pending"},
+        {id:"images", label:"Images", ...imageSummary(snapshot.assets, generatingCharacters || generatingLocations)},
+      ]}>
+        {workspaceTab === "series" && <section className="story-studio-section">
+          <div className="story-studio-section-head"><div><span>Full-season story</span><h3>Series storyline</h3></div><span className="status-pill ready">Editable</span></div>
+          <textarea className="story-studio-storyline" aria-label="Series storyline" value={snapshot.storyline} onChange={event => onChangeStory(event.target.value)}/>
+        </section>}
+        {workspaceTab === "episodes" && <section className="story-studio-section compact-episode-workspace">
+          <details className="studio-generation-settings"><summary><Settings size={18}/><span>Generation settings</span><small>{modelLabel(chatModelOptions, chatModel)}</small><ChevronDown size={18}/></summary>
             <div className="story-studio-prompt-controls">
-              <StudioModelChoices
-                label="Prompt model"
-                value={chatModel}
-                options={chatModelOptions}
-                onChange={(value) => setChatModel(value as ChatModelId)}
-              />
-              <div className="studio-episode-range"><label htmlFor={`prompt-count-${record.id}`}>Episodes to generate <output>{promptEpisodeCount}</output></label><input id={`prompt-count-${record.id}`} type="range" min={1} max={Math.max(1,snapshot.episodePlan.length)} step={1} value={Math.min(promptEpisodeCount, Math.max(1,snapshot.episodePlan.length))} onChange={event=>setPromptEpisodeCount(Number(event.target.value))}/><div className="studio-range-points" aria-hidden="true">{snapshot.episodePlan.map((_,index)=><span key={index}>{index+1}</span>)}</div></div>
-              <GenerationCost
-                credits={chatCreditEstimate[chatModel] * promptEpisodeCount}
-              >
-                <button
-                  className={snapshot.scenes.length ? "secondary-button" : "primary-button"}
-                  disabled={!canGeneratePrompts || anyPromptsBusy}
-                  title={
-                    canGeneratePrompts
-                      ? "Generate prompts from the episode storylines; completed asset images are optional"
-                      : "Add at least one episode storyline first"
-                  }
-                  onClick={() => onGeneratePrompts(promptEpisodeCount)}
-                >
-                  {generatingPromptSet ? (
-                    <><LoadingMark /> Generating {promptEpisodeCount} episodes</>
-                  ) : snapshot.scenes.length ? (
-                    <><RefreshCcw size={13} /> Regenerate selected episodes</>
-                  ) : (
-                    <><Sparkles size={13} /> Generate episode prompts</>
-                  )}
-                </button>
-              </GenerationCost>
+              <StudioModelChoices label="Prompt model" value={chatModel} options={chatModelOptions} onChange={value => setChatModel(value as ChatModelId)}/>
+              <div className="studio-episode-range"><label htmlFor={`prompt-count-${record.id}`}>Episodes to generate <output>{promptCount}</output></label><input id={`prompt-count-${record.id}`} type="range" min={1} max={Math.max(1,snapshot.episodePlan.length)} step={1} value={promptCount} onChange={event=>setPromptEpisodeCount(Number(event.target.value))}/><div className="studio-range-points" aria-hidden="true">{snapshot.episodePlan.map((_,index)=><span key={index}>{index+1}</span>)}</div><p>Generates the first {promptCount} episodes. Use the episode action below for just one.</p></div>
+              <GenerationCost credits={chatCreditEstimate[chatModel] * promptCount}><button className="primary-button" disabled={!snapshot.episodePlan.length || anyPromptsBusy} onClick={() => onGeneratePrompts(promptCount)}>{generatingPromptSet ? <><LoadingMark/> Generating {generatingEpisodeCount} episodes</> : snapshot.scenes.length ? <><RefreshCcw size={15}/> Regenerate selected episodes</> : <><Sparkles size={15}/> Generate episode prompts</>}</button></GenerationCost>
             </div>
-            <button
-              className="studio-section-toggle"
-              onClick={() => toggleSection("prompts")}
-              aria-expanded={!hiddenSections.prompts}
-              aria-controls={`story-prompts-${record.id}`}
-              aria-label={`${hiddenSections.prompts ? "Show" : "Hide"} episode prompts`}
-            >
-              <ChevronDown className={hiddenSections.prompts ? "" : "open"} size={16} />
-            </button>
-          </div>
-        </div>
-        {!hiddenSections.prompts && (
-          <div className="story-studio-scene-episodes" id={`story-prompts-${record.id}`}>
-            {snapshot.episodePlan.map((episode) => {
-              const episodeScenes = snapshot.scenes.filter(
-                (scene) => scene.episode === episode.number,
-              );
-              const episodeBusy = storyBusyKeys.includes(
-                `story-prompts-${record.id}-${episode.number}`,
-              );
-              return (
-                <section key={episode.number}>
-                  <div className="story-studio-scene-episode-head">
-                    <span>Episode {episode.number}</span>
-                    <b>{episode.title}</b>
-                    <small>{episodeScenes.length} prompts</small>
-                    <GenerationCost credits={chatCreditEstimate[chatModel]}>
-                      <button
-                        className="secondary-button regenerate-episode-prompts"
-                        disabled={!canGeneratePrompts || anyPromptsBusy}
-                        title={
-                          canGeneratePrompts
-                            ? `Generate prompts for Episode ${episode.number}`
-                            : "Add an episode storyline first"
-                        }
-                        onClick={() => onGeneratePrompts(1, episode.number)}
-                      >
-                        {episodeBusy ? (
-                          <><LoadingMark /> Regenerating</>
-                        ) : (
-                          <><RefreshCcw size={12} /> Regenerate episode prompts</>
-                        )}
-                      </button>
-                    </GenerationCost>
-                  </div>
-                  {episodeScenes.length > 0 ? (
-                    <div className="story-studio-scenes">
-                      {snapshot.scenes.map((scene, sceneIndex) =>
-                        scene.episode === episode.number ? (
-                          <details className="studio-prompt-card" key={`${scene.id}-${sceneIndex}`}><summary><span><small>{scene.duration}s · {scene.safety}</small><b>{scene.title}</b></span><ChevronDown size={20}/></summary>
-                            <textarea
-                              value={scene.prompt}
-                              aria-label={`Editable prompt for ${scene.title}`}
-                              onChange={(event) =>
-                                onUpdate({
-                                  scenes: snapshot.scenes.map((item, itemIndex) =>
-                                    itemIndex === sceneIndex
-                                      ? { ...item, prompt: event.target.value }
-                                      : item,
-                                  ),
-                                })
-                              }
-                            />
-                          </details>
-                        ) : null,
-                      )}
-                    </div>
-                  ) : (
-                    <p className="story-studio-episode-prompt-empty">
-                      Generate or regenerate this episode&apos;s prompts independently.
-                    </p>
-                  )}
-                </section>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      <section className="story-studio-section collapsible-studio-section">
-        <div className="story-studio-section-head">
-          <div>
-            <span>Visual assets</span>
-            <h3>{readyAssets}/{snapshot.assets.length} character, venue, and object images ready</h3>
-          </div>
-          <button
-            className="studio-section-toggle"
-            onClick={() => toggleSection("assets")}
-            aria-expanded={!hiddenSections.assets}
-            aria-controls={`story-assets-${record.id}`}
-            aria-label={`${hiddenSections.assets ? "Show" : "Hide"} visual assets`}
-          >
-            <ChevronDown className={hiddenSections.assets ? "" : "open"} size={16} />
-          </button>
-        </div>
-        {!hiddenSections.assets && (
-          <div className="story-studio-asset-groups" id={`story-assets-${record.id}`}>
-            <section className="story-studio-asset-group">
-              <div className="story-studio-subsection-head">
-                <div>
-                  <span>Cast and character continuity</span>
-                  <h4>{snapshot.characters.length} recurring characters</h4>
-                </div>
-                <div className="story-studio-bulk-controls">
-                  <StudioModelChoices
-                    label="Image generation model"
-                    value={imageModel}
-                    options={imageModelOptions}
-                    onChange={(value) => setImageModel(value as ImageModelId)}
-                  />
-                  <GenerationCost
-                    credits={characterAssets.length * imageCreditEstimate[imageModel]}
-                  >
-                    <button
-                      className="primary-button"
-                      disabled={!characterAssets.length || generatingCharacters}
-                      onClick={() => onGenerateAssetGroup("Character")}
-                    >
-                      {generatingCharacters ? (
-                        <><LoadingMark /> Generating all characters</>
-                      ) : (
-                        <><Sparkles size={13} /> Generate all characters</>
-                      )}
-                    </button>
-                  </GenerationCost>
-                </div>
-              </div>
-              <div className="story-studio-asset-grid">
-                {characterAssets.map(renderAsset)}
-              </div>
-            </section>
-
-            <section className="story-studio-asset-group">
-              <div className="story-studio-subsection-head">
-                <div>
-                  <span>Venues and objects</span>
-                  <h4>{worldAssets.length} production assets</h4>
-                </div>
-                <div className="story-studio-bulk-controls compact">
-                  <span className={`status-pill ${allAssetsReady ? "ready" : "warning"}`}>
-                    {readyAssets}/{snapshot.assets.length} images ready
-                  </span>
-                  <GenerationCost
-                    credits={worldAssets.length * imageCreditEstimate[imageModel]}
-                  >
-                    <button
-                      className="primary-button"
-                      disabled={!worldAssets.length || generatingLocations}
-                      onClick={() => onGenerateAssetGroup("World")}
-                    >
-                      {generatingLocations ? (
-                        <><LoadingMark /> Generating venues and objects</>
-                      ) : (
-                        <><Sparkles size={13} /> Generate venues and objects</>
-                      )}
-                    </button>
-                  </GenerationCost>
-                </div>
-              </div>
-              <div className="story-studio-asset-grid">
-                {worldAssets.map(renderAsset)}
-              </div>
-            </section>
-          </div>
-        )}
-      </section>
+          </details>
+          <StudioTabs label="Story episodes" value={String(episode?.number || "")} onChange={setSelectedEpisode} items={snapshot.episodePlan.map(item => ({id:String(item.number),label:`Episode ${item.number}`,...episodeStatus(item.number)}))}>
+            {episode ? <>
+              <div className="story-studio-episodes"><article className="story-studio-episode">
+                <label htmlFor={`episode-title-${record.id}`}>Episode {episode.number} title</label>
+                <input id={`episode-title-${record.id}`} aria-label={`Episode ${episode.number} title`} value={episode.title} onChange={event=>onUpdate({episodePlan:snapshot.episodePlan.map(item=>item.number===episode.number ? {...item,title:event.target.value} : item)})}/>
+                <label htmlFor={`episode-story-${record.id}`}>Storyline</label>
+                <textarea id={`episode-story-${record.id}`} aria-label={`Episode ${episode.number} storyline`} value={episode.summary} onChange={event=>onUpdate({episodePlan:snapshot.episodePlan.map(item=>item.number===episode.number ? {...item,summary:event.target.value} : item)})}/>
+              </article></div>
+              <div className="story-studio-scene-episode-head"><b>Episode {episode.number} prompts</b><small>{episodeScenes.length} prompts</small><GenerationCost credits={chatCreditEstimate[chatModel]}><button className="secondary-button regenerate-episode-prompts" disabled={!episode.summary.trim() || anyPromptsBusy} onClick={()=>onGeneratePrompts(1,episode.number)}>{storyBusyKeys.includes(`story-prompts-${record.id}-${episode.number}`) ? <><LoadingMark/> Regenerating</> : episodeScenes.length ? <><RefreshCcw size={15}/> Regenerate episode prompts</> : <><Sparkles size={15}/> Generate episode prompts</>}</button></GenerationCost></div>
+              <div className="story-studio-scenes">{episodeScenes.map(scene=><details className="studio-prompt-card" key={scene.id}><summary><span><small>{scene.duration}s · {scene.safety}</small><b>{scene.title}</b></span><ChevronDown size={20}/></summary><textarea aria-label={`Editable prompt for ${scene.title}`} value={scene.prompt} onChange={event=>onUpdate({scenes:snapshot.scenes.map(item=>item.id===scene.id ? {...item,prompt:event.target.value} : item)})}/></details>)}</div>
+              {!episodeScenes.length && <p className="story-studio-episode-prompt-empty">This episode has no prompts yet. Generate them from its storyline above.</p>}
+            </> : <p>No episode storylines are available yet.</p>}
+          </StudioTabs>
+        </section>}
+        {workspaceTab === "images" && <section className="story-studio-section compact-image-workspace">
+          <details className="studio-generation-settings"><summary><Settings size={18}/><span>Image settings</span><small>{modelLabel(imageModelOptions,imageModel)}</small><ChevronDown size={18}/></summary><StudioModelChoices label="Image generation model" value={imageModel} options={imageModelOptions} onChange={value=>setImageModel(value as ImageModelId)}/></details>
+          <StudioTabs label="Image groups" value={imageGroup} onChange={setImageGroup} items={[{id:"characters",label:"Characters",...imageSummary(characterAssets,generatingCharacters)},{id:"world",label:"Places & objects",...imageSummary(worldAssets,generatingLocations)}]}>
+            <div className="story-studio-subsection-head"><h3>{imageGroup === "characters" ? "Character images" : "Places & objects"}</h3><GenerationCost credits={groupAssets.length * imageCreditEstimate[imageModel]}><button className="primary-button" disabled={!groupAssets.length || groupBusy} onClick={()=>onGenerateAssetGroup(imageGroup === "characters" ? "Character" : "World")}>{groupBusy ? <><LoadingMark/> {imageGroup === "characters" ? "Generating all characters" : "Generating venues and objects"}</> : <><Sparkles size={15}/> {imageGroup === "characters" ? "Generate all characters" : "Generate venues and objects"}</>}</button></GenerationCost></div>
+            <StudioTabs label={imageGroup === "characters" ? "Character images" : "World images"} value={currentAsset?.id || ""} onChange={value=>setSelectedImages(current=>({...current,[imageGroup]:value}))} items={groupAssets.map(asset=>({id:asset.id,label:asset.name,...assetStatus(asset)}))}>
+              {currentAsset ? renderAsset(currentAsset) : <p>No {imageGroup === "characters" ? "character" : "place or object"} images are planned in this story.</p>}
+            </StudioTabs>
+          </StudioTabs>
+        </section>}
+      </StudioTabs>
 
       {libraryTarget && (
         <div className="confirmation-scrim asset-picker-scrim" role="presentation">
@@ -5098,6 +4775,9 @@ function StageCreationPanel({
   onBack: () => void;
   onGenerate: () => void;
 }) {
+  const [selectedEpisode, setSelectedEpisode] = useState("");
+  const sceneEpisodes = Array.from(new Set(scenes.map(scene => scene.episode))).sort((a,b) => a-b);
+  const activeEpisode = sceneEpisodes.some(number => String(number) === selectedEpisode) ? selectedEpisode : String(sceneEpisodes[0] ?? "");
   const selectedSource = sourceRecords.find(
     (record) => record.id === selectedSourceId,
   );
@@ -5165,12 +4845,12 @@ function StageCreationPanel({
         </div>
 
         <div className="form-grid two">
-          <label>Production title<input value={snapshot.title} onChange={(event) => onUpdateSetup({ title: event.target.value })} /></label>
-          <SelectField label="Aspect ratio" value={snapshot.aspectRatio} options={["16:9", "9:16", "1:1"]} onChange={(value) => onUpdateSetup({ aspectRatio: value })} />
+          <label className="compact-production-title">Production title<input value={snapshot.title} onChange={(event) => onUpdateSetup({ title: event.target.value })} /></label>
+          <StudioModelChoices label="Aspect ratio" value={snapshot.aspectRatio} options={["16:9", "9:16", "1:1"].map(value => ({value, label:value}))} onChange={(value) => onUpdateSetup({ aspectRatio: value })} />
         </div>
         {(stage === 2 || stage === 4) && (
           <div className="model-choice-panel">
-            <ModelSelect
+            <StudioModelChoices
               label="Generation model"
               value={chatModel}
               options={chatModelOptions}
@@ -5186,13 +4866,13 @@ function StageCreationPanel({
         {stage === 3 && (
           <div className="model-choice-panel">
             <div className="form-grid two">
-              <ModelSelect
+              <StudioModelChoices
                 label="Asset planning model"
                 value={chatModel}
                 options={chatModelOptions}
                 onChange={(value) => setChatModel(value as ChatModelId)}
               />
-              <ModelSelect
+              <StudioModelChoices
                 label="Asset image model"
                 value={imageModel}
                 options={imageModelOptions}
@@ -5207,26 +4887,10 @@ function StageCreationPanel({
           </div>
         )}
 
-        <div className="field">
-          <label htmlFor={`create-source-${stage}`}>
-            Use saved work · optional
-          </label>
-          <div className="select-wrap">
-            <select
-              id={`create-source-${stage}`}
-              value={selectedSourceId}
-              onChange={(event) => onSelectSource(event.target.value)}
-            >
-              <option value="">Write your own input</option>
-              {sourceRecords.map((record) => (
-                <option value={record.id} key={record.id}>
-                  {record.name}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={14} />
-          </div>
-        </div>
+        <details className="compact-settings compact-source-picker">
+          <summary><span><b>{selectedSource ? "Change saved work" : "Choose saved work"}</b><small>{selectedSource?.name || "Write your own input, or select an available result"}</small></span><ChevronDown size={18}/></summary>
+          <StudioModelChoices label="Available saved work" value={selectedSourceId} options={[{value:"",label:"Write your own input"},...sourceRecords.filter(record => record.status !== "generating" && record.status !== "failed").map(record => ({value:record.id,label:record.name}))]} onChange={onSelectSource}/>
+        </details>
 
         {!selectedSource && stage < 5 && (
           <label className="field">
@@ -5304,8 +4968,9 @@ function StageCreationPanel({
                 <p>{inputError}</p>
               </div>
             )}
+            <details className="compact-settings"><summary><span><b>Generation settings</b><small>{selectedModelSummary}</small></span><ChevronDown size={18}/></summary>
             <div className="form-grid three">
-              <ModelSelect
+              <StudioModelChoices
                 label="Video model"
                 value={videoModel}
                 options={videoModelOptions}
@@ -5313,18 +4978,18 @@ function StageCreationPanel({
               />
               {videoModel === "kling-3.0" ? (
                 <>
-                  <SelectField
+                  <StudioModelChoices
                     label="Kling quality"
                     value={videoMode}
-                    options={["std", "pro", "4K"]}
+                    options={["std", "pro", "4K"].map(value => ({value, label:value}))}
                     onChange={(value) =>
                       setVideoMode(value as "std" | "pro" | "4K")
                     }
                   />
-                  <SelectField
+                  <StudioModelChoices
                     label="Generate sound"
                     value={videoSound ? "On" : "Off"}
-                    options={["On", "Off"]}
+                    options={["On", "Off"].map(value => ({value, label:value}))}
                     onChange={(value) => setVideoSound(value === "On")}
                   />
                 </>
@@ -5334,10 +4999,10 @@ function StageCreationPanel({
                     <label>Seedance output</label>
                     <div className="fixed-model-value">720p · up to 15 seconds</div>
                   </div>
-                  <SelectField
+                  <StudioModelChoices
                     label="Generate sound"
                     value={videoSound ? "On" : "Off"}
-                    options={["On", "Off"]}
+                    options={["On", "Off"].map(value => ({value, label:value}))}
                     onChange={(value) => setVideoSound(value === "On")}
                   />
                 </>
@@ -5348,6 +5013,7 @@ function StageCreationPanel({
                 </div>
               )}
             </div>
+            </details>
             <details className="drama-advanced-details"><summary>Continuity and production details</summary>
             <div className="continuity-lock-preview">
               <div>
@@ -5415,9 +5081,14 @@ function StageCreationPanel({
                 </button>
               </div>
             </div>
-            <div className="manual-scene-toolbar"><span>Write or paste a prompt for each clip. Reference images are optional.</span><button type="button" onClick={() => setScenes([...scenes, newManualScene(scenes.length + 1)])}><Plus size={14} />Add scene</button></div>
-            <div className="create-scene-list">
-              {scenes.map((scene) => (
+            <div className="manual-scene-toolbar"><span>Write or paste a prompt for each clip. Reference images are optional.</span><button type="button" onClick={() => { const scene = newManualScene(scenes.length + 1); setScenes([...scenes, scene]); setSelectedEpisode(String(scene.episode)); }}><Plus size={14} />Add scene</button></div>
+            <StudioTabs label="Episodes to prepare" value={activeEpisode} onChange={setSelectedEpisode} items={sceneEpisodes.map(number => {
+              const episodeScenes = scenes.filter(scene => scene.episode === number);
+              const selected = episodeScenes.filter(scene => scene.selected).length;
+              return {id:String(number),label:"Episode " + number,status:selected + "/" + episodeScenes.length + " clips selected",tone:selected ? "ready" : "pending"};
+            })}>
+            <div className="create-scene-list compact-create-scene-list">
+              {scenes.filter(scene => String(scene.episode) === activeEpisode).map((scene) => (
                 <article
                   className={`create-scene-row ${
                     scene.selected ? "selected" : ""
@@ -5482,6 +5153,7 @@ function StageCreationPanel({
                 </article>
               ))}
             </div>
+            </StudioTabs>
           </>
         )}
       </section>
@@ -5548,6 +5220,12 @@ function StageResultEditor({
   onSave: () => void;
   onRegenerate: () => void;
 }) {
+  const [selectedAssetId, setSelectedAssetId] = useState("");
+  const [selectedSceneId, setSelectedSceneId] = useState("");
+  const [selectedEpisode, setSelectedEpisode] = useState("");
+  const activeAssetId = snapshot.assets.some(asset => asset.id === selectedAssetId) ? selectedAssetId : snapshot.assets[0]?.id ?? "";
+  const activeSceneId = snapshot.scenes.some(scene => scene.id === selectedSceneId) ? selectedSceneId : snapshot.scenes[0]?.id ?? "";
+  const activeEpisode = snapshot.episodePlan.some(episode => String(episode.number) === selectedEpisode) ? selectedEpisode : String(snapshot.episodePlan[0]?.number ?? "");
   return (
     <div className="single-column-content">
       <section className="card">
@@ -5587,7 +5265,8 @@ function StageResultEditor({
               />
             </div>
             <h3>Episode outlines</h3>
-            {snapshot.episodePlan.map((episode, index) => (
+            <StudioTabs label="Episode outlines" value={activeEpisode} onChange={setSelectedEpisode} items={snapshot.episodePlan.map(episode => ({id:String(episode.number),label:"Episode " + episode.number,status:episode.summary.trim() ? "Storyline ready" : "Needs storyline",tone:episode.summary.trim() ? "ready" : "pending"}))}>
+            {snapshot.episodePlan.map((episode, index) => String(episode.number) === activeEpisode && (
               <div className="form-grid" key={episode.number}>
                 <div className="field">
                   <label>Episode {episode.number} title</label>
@@ -5621,6 +5300,7 @@ function StageResultEditor({
                 </div>
               </div>
             ))}
+            </StudioTabs>
             <h3>Character continuity</h3>
             {snapshot.characters.map((character, index) => (
               <div className="form-grid three" key={`${character.name}-${index}`}>
@@ -5676,7 +5356,8 @@ function StageResultEditor({
 
         {stage === 3 && (
           <div className="result-editor-stack">
-            {snapshot.assets.map((asset, index) => (
+            <StudioTabs label="Asset results" value={activeAssetId} onChange={setSelectedAssetId} items={snapshot.assets.map(asset => ({id:asset.id,label:asset.name,status:asset.status === "generating" ? "Generating" : asset.error ? "Needs attention" : asset.status === "ready" && asset.resultUrl ? "Ready" : "Not generated",tone:asset.status === "generating" ? "generating" : asset.error ? "failed" : asset.status === "ready" && asset.resultUrl ? "ready" : "pending"}))}>
+            {snapshot.assets.map((asset, index) => asset.id === activeAssetId && (
               <article className="source-preview-card" key={asset.id}>
                 <span>
                   {asset.type} · {asset.status}
@@ -5756,12 +5437,14 @@ function StageResultEditor({
                 )}
               </article>
             ))}
+            </StudioTabs>
           </div>
         )}
 
         {(stage === 4 || stage === 5) && (
           <div className="result-editor-stack">
-            {snapshot.scenes.map((scene, index) => (
+            <StudioTabs label="Scene results" value={activeSceneId} onChange={setSelectedSceneId} items={snapshot.scenes.map(scene => ({id:scene.id,label:"E" + scene.episode + " · " + scene.title,status:stage === 4 ? (scene.prompt.trim() ? "Prompt ready" : "Needs prompt") : scene.status === "generating" ? "Generating" : scene.error ? "Needs attention" : scene.status === "ready" && scene.resultUrl ? "Ready" : "Not generated",tone:stage === 4 ? (scene.prompt.trim() ? "ready" : "pending") : scene.status === "generating" ? "generating" : scene.error ? "failed" : scene.status === "ready" && scene.resultUrl ? "ready" : "pending"}))}>
+            {snapshot.scenes.map((scene, index) => scene.id === activeSceneId && (
               <article className="source-preview-card" key={scene.id}>
                 <span>
                   {scene.id} · {scene.duration}s · {scene.status}
@@ -5801,6 +5484,7 @@ function StageResultEditor({
                 )}
               </article>
             ))}
+            </StudioTabs>
           </div>
         )}
       </section>

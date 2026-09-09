@@ -48,14 +48,18 @@ const fs = require('node:fs');
   const expand = async () => { const button = card.getByRole('button', { name: 'Expand Tidal Letters' }); if (await button.count()) await button.click(); };
   await card.waitFor(); await expand();
   const workspace = card.locator('.story-studio-workspace');
+  const section = async name => workspace.getByRole('tablist', { name: 'Story workspace', exact: true }).getByRole('tab', { name: new RegExp('^' + name + '(?: |$)') }).click();
+  const settings = async name => { const detail = workspace.locator('details').filter({ has: page.locator('summary').filter({hasText: name}) }).first(); if ((await detail.getAttribute('open')) === null) await detail.locator('summary').first().click(); };
+  const selectAsset = async name => { await section('Images'); await workspace.getByRole('tablist', { name: 'Image groups', exact: true }).getByRole('tab', { name: /^Characters/ }).click(); await workspace.getByRole('tablist', { name: 'Character images', exact: true }).getByRole('tab', { name: new RegExp('^' + name + '(?: |$)') }).click(); };
+  await settings('Generation settings');
   assert.equal(await workspace.locator('select').count(), 0, 'No dropdowns inside Story Studio');
   assert.equal(await workspace.getByRole('group', { name: 'Prompt model', exact: true }).getByRole('radio').count(), 2);
-  assert(await workspace.getByRole('group', { name: 'Image generation model', exact: true }).getByRole('radio').count() >= 2);
+
   const slider = workspace.getByRole('slider', { name: 'Episodes to generate' });
   await slider.focus(); await page.keyboard.press('Home'); assert.equal(await slider.inputValue(), '1'); await page.keyboard.press('End'); assert.equal(await slider.inputValue(), '2');
   assert.equal(await workspace.locator('.studio-range-points span').count(), 2);
   assert(await workspace.getByLabel('Episode 1 title', { exact: true }).evaluate(el => parseFloat(getComputedStyle(el).fontSize) >= 20));
-  assert(await workspace.getByLabel('Series storyline', { exact: true }).evaluate(el => parseFloat(getComputedStyle(el).fontSize) >= 16));
+  await section('Series'); assert(await workspace.getByLabel('Series storyline', { exact: true }).evaluate(el => parseFloat(getComputedStyle(el).fontSize) >= 16)); await section('Episodes'); await settings('Generation settings');
   const firstPrompt = workspace.locator('.story-studio-scenes details').first();
   assert.equal(await firstPrompt.getAttribute('open'), null);
   assert(await firstPrompt.locator('summary b').evaluate(el => parseFloat(getComputedStyle(el).fontSize) >= 18));
@@ -63,7 +67,7 @@ const fs = require('node:fs');
   await firstPrompt.getByRole('textbox').fill('Edited prompt: the envelope glows in the rain.');
   await firstPrompt.locator('summary').focus(); await page.keyboard.press('Space'); assert.equal(await firstPrompt.getAttribute('open'), null);
   const asset = name => workspace.locator('.story-studio-asset').filter({ has: page.getByRole('heading', { name, exact: true }) });
-  await asset('Mara').locator('summary').click(); assert(await asset('Mara').getByRole('textbox').isVisible());
+  await selectAsset('Mara'); await settings('Image settings'); assert(await workspace.getByRole('group', { name: 'Image generation model', exact: true }).getByRole('radio').count() >= 2); await asset('Mara').locator('summary').click(); assert(await asset('Mara').getByRole('textbox').isVisible()); await section('Episodes'); await settings('Generation settings');
   const bulkPrompts = workspace.getByRole('button', { name: 'Regenerate selected episodes', exact: true });
   await bulkPrompts.click(); await page.waitForFunction(() => document.querySelector('.story-studio-prompt-controls button')?.disabled);
   assert(await workspace.getByRole('button', { name: 'Generating 2 episodes', exact: true }).isDisabled());
@@ -71,8 +75,9 @@ const fs = require('node:fs');
   assert.equal(promptPosts.length, 1); heldPrompts.shift()(); await bulkPrompts.waitFor(); assert(await bulkPrompts.isEnabled());
   await workspace.getByRole('button', { name: 'Regenerate episode prompts', exact: true }).first().click();
   assert(await bulkPrompts.isDisabled()); assert(await workspace.getByRole('button', { name: 'Regenerating', exact: true }).isDisabled());
-  assert(await workspace.getByRole('button', { name: 'Regenerate episode prompts', exact: true }).isDisabled());
+  assert.equal(await workspace.getByRole('button', { name: 'Regenerate episode prompts', exact: true }).count(), 0);
   assert.equal(promptPosts.length, 2); heldPrompts.shift()(); await page.waitForFunction(() => !document.querySelector('.story-studio-prompt-controls button')?.disabled);
+  await selectAsset('Mara');
   const characters = () => workspace.getByRole('button', { name: /^(Generate|Generating) all characters$/ });
   await asset('Mara').getByRole('button', { name: 'Generate image', exact: true }).click();
   assert(await asset('Mara').getByRole('button', { name: 'Generating with Kie AI', exact: true }).isDisabled()); assert(await characters().isDisabled());
@@ -80,13 +85,13 @@ const fs = require('node:fs');
   await page.waitForTimeout(1700); assert((statusCalls.get('task-1') || 0) >= 1);
   assert.equal(await page.locator('.temporary-error-log').count(), 0, 'Normal generating diagnostics do not become errors');
   assert.doesNotMatch(await workspace.innerText(), /checking every\s*4\s*(?:s|seconds)\b/i);
-  await page.reload(); await card.waitFor(); await expand();
+  await page.reload(); await card.waitFor(); await expand(); await selectAsset('Mara');
   assert(await asset('Mara').getByRole('button', { name: 'Generating with Kie AI', exact: true }).isDisabled()); assert(await characters().isDisabled()); assert.equal(mediaPosts.length, 1, 'Refresh never resubmits media');
   taskStates.set('task-1', { state: 'success', resultUrls: ['data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'], diagnostic: { httpStatus: 200 } });
   await asset('Mara').getByRole('button', { name: 'Regenerate image', exact: true }).waitFor({ timeout: 10000 });
   assert.equal(await page.locator('.temporary-error-log').count(), 0, 'Normal successful diagnostics do not become errors');
   await characters().click(); assert(await characters().isDisabled());
-  assert(await asset('Mara').getByRole('button', { name: 'Generating with Kie AI', exact: true }).isDisabled()); assert(await asset('Finn').getByRole('button', { name: 'Generating with Kie AI', exact: true }).isDisabled());
+  assert(await asset('Mara').getByRole('button', { name: 'Generating with Kie AI', exact: true }).isDisabled()); await selectAsset('Finn'); assert(await asset('Finn').getByRole('button', { name: 'Generating with Kie AI', exact: true }).isDisabled());
   await page.waitForTimeout(100); assert.equal(mediaPosts.length, 2); heldMedia.shift()();
   await page.waitForTimeout(100); assert.equal(mediaPosts.length, 3); assert(await characters().isDisabled()); heldMedia.shift()();
   taskStates.set('task-2', { httpStatus: 503, message: 'Temporary provider status failure' });
@@ -96,6 +101,7 @@ const fs = require('node:fs');
   const beforeRepeat = statusCalls.get('task-2') || 0; await page.waitForTimeout(4500); assert((statusCalls.get('task-2') || 0) > beforeRepeat);
   assert.equal(JSON.parse(await log.inputValue()).entries.filter(entry => entry.taskId === 'task-2').length, 1, 'Identical transient failures deduplicated');
   taskStates.set('task-2', { httpStatus: 404, message: 'Media task not found for this owner.' });
+  await selectAsset('Mara');
   await asset('Mara').getByText('Media task not found for this owner.', { exact: true }).waitFor({ timeout: 10000 });
   const afterPermanent = statusCalls.get('task-2'); await page.waitForTimeout(4500); assert.equal(statusCalls.get('task-2'), afterPermanent, 'Permanent 404 stops automatic status calls');
   assert(await asset('Mara').getByRole('button', { name: 'Generate image', exact: true }).isEnabled());
@@ -110,7 +116,7 @@ const fs = require('node:fs');
   assert(await asset('Mara').getByRole('button', {name:'Generating with Kie AI',exact:true}).isDisabled());
   const persistedAsset = async name => page.evaluate(({id,name}) => JSON.parse(localStorage.getItem(Object.keys(localStorage).find(key=>key.includes('workflow-library-v2')))).records.find(record=>record.id===id).snapshot.assets.find(item=>item.name===name), {id,name});
   let recovering = await persistedAsset('Mara'); assert.equal(recovering.taskId,'task-4'); assert.equal(recovering.recoveryReceipt,'mock-proof'); assert.equal(recovering.taskRecoveryPending,true);
-  await page.reload(); await card.waitFor(); await expand();
+  await page.reload(); await card.waitFor(); await expand(); await selectAsset('Mara');
   assert(await asset('Mara').getByRole('button',{name:'Generating with Kie AI',exact:true}).isDisabled()); assert(await characters().isDisabled());
   await until(()=>(statusCalls.get('task-4')||0)>=1,'Recovery status checked');
   assert.equal(receiptHeaders.get('task-4'),'mock-proof','Owner recovery receipt travels in status request header');
@@ -123,6 +129,7 @@ const fs = require('node:fs');
   await asset('Mara').getByRole('button',{name:'Regenerate image',exact:true}).waitFor({timeout:10000}); assert.equal(mediaPosts.length,4);
   // Without a receipt, an accepted but untracked task stays locked until an explicit status check can recover it.
   nextAcceptedFailure = {};
+  await selectAsset('Finn');
   await asset('Finn').getByRole('button',{name:'Regenerate image',exact:true}).click();
   await until(()=>mediaPosts.length===5,'Unreceipted accepted task request received');
   taskStates.set('task-5',{httpStatus:404,message:'Accepted task ownership tracking is unavailable.'}); heldMedia.shift()();
@@ -131,7 +138,7 @@ const fs = require('node:fs');
   assert.equal(await asset('Finn').getByRole('button',{name:/^(Generate|Regenerate) image$/}).count(),0);
   const blockedCalls=statusCalls.get('task-5'); await page.waitForTimeout(4500); assert.equal(statusCalls.get('task-5'),blockedCalls,'Untracked accepted task stops automatic requests');
   recovering=await persistedAsset('Finn'); assert.equal(recovering.taskId,'task-5'); assert.equal(recovering.status,'generating'); assert.equal(recovering.taskRecoveryPending,true); assert.equal(recovering.taskRecoveryBlocked,true); assert.equal(recovering.recoveryReceipt,undefined);
-  await page.reload(); await card.waitFor(); await expand(); await checkStatus.waitFor();
+  await page.reload(); await card.waitFor(); await expand(); await selectAsset('Finn'); await checkStatus.waitFor();
   assert(await asset('Finn').getByRole('button',{name:'Generating with Kie AI',exact:true}).isDisabled()); assert(await characters().isDisabled()); assert.equal(mediaPosts.length,5);
   taskStates.set('task-5',{httpStatus:503,message:'Manual status recovery is temporarily unavailable.'});
   await checkStatus.click();
@@ -143,8 +150,13 @@ const fs = require('node:fs');
     await page.setViewportSize({ width, height: 900 });
     await page.waitForTimeout(300);
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Story controls overflow at ' + width);
-    for (const [name, target] of [['episodes', workspace.locator('.story-studio-episodes')], ['prompt-models', workspace.locator('.story-studio-prompt-controls')], ['image-models', workspace.locator('.story-studio-bulk-controls').first()], ['asset', asset('Mara')]]) {
-      await target.scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
+    for (const [name, prepare, target] of [
+      ['episodes', async () => section('Episodes'), workspace.locator('.story-studio-episodes')],
+      ['prompt-models', async () => { await section('Episodes'); await settings('Generation settings'); }, workspace.locator('.story-studio-prompt-controls')],
+      ['image-models', async () => { await section('Images'); await settings('Image settings'); }, workspace.getByRole('group', { name: 'Image generation model', exact: true })],
+      ['asset', async () => selectAsset('Mara'), asset('Mara')]
+    ]) {
+      await prepare(); await target.scrollIntoViewIfNeeded(); await page.waitForTimeout(200);
       assert(await target.evaluate(el => el.scrollWidth <= el.clientWidth), name + ' nested overflow at ' + width);
       await page.screenshot({ path: '.playwright-mcp/story-controls-' + name + '-' + width + '.png' });
     }

@@ -42,3 +42,9 @@ The centered 1080px canvas and responsive gutters remain unchanged. Normal Conte
 ## 2026-09-07 — Simplified brief selection and Story Studio controls
 
 The saved-brief picker now shows available titles only, retaining search, Favorites and explicit radio selection. Preview text, metadata and full-brief details were removed following the updated product request. The selected-source area has one Change Brief action. Story Studio extends the existing lilac form system with larger episode editors, model radio cards, a count slider, individually collapsible scene/image prompts and responsive asset cards with stacked actions. Cost tooltips stay within their controls, including on mobile and tablet.
+
+## 2026-09-09 - Compact Drama workspaces
+
+Story Studio repeated every episode in its story editor and prompt section, then rendered the entire asset gallery below. Combine each episode's editable storyline and prompts in one selected panel; separate Series, Episodes and Images without reducing text size. Keep per-episode prompt readiness and per-image generating/ready/failed states visible on inactive tabs. Apply the same pattern to generation-job episodes/clips and creation/result lists. Reference the shared Creative Brief card for lilac surfaces/large titles and Asset Library category filters for grouping.
+
+External references: [W3C APG Tabs](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/) specifies labelled tab/panel relationships, arrow navigation and automatic activation when panel display is immediate. [Atlassian Tabs](https://atlassian.design/components/tabs) groups related content on the same page. Use local automatic tabs with wrapping at narrow widths, visible text statuses, and stable parent-owned edits/jobs; no automatic provider action or selection change on background progress. Keep model and bulk generation settings in a compact disclosure with the selected model visible in its summary.

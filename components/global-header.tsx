@@ -302,8 +302,10 @@ export default function GlobalHeader({
                 {balanceOptions.map(balance => (
                   <label className={`credit-balance-choice ${selectedBalance.id === balance.id ? "selected" : ""}`} key={balance.id}>
                     <input type="radio" name={balanceRadioName} value={balance.id} checked={selectedBalance.id === balance.id} onChange={() => selectBalance(balance.id)} aria-label={`Show ${balance.label} in header`} />
-                    <span className="credit-balance-copy"><b>{balance.label}</b><small>{balance.kind}</small><strong>{formatBalance(balance)}</strong><small>{balance.message}</small></span>
-                    {selectedBalance.id === balance.id ? <span className="credit-selected-badge">Showing</span> : null}
+                    <span className="credit-balance-copy">
+                      <span className="credit-balance-heading"><b>{balance.label}</b><strong>{formatBalance(balance)}</strong></span>
+                      <small>{balance.kind} · {balance.message}</small>
+                    </span>
                   </label>
                 ))}
               </fieldset>

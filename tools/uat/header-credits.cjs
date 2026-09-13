@@ -18,7 +18,7 @@ const assert = require('node:assert/strict');
     ],
     checkedAt: '2026-09-13T10:00:00Z',
   });
-  await context.route('**/api/**', route => {
+  const guard = route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     if (path === '/api/account/credits') {
       requests++;
@@ -31,7 +31,8 @@ const assert = require('node:assert/strict');
       return route.fulfill({ status: 403, json: { error: 'No-spend UAT' } });
     }
     return route.continue();
-  });
+  };
+  await context.route('**/api/**', guard);
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(base + '/login');
@@ -54,6 +55,13 @@ const assert = require('node:assert/strict');
   assert.match(await panel().innerText(), /\$32.75 of \$50.00 used this cycle/);
   assert.match(await panel().innerText(), /Balance temporarily unavailable/);
   assert.match(await panel().innerText(), /Checked/);
+  assert.match(await panel().innerText(), /Workspace credits/);
+  assert.match(await panel().innerText(), /Provider credits/);
+  assert.match(await panel().innerText(), /Remaining monthly allowance/);
+  assert.match(await panel().innerText(), /Connection status/);
+  const initialGeometry = await panel().evaluate(element => ({ height: element.getBoundingClientRect().height, contentHeight: element.scrollHeight }));
+  assert(initialGeometry.height <= 550, `All five balances fit a compact desktop popover: ${JSON.stringify(initialGeometry)}`);
+  assert(initialGeometry.contentHeight <= initialGeometry.height + 2, 'Desktop balance details do not need an inner scrollbar');
   const countBeforeChoice = requests;
   await panel().getByRole('radio', { name: 'Show KIE AI in header' }).check();
   assert.match(await trigger().innerText(), /KIE AI.*987.5 credits/s);
@@ -89,6 +97,16 @@ const assert = require('node:assert/strict');
     await open();
     const box = await panel().boundingBox();
     assert(box.x >= 0 && box.x + box.width <= width + 1, `Popover fits ${width}`);
+    const rowGeometry = await panel().locator('.credit-balance-choice').evaluateAll(rows => rows.map(row => ({
+      height: row.getBoundingClientRect().height,
+      nameSize: parseFloat(getComputedStyle(row.querySelector('b')).fontSize),
+      balanceSize: parseFloat(getComputedStyle(row.querySelector('strong')).fontSize),
+      detailSize: parseFloat(getComputedStyle(row.querySelector('small')).fontSize),
+      headingHeight: row.querySelector('.credit-balance-heading').getBoundingClientRect().height,
+    })));
+    assert(rowGeometry.every(row => row.height >= 44 && row.height <= 110), `Compact touchable balance rows at ${width}: ${JSON.stringify(rowGeometry)}`);
+    assert(rowGeometry.every(row => row.nameSize >= 14 && row.balanceSize >= 15 && row.detailSize >= 12), `Readable amounts and details at ${width}`);
+    if (width >= 768) assert(rowGeometry.every(row => row.headingHeight <= 22), `Provider and amount share one line at ${width}`);
     assert(await trigger().locator('.credit-pinned-label').isVisible(), `Pinned value visible ${width}`);
     const pinned = await trigger().locator('.credit-pinned-label').boundingBox();
     assert(pinned.width >= 75, `Pinned amount has readable width at ${width}: ${pinned.width}`);
@@ -108,8 +126,20 @@ const assert = require('node:assert/strict');
   await page.reload(); await open();
   await page.waitForFunction(() => document.querySelector('input[value="kie"]')?.checked);
   assert.match(await trigger().innerText(), /KIE AI/);
+  await panel().getByRole('radio', { name: 'Show KIE AI in header' }).focus();
+  await page.keyboard.press('ArrowDown');
+  assert(await panel().getByRole('radio', { name: 'Show Apify in header' }).isChecked(), 'Native keyboard radio navigation updates the pinned balance');
+  const touch = await browser.newContext({ storageState: await context.storageState(), viewport: { width: 320, height: 900 }, hasTouch: true, isMobile: true });
+  await touch.route('**/api/**', guard);
+  const phone = await touch.newPage();
+  phone.on('pageerror', error => errors.push(error.message));
+  await phone.goto(base + '/drama-studio?step=1');
+  await phone.getByRole('button', { name: 'Show credit balances', exact: true }).tap();
+  await phone.locator('.credit-popover').getByRole('radio', { name: 'Show KIE AI in header' }).tap();
+  assert.match(await phone.getByRole('button', { name: 'Show credit balances', exact: true }).innerText(), /KIE AI.*987.5 credits/s);
+  console.log('Compact five-balance desktop geometry:', JSON.stringify(initialGeometry));
   assert.deepEqual(errors, []);
   assert.deepEqual(mutations, []);
-  console.log('PASS credit details, exact units, preference persistence/owner isolation, failures/recovery, keyboard and 1440/768/390/320 layouts; no mutations or paid requests');
+  console.log('PASS compact credit details, exact units, preference persistence/owner isolation, failures/recovery, keyboard/touch and 1440/768/390/320 layouts; no mutations or paid requests');
   await browser.close();
 })().catch(error => { console.error(error); process.exit(1); });

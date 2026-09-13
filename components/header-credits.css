@@ -2,24 +2,25 @@
 .global-header .global-credit-trigger .credit-pinned-label{display:grid;gap:1px;text-align:left;min-width:90px;max-width:180px;flex-shrink:0}
 .global-header .credit-pinned-label small{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
 .global-header .credit-pinned-label b{font-size:13px;overflow:hidden;text-overflow:ellipsis}
-.global-header .credit-popover{width:410px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 125px);overflow-y:auto;overscroll-behavior:contain;padding:14px}
+.global-header .credit-popover{width:390px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 125px);overflow-y:auto;overscroll-behavior:contain;padding:10px}
+.global-header .credit-popover .global-popover-head{padding:2px 2px 8px}
 .global-header .credit-popover .global-popover-head b{font-size:16px}
 .global-header .credit-popover .global-popover-head small{font-size:12px;line-height:1.4}
 .global-header .credit-popover .global-popover-head button{width:40px;min-height:40px;flex-shrink:0}
-.credit-popover .credit-update-status{font-size:12px;line-height:1.5;margin:10px 0;color:var(--muted)}
+.credit-popover .credit-update-status{font-size:12px;line-height:1.5;margin:7px 0;color:var(--muted)}
 .credit-popover .credit-update-error{color:#a52d40}
-.credit-popover .credit-provider-list{border:0;padding:0;margin:0;min-width:0;gap:8px}
-.credit-provider-list legend{padding:0 0 8px;color:var(--muted);font-size:12px;font-weight:650}
-.credit-balance-choice{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:start;gap:10px;padding:12px;border:1px solid #ded9e8;border-radius:12px;background:#fff;cursor:pointer}
+.credit-popover .credit-provider-list{border:0;padding:0;margin:0;min-width:0;gap:5px}
+.credit-provider-list legend{padding:0 0 5px;color:var(--muted);font-size:12px;font-weight:650}
+.credit-balance-choice{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:start;gap:8px;padding:8px;border:1px solid #ded9e8;border-radius:10px;background:#fff;cursor:pointer;min-height:44px}
 .credit-balance-choice.selected{background:#f3eefb;border-color:#9b7dc0}
 .credit-balance-choice:focus-within{outline:2px solid #745498;outline-offset:2px}
 .credit-balance-choice input{width:16px;height:16px;margin:3px 0 0;accent-color:#775395}
-.credit-balance-copy{display:grid;gap:4px;min-width:0;overflow-wrap:anywhere}
-.credit-balance-copy b{font-size:15px;color:var(--text)}
-.credit-balance-copy strong{font-size:19px;color:#694b87;line-height:1.3}
+.credit-balance-copy{display:grid;gap:3px;min-width:0;overflow-wrap:anywhere}
+.credit-balance-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.credit-balance-copy b{font-size:14px;color:var(--text);line-height:1.4}
+.credit-balance-copy strong{font-size:15px;color:#694b87;line-height:1.3}
 .credit-balance-copy small{font-size:12px;color:var(--muted);line-height:1.45}
-.credit-selected-badge{font-size:10px;font-weight:650;color:#694b87;background:#e7dcf2;border-radius:12px;padding:4px 6px}
-.credit-popover .credit-balance-note{font-size:12px;line-height:1.5;color:var(--muted);margin:12px 0 0}
+.credit-popover .credit-balance-note{font-size:12px;line-height:1.5;color:var(--muted);margin:8px 0 0}
 .credit-refreshing{animation:credit-refresh 1s linear infinite}
 @keyframes credit-refresh{to{transform:rotate(360deg)}}
 @media(max-width:760px){.global-header .global-credit-trigger{width:auto;padding:4px 7px;gap:5px}.global-header .global-credit-trigger .credit-pinned-label{max-width:106px}.global-header .credit-pinned-label b{font-size:11px}.global-header .credit-pinned-label small{font-size:10px}.global-header .global-credit-trigger>svg:first-child{display:none}.global-header .credit-popover{max-height:calc(100dvh - 145px)}}

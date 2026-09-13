@@ -116,6 +116,7 @@ type EpisodeOutline = {
   number: number;
   title: string;
   summary: string;
+  promptError?: string;
 };
 
 type CharacterProfile = {
@@ -2033,6 +2034,7 @@ const markChanged = () => {
         } catch (error) {
           failedCount += 1;
           const diagnosticError = error as DiagnosticError;
+          setWorkflowRecords(current => current.map(item => item.id !== recordId ? item : { ...item, snapshot: { ...item.snapshot, assets: item.snapshot.assets.map(currentAsset => currentAsset.id === asset.id ? { ...currentAsset, error: error instanceof Error ? error.message : "Image generation failed." } : currentAsset) } }));
           addFailureLog({
             operation: `story_studio_${groupName}_submission`,
             item: asset.name,
@@ -2086,6 +2088,7 @@ const markChanged = () => {
       : `story-prompts-${recordId}`;
     const operationKeys = Array.from(new Set([busyKey, ...selectedEpisodePlan.map(episode => `story-prompts-${recordId}-${episode.number}`)]));
     operationKeys.forEach(key => setStoryOperationBusy(key, true));
+    setWorkflowRecords(current => current.map(item => item.id !== recordId ? item : { ...item, snapshot: { ...item.snapshot, episodePlan: item.snapshot.episodePlan.map(episode => targetEpisodeNumbers.has(episode.number) ? { ...episode, promptError: undefined } : episode) } }));
     try {
       const response = await fetch("/api/drama/generate/stage", {
         method: "POST",
@@ -2096,7 +2099,7 @@ const markChanged = () => {
           snapshot: buildStageGenerationSnapshot(4, {
             ...record.snapshot,
             episodes: selectedEpisodePlan.length,
-            episodePlan: selectedEpisodePlan,
+            episodePlan: selectedEpisodePlan.map(({ promptError: _promptError, ...episode }) => episode),
           }),
         }),
       });
@@ -2180,7 +2183,9 @@ const markChanged = () => {
             }.`,
       );
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Scene prompt generation failed.", "error");
+      const message = error instanceof Error ? error.message : "Scene prompt generation failed.";
+      setWorkflowRecords(current => current.map(item => item.id !== recordId ? item : { ...item, snapshot: { ...item.snapshot, episodePlan: item.snapshot.episodePlan.map(episode => targetEpisodeNumbers.has(episode.number) ? { ...episode, promptError: message } : episode) } }));
+      setToast(message, "error");
     } finally {
       operationKeys.forEach(key => setStoryOperationBusy(key, false));
     }
@@ -4438,9 +4443,6 @@ function StoryStudioRecord({
   const snapshot = record.snapshot;
   const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
   const [libraryTargetId, setLibraryTargetId] = useState("");
-  const [promptEpisodeCount, setPromptEpisodeCount] = useState(
-    Math.max(1, snapshot.episodePlan.length),
-  );
   const [workspaceTab, setWorkspaceTab] = useState("episodes");
   const [selectedEpisode, setSelectedEpisode] = useState("");
   const [imageGroup, setImageGroup] = useState("characters");
@@ -4598,45 +4600,48 @@ function StoryStudioRecord({
     const scenes = snapshot.scenes.filter(scene => scene.episode === number);
     const isBusy = storyBusyKeys.includes(`story-prompts-${record.id}-${number}`);
     if (isBusy) return {status: "Generating prompts", tone: "generating"};
+    if (snapshot.episodePlan.find(episode => episode.number === number)?.promptError) return { status: "Failed", tone: "failed" };
     const ready = scenes.filter(scene => scene.prompt.trim()).length;
     return {status: ready && ready === scenes.length ? `${ready} ${ready === 1 ? "prompt" : "prompts"} ready` : ready ? `${ready}/${scenes.length} prompts ready` : "Needs prompts", tone: ready && ready === scenes.length ? "ready" : "pending"};
   };
   const assetStatus = (asset: Asset): Pick<StudioTab, "status" | "tone"> => {
     if (asset.taskRecoveryPending) return {status:"Recovering", tone:"generating"};
-    if (asset.status === "generating" || storyBusyKeys.includes(`story-asset-${record.id}-${asset.id}`)) return {status:"Generating", tone:"generating"};
+    if (asset.status === "generating" || storyBusyKeys.includes(`story-asset-${record.id}-${asset.id}`) || storyBusyKeys.includes(`story-assets-${record.id}-${asset.type === "Character" ? "characters" : "world"}`)) return {status:"Generating", tone:"generating"};
     if (asset.error) return {status:"Failed", tone:"failed"};
     return asset.status === "ready" ? {status:"Ready", tone:"ready"} : {status:"Not generated", tone:"pending"};
   };
   const imageSummary = (assets: Asset[], submitting = false): Pick<StudioTab, "status" | "tone"> => {
-    const ready = assets.filter(asset => asset.status === "ready").length;
+    const ready = assets.filter(asset => assetStatus(asset).tone === "ready").length;
     const failed = assets.filter(asset => assetStatus(asset).tone === "failed").length;
     const generating = assets.filter(asset => assetStatus(asset).tone === "generating").length;
     return {status: `${ready}/${assets.length} ready${generating ? ` · ${generating} generating` : submitting ? " · generating" : ""}${failed ? ` · ${failed} failed` : ""}`, tone: failed ? "failed" : generating || submitting ? "generating" : assets.length && ready === assets.length ? "ready" : "pending"};
   };
   const promptedCount = snapshot.episodePlan.filter(item => episodeStatus(item.number).tone === "ready").length;
+  const failedEpisodeCount = snapshot.episodePlan.filter(item => episodeStatus(item.number).tone === "failed").length;
+  const episodeDetails = snapshot.episodePlan.map(item => { const state = episodeStatus(item.number); return { label: `Episode ${item.number}`, status: state.tone === "ready" ? "Ready" : state.tone === "generating" ? "Generating" : state.status || "Needs prompts", tone: state.tone }; });
+  const imageDetails = (assets: Asset[]) => assets.map(asset => ({ label: asset.name, status: assetStatus(asset).status || "Not generated", tone: assetStatus(asset).tone, category: asset.type === "Character" ? "Characters" : asset.type === "Venue" ? "Places" : "Objects" })).sort((first, second) => ["Characters", "Places", "Objects"].indexOf(first.category) - ["Characters", "Places", "Objects"].indexOf(second.category));
   const groupAssets = imageGroup === "characters" ? characterAssets : worldAssets;
   const groupBusy = imageGroup === "characters" ? generatingCharacters : generatingLocations;
-  const promptCount = Math.min(promptEpisodeCount, Math.max(1, snapshot.episodePlan.length));
+  const promptCount = snapshot.episodePlan.length;
   const generatingEpisodeCount = snapshot.episodePlan.filter(item => storyBusyKeys.includes(`story-prompts-${record.id}-${item.number}`)).length;
   return (
     <div className="story-studio-workspace compact-story-workspace">
       <StudioTabs label="Story workspace" value={workspaceTab} onChange={setWorkspaceTab} items={[
         {id:"series", label:"Series", status: snapshot.storyline.trim() ? "Story ready" : "Needs story", tone:snapshot.storyline.trim() ? "ready" : "pending"},
-        {id:"episodes", label:"Episodes", status:anyPromptsBusy ? "Generating prompts" : `${promptedCount}/${snapshot.episodePlan.length} with prompts`, tone:anyPromptsBusy ? "generating" : promptedCount && promptedCount === snapshot.episodePlan.length ? "ready" : "pending"},
-        {id:"images", label:"Images", ...imageSummary(snapshot.assets, generatingCharacters || generatingLocations)},
+        {id:"episodes", label:"Episodes", status:`${promptedCount}/${snapshot.episodePlan.length} ready${generatingEpisodeCount ? ` · ${generatingEpisodeCount} generating` : ""}${failedEpisodeCount ? ` · ${failedEpisodeCount} failed` : ""}`, tone:failedEpisodeCount ? "failed" : anyPromptsBusy ? "generating" : promptedCount && promptedCount === snapshot.episodePlan.length ? "ready" : "pending", statusDetails:episodeDetails},
+        {id:"images", label:"Images", ...imageSummary(snapshot.assets, generatingCharacters || generatingLocations), statusDetails:imageDetails(snapshot.assets)},
       ]}>
         {workspaceTab === "series" && <section className="story-studio-section">
           <div className="story-studio-section-head"><div><span>Full-season story</span><h3>Series storyline</h3></div><span className="status-pill ready">Editable</span></div>
           <textarea className="story-studio-storyline" aria-label="Series storyline" value={snapshot.storyline} onChange={event => onChangeStory(event.target.value)}/>
         </section>}
         {workspaceTab === "episodes" && <section className="story-studio-section compact-episode-workspace">
-          <section className="studio-generation-settings studio-open-settings" aria-label="Episode generation settings"><header><Settings size={18}/><h3>Generation settings</h3><small>{modelLabel(chatModelOptions, chatModel)}</small></header>
+          <details className="studio-generation-settings" aria-label="Episode generation settings"><summary><Settings size={18}/><span>Generation settings</span><small>{modelLabel(chatModelOptions, chatModel)}</small><ChevronDown size={18}/></summary>
             <div className="story-studio-prompt-controls">
               <StudioModelChoices label="Prompt model" value={chatModel} options={chatModelOptions} onChange={value => setChatModel(value as ChatModelId)}/>
-              <div className="studio-episode-range"><label htmlFor={`prompt-count-${record.id}`}>Episodes to generate <output>{promptCount}</output></label><input id={`prompt-count-${record.id}`} type="range" min={1} max={Math.max(1,snapshot.episodePlan.length)} step={1} value={promptCount} onChange={event=>setPromptEpisodeCount(Number(event.target.value))}/><div className="studio-range-points" aria-hidden="true">{snapshot.episodePlan.map((_,index)=><span key={index}>{index+1}</span>)}</div><p>Generates the first {promptCount} episodes. Use the episode action below for just one.</p></div>
-              <GenerationCost credits={chatCreditEstimate[chatModel] * promptCount}><button className="primary-button" disabled={!snapshot.episodePlan.length || anyPromptsBusy} onClick={() => onGeneratePrompts(promptCount)}>{generatingPromptSet ? <><LoadingMark/> Generating {generatingEpisodeCount} episodes</> : snapshot.scenes.length ? <><RefreshCcw size={15}/> Regenerate selected episodes</> : <><Sparkles size={15}/> Generate episode prompts</>}</button></GenerationCost>
             </div>
-          </section>
+          </details>
+          <div className="story-studio-subsection-head"><h3>Episode prompts</h3><GenerationCost credits={chatCreditEstimate[chatModel] * promptCount}><button className="primary-button" disabled={!snapshot.episodePlan.length || anyPromptsBusy} onClick={() => onGeneratePrompts(promptCount)}>{generatingPromptSet ? <><LoadingMark/> Generating {generatingEpisodeCount} episodes</> : snapshot.scenes.length ? <><RefreshCcw size={15}/> Regenerate all episode prompts</> : <><Sparkles size={15}/> Generate all episode prompts</>}</button></GenerationCost></div>
           <StudioTabs label="Story episodes" value={String(episode?.number || "")} onChange={setSelectedEpisode} items={snapshot.episodePlan.map(item => ({id:String(item.number),label:`Episode ${item.number}`,...episodeStatus(item.number)}))}>
             {episode ? <>
               <div className="story-studio-episodes"><article className="story-studio-episode">
@@ -4647,13 +4652,14 @@ function StoryStudioRecord({
               </article></div>
               <div className="story-studio-scene-episode-head"><b>Episode {episode.number} prompts</b><small>{episodeScenes.length} prompts</small><GenerationCost credits={chatCreditEstimate[chatModel]}><button className="secondary-button regenerate-episode-prompts" disabled={!episode.summary.trim() || anyPromptsBusy} onClick={()=>onGeneratePrompts(1,episode.number)}>{storyBusyKeys.includes(`story-prompts-${record.id}-${episode.number}`) ? <><LoadingMark/> Regenerating</> : episodeScenes.length ? <><RefreshCcw size={15}/> Regenerate episode prompts</> : <><Sparkles size={15}/> Generate episode prompts</>}</button></GenerationCost></div>
               <div className="story-studio-scenes">{episodeScenes.map(scene=><article className="studio-prompt-card studio-open-prompt" key={scene.id}><header><small>{scene.duration}s · {scene.safety}</small><h4>{scene.title}</h4></header><textarea aria-label={`Editable prompt for ${scene.title}`} value={scene.prompt} onChange={event=>onUpdate({scenes:snapshot.scenes.map(item=>item.id===scene.id ? {...item,prompt:event.target.value} : item)})}/></article>)}</div>
+              {episode.promptError && <p className="story-studio-asset-error" role="alert">{episode.promptError}</p>}
               {!episodeScenes.length && <p className="story-studio-episode-prompt-empty">This episode has no prompts yet. Generate them from its storyline above.</p>}
             </> : <p>No episode storylines are available yet.</p>}
           </StudioTabs>
         </section>}
         {workspaceTab === "images" && <section className="story-studio-section compact-image-workspace">
           <details className="studio-generation-settings"><summary><Settings size={18}/><span>Image settings</span><small>{modelLabel(imageModelOptions,imageModel)}</small><ChevronDown size={18}/></summary><StudioModelChoices label="Image generation model" value={imageModel} options={imageModelOptions} onChange={value=>setImageModel(value as ImageModelId)}/></details>
-          <StudioTabs label="Image groups" value={imageGroup} onChange={setImageGroup} items={[{id:"characters",label:"Characters",...imageSummary(characterAssets,generatingCharacters)},{id:"world",label:"Places & objects",...imageSummary(worldAssets,generatingLocations)}]}>
+          <StudioTabs label="Image groups" value={imageGroup} onChange={setImageGroup} items={[{id:"characters",label:"Characters",...imageSummary(characterAssets,generatingCharacters),statusDetails:imageDetails(characterAssets)},{id:"world",label:"Places & objects",...imageSummary(worldAssets,generatingLocations),statusDetails:imageDetails(worldAssets)}]}>
             <div className="story-studio-subsection-head"><h3>{imageGroup === "characters" ? "Character images" : "Places & objects"}</h3><GenerationCost credits={groupAssets.length * imageCreditEstimate[imageModel]}><button className="primary-button" disabled={!groupAssets.length || groupBusy} onClick={()=>onGenerateAssetGroup(imageGroup === "characters" ? "Character" : "World")}>{groupBusy ? <><LoadingMark/> {imageGroup === "characters" ? "Generating all characters" : "Generating venues and objects"}</> : <><Sparkles size={15}/> {imageGroup === "characters" ? "Generate all characters" : "Generate venues and objects"}</>}</button></GenerationCost></div>
             <div className="story-studio-asset-grid story-image-gallery">
               {groupAssets.length ? groupAssets.map(renderAsset) : <p>No {imageGroup === "characters" ? "character" : "place or object"} images are planned in this story.</p>}

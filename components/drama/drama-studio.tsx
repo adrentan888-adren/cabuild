@@ -3405,15 +3405,12 @@ function WorkflowContextBar({
   const [expandedRecordId, setExpandedRecordId] = useState(
     selectedId || records[0]?.id || "",
   );
-  const [expandedEpisodeKey, setExpandedEpisodeKey] = useState("");
   const [selectedVideoEpisodes, setSelectedVideoEpisodes] = useState<Record<string, string>>({});
   const [selectedVideoClips, setSelectedVideoClips] = useState<Record<string, string>>({});
   const [selectedRecordItems, setSelectedRecordItems] = useState<Record<string, string>>({});
-  const initializedEpisodeRecords = useRef(new Set<string>());
   const [autoCombineEpisodes, setAutoCombineEpisodes] = useState<
     Record<string, boolean>
   >({});
-  const [expandedClipKeys, setExpandedClipKeys] = useState<string[]>([]);
   const [episodeInfoKey, setEpisodeInfoKey] = useState("");
   const [combiningEpisodeKey, setCombiningEpisodeKey] = useState("");
   const [combineProgress, setCombineProgress] = useState("");
@@ -3421,22 +3418,6 @@ function WorkflowContextBar({
   const [combinedEpisodes, setCombinedEpisodes] = useState<
     Record<string, { url: string; createdAt: string; clipCount: number }>
   >({});
-
-  useEffect(() => {
-    if (stage !== 5) return;
-    const record =
-      records.find((item) => item.id === selectedId) ?? records[0];
-    if (!record || initializedEpisodeRecords.current.has(record.id)) return;
-    const firstEpisode = [...record.snapshot.scenes]
-      .sort((first, second) => first.episode - second.episode)[0]?.episode;
-    initializedEpisodeRecords.current.add(record.id);
-    if (!firstEpisode) return;
-    const timeout = window.setTimeout(
-      () => setExpandedEpisodeKey(`${record.id}-${firstEpisode}`),
-      0,
-    );
-    return () => window.clearTimeout(timeout);
-  }, [records, selectedId, stage]);
 
   useEffect(() => {
     if (stage !== 5) return;
@@ -3896,8 +3877,8 @@ function WorkflowContextBar({
                   )}
                   {stage === 5 && (
                     <div className="generated-job-workspace">
-                      <details className="generated-job-settings compact-settings video-generation-settings" open>
-                        <summary><span><b><Settings size={20}/> Generation settings</b><small>{modelLabel(videoModelOptions, videoModel)} · {videoModel === "kling-3.0" ? videoMode + " · " : ""}{videoModel === "kling-v3-turbo" ? "720p" : videoSound ? "Sound on" : "Sound off"}</small></span><ChevronDown size={18}/></summary>
+                      <details className="studio-generation-settings video-generation-settings" aria-label="Video generation settings">
+                        <summary><Settings size={18}/><span>Generation settings</span><small>{modelLabel(videoModelOptions, videoModel)}</small><ChevronDown size={18}/></summary>
                         <div className="generated-job-setting-fields">
                           <StudioModelChoices
                             label="Video model"
@@ -3939,7 +3920,7 @@ function WorkflowContextBar({
                           </div>
                         </div>
                       </details>
-                      <StudioTabs label={`Episodes for ${record.name}`} value={selectedVideoEpisode} onChange={value => { setSelectedVideoEpisodes(current => ({...current, [record.id]: value})); setExpandedEpisodeKey(`${record.id}-${value}`); }} items={videoEpisodes.map(number => {
+                      <StudioTabs label={`Episodes for ${record.name}`} value={selectedVideoEpisode} onChange={value => setSelectedVideoEpisodes(current => ({...current, [record.id]: value}))} items={videoEpisodes.map(number => {
                         const clips = record.snapshot.scenes.filter(scene => scene.episode === number);
                         const ready = clips.filter(scene => scene.status === "ready" && scene.resultUrl).length;
                         const running = clips.some(scene => scene.status === "generating") || videoBusyKeys.some(key => key === `generate-episode-generate-${record.id}-${number}` || key === `generate-episode-generate-combine-${record.id}-${number}`);
@@ -3960,7 +3941,6 @@ function WorkflowContextBar({
                           "No episode storyline has been added yet.";
                         const episodeKey = `${record.id}-${episodeNumber}`;
                         const autoCombineKey = `${record.id}::${episodeNumber}`;
-                        const episodeCollapsed = expandedEpisodeKey !== episodeKey;
                         const episodeGenerateBusy =
                           videoBusyKeys.includes(
                             `generate-episode-generate-${record.id}-${episodeNumber}`,
@@ -4009,41 +3989,14 @@ function WorkflowContextBar({
                                 <button
                                   className="generated-episode-info"
                                   onClick={() => {
-                                    setExpandedEpisodeKey(episodeKey);
                                     setEpisodeInfoKey(episodeKey);
                                   }}
                                   aria-haspopup="dialog"
                                 >
                                   <Info size={13} /> Episode info
                                 </button>
-                                <button
-                                  className="generated-episode-collapse"
-                                  onClick={() =>
-                                    setExpandedEpisodeKey((current) =>
-                                      current === episodeKey ? "" : episodeKey,
-                                    )
-                                  }
-                                  aria-expanded={!episodeCollapsed}
-                                  aria-controls={`episode-content-${episodeKey}`}
-                                  aria-label={`${
-                                    episodeCollapsed ? "Expand" : "Collapse"
-                                  } Episode ${episodeNumber}`}
-                                  title={
-                                    episodeCollapsed
-                                      ? "Expand episode"
-                                      : "Collapse episode"
-                                  }
-                                >
-                                  <ChevronDown
-                                    size={15}
-                                    className={
-                                      episodeCollapsed ? "" : "episode-open"
-                                    }
-                                  />
-                                </button>
                               </div>
                             </div>
-                            {!episodeCollapsed && (
                             <div
                               className="generated-video-episode-body"
                               id={`episode-content-${episodeKey}`}
@@ -4248,32 +4201,7 @@ function WorkflowContextBar({
                                 </section>
                               </div>
                             )}
-                            <button
-                              className="episode-clips-toggle"
-                              onClick={() =>
-                                setExpandedClipKeys((current) =>
-                                  current.includes(episodeKey)
-                                    ? current.filter((key) => key !== episodeKey)
-                                    : [...current, episodeKey],
-                                )
-                              }
-                              aria-expanded={expandedClipKeys.includes(episodeKey)}
-                              aria-controls={`episode-clips-${episodeKey}`}
-                            >
-                              <span>
-                                <Clapperboard size={14} /> Episode clips
-                                <small>{generatedClipCount}/{episodeScenes.length} generated</small>
-                              </span>
-                              <ChevronDown
-                                size={15}
-                                className={
-                                  expandedClipKeys.includes(episodeKey)
-                                    ? "episode-open"
-                                    : ""
-                                }
-                              />
-                            </button>
-                            {expandedClipKeys.includes(episodeKey) && (
+                            <div className="episode-clips-heading"><h4><Clapperboard size={18}/> Episode clips</h4><span>{generatedClipCount}/{episodeScenes.length} generated</span></div>
                             <StudioTabs label={`Clips for Episode ${episodeNumber}`} value={selectedVideoClip} onChange={value => setSelectedVideoClips(current => ({...current,[episodeKey]:value}))} items={episodeScenes.map(scene => ({id:scene.id,label:scene.title,status:scene.status === "generating" ? "Generating" : scene.error ? "Needs attention" : scene.status === "ready" && scene.resultUrl ? "Ready" : "Not generated",tone:scene.status === "generating" ? "generating" : scene.error ? "failed" : scene.status === "ready" && scene.resultUrl ? "ready" : "pending"}))}>
                             <div
                               className="generated-video-grid compact-video-grid"
@@ -4385,9 +4313,7 @@ function WorkflowContextBar({
                               })}
                             </div>
                             </StudioTabs>
-                            )}
                             </div>
-                            )}
                           </section>
                         );
                       })}
@@ -4975,8 +4901,8 @@ function StageCreationPanel({
                 <p>{inputError}</p>
               </div>
             )}
-            <section className="compact-settings video-generation-settings" aria-label="Video generation settings">
-            <h3 className="video-settings-heading"><Settings size={22}/> Generation settings</h3>
+            <details className="studio-generation-settings video-generation-settings" aria-label="Video generation settings">
+            <summary><Settings size={18}/><span>Generation settings</span><small>{modelLabel(videoModelOptions, videoModel)}</small><ChevronDown size={18}/></summary>
             <div className="generated-job-setting-fields">
               <StudioModelChoices
                 label="Video model"
@@ -5024,7 +4950,7 @@ function StageCreationPanel({
               )}
               </div>
             </div>
-            </section>
+            </details>
             <details className="drama-advanced-details"><summary>Continuity and production details</summary>
             <div className="continuity-lock-preview">
               <div>

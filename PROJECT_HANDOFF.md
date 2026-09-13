@@ -465,3 +465,9 @@ Demo web app login:
 - Episodes and images share ready/generating/failed counts. Hover or keyboard focus reveals individual statuses, grouped into Characters, Places and Objects for images. Tooltip placement fits available viewport space, supports pointer transfer and Escape, and never starts generation. Prompt failures and image submission failures remain visible on their affected items; retries clear the targeted prompt error while preserving other episodes.
 - The credits menu retains balance selection, provider units/details, timestamps and unavailable states in a shorter layout. Owner-scoped display preferences and billing behavior are unchanged.
 - Release checks use intercepted generation/content writes and cover responsive geometry, keyboard navigation, partial progress/failure/retry, persistence and recovery. Independent UAT, deployment and production verification are recorded in the persistent project log.
+
+## 2026-09-13 - Consistent video settings and directly visible clips
+
+- Generate & Edit uses Story Studio's shared generation-settings disclosure in both creation and saved jobs, with the selected video model in the heading and model radios inside. Compact ratio, quality and sound choices retain their existing behavior.
+- Selected episodes and their clip tabs/editors render directly when a job is opened or an episode is selected. Removed the redundant episode and Episode clips collapse controls; job-card collapse and episode/clip navigation remain available.
+- This is a presentation change: source selection, edited prompts, model persistence, generation locks and recovery are preserved. Release validation and independent local/production UAT are recorded in the persistent project log.

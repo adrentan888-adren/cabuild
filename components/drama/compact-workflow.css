@@ -129,27 +129,9 @@
 .drama-embedded-root .video-source-heading h3 { margin:0; font-size:20px; color:#55465f; }
 .drama-embedded-root .video-source-heading h3 span { margin-left:8px; font-size:13px; font-weight:500; }
 .drama-embedded-root .video-source-heading button { min-height:44px; padding:10px 16px; }
-.drama-embedded-root .video-generation-settings {
-  border:2px solid #b2a0bf;
-  background:#f4edf8;
-  box-shadow:0 3px 12px #5944640c;
-}
-.drama-embedded-root .video-generation-settings > summary,
-.drama-embedded-root .video-generation-settings > .video-settings-heading {
-  padding:16px;
-  border-radius:10px;
-  background:#796b84;
-  color:#fff;
-  margin:0 0 22px;
-}
-.drama-embedded-root .video-generation-settings:not([open]) > summary { margin-bottom:0; }
-.drama-embedded-root .video-generation-settings > summary b,
-.drama-embedded-root .video-settings-heading { display:flex; align-items:center; gap:10px; font-size:21px; line-height:1.35; }
-.drama-embedded-root .video-generation-settings > summary small { color:#fff; }
-.drama-embedded-root .video-settings-heading svg { flex-shrink:0; }
-.drama-embedded-root .video-generation-settings .generated-job-setting-fields > .studio-model-choices > legend { font-size:18px; color:#554260; }
-.drama-embedded-root .video-generation-settings .generated-job-setting-fields > .studio-model-choices label { min-height:84px; padding:18px; justify-content:flex-start; }
-.drama-embedded-root .video-generation-settings .generated-job-setting-fields > .studio-model-choices b { font-size:18px; }
+.drama-embedded-root .episode-clips-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin:20px 0 12px; color:#665570; }
+.drama-embedded-root .episode-clips-heading h4 { display:flex; align-items:center; gap:8px; margin:0; font-size:18px; }
+.drama-embedded-root .episode-clips-heading span { font-size:13px; }
 .drama-embedded-root .video-secondary-settings { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(225px,100%),1fr)); align-items:start; gap:16px; padding-top:18px; border-top:1px solid #d9cce3; min-width:0; }
 .drama-embedded-root .video-secondary-settings .studio-model-choices .brief-choice-options { grid-template-columns:repeat(auto-fit,minmax(52px,1fr)); gap:6px; }
 .drama-embedded-root .video-secondary-settings .studio-model-choices label { min-height:44px; padding:8px 6px; }
@@ -159,13 +141,6 @@
 .drama-embedded-root .video-secondary-settings .field > label { margin:0 0 8px; font-size:13px; }
 .drama-embedded-root .video-secondary-settings .fixed-model-value { min-height:44px; padding:10px; font-size:14px; line-height:1.5; }
 .drama-embedded-root .create-stage-card > .form-grid:has(> .compact-production-title:only-child) { grid-template-columns:minmax(0,1fr); }
-@media (max-width:760px) {
-  .drama-embedded-root .video-generation-settings { padding:14px; }
-  .drama-embedded-root .video-generation-settings > summary,
-  .drama-embedded-root .video-generation-settings > .video-settings-heading { padding:12px; }
-  .drama-embedded-root .video-generation-settings > summary b,
-  .drama-embedded-root .video-settings-heading { font-size:19px; }
-}
 .drama-embedded-root .compact-library-card .episode-generation-actions {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));

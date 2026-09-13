@@ -60,7 +60,7 @@ const fs = require('node:fs');
   assert.equal(await workspace.getByRole('slider',{name:'Episodes to generate'}).count(),0,'No episode-count control is shown');
   const settings=workspace.locator('details[aria-label="Episode generation settings"]');
   await settings.locator('summary').click();await settings.getByRole('radio').first().waitFor();await settings.locator('summary').click();
-  const tooltip=page.getByRole('tooltip');
+  const tooltip=page.locator('.studio-tab-status-tooltip[role="tooltip"]');
   const episodeTab=mainTabs.getByRole('tab',{name:/^Episodes/});
   const imageTab=mainTabs.getByRole('tab',{name:/^Images/});
   const statusRows=tooltip.locator('.studio-tab-status-detail-row');

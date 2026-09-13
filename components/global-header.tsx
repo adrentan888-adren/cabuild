@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import "./header-credits.css";
 import {
   Activity,
   BarChart3,
@@ -27,8 +28,9 @@ import {
 export type HeaderWorkspaceMode = "normal" | "drama" | null;
 
 type AccountSummary = {
-  user: { name: string; email: string; role: string };
-  workspace: { name: string; plan: string; credits: number };
+  user: { id?: string; name: string; email: string; role: string };
+  workspace: { id?: string; name: string; plan: string; credits?: number };
+  checkedAt?: string;
   providers: Array<{
     id: string;
     label: string;
@@ -80,26 +82,52 @@ export default function GlobalHeader({
   const destination = (path: string) => `${frontendBaseUrl}${path}`;
   const headerRef = useRef<HTMLDivElement>(null);
   const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const balanceRadioName = useId();
   const [openPanel, setOpenPanel] = useState<"normal" | "drama" | "credits" | "account" | null>(null);
   const [suppressedPanel, setSuppressedPanel] = useState<"normal" | "drama" | "credits" | "account" | null>(null);
   const [summary, setSummary] = useState<AccountSummary | null>(
     initialAccount
       ? {
           user: initialAccount,
-          workspace: { name: "Content Agent", plan: "", credits: initialWorkspaceCredits ?? 0 },
+          workspace: { name: "Content Agent", plan: "", credits: initialWorkspaceCredits },
           providers: [],
         }
       : null,
   );
   const [loadingCredits, setLoadingCredits] = useState(true);
+  const [creditsError, setCreditsError] = useState(false);
+  const [pinnedBalance, setPinnedBalance] = useState({ scope: "", id: "workspace" });
+  const balanceScope = summary?.user.id && summary?.workspace.id
+    ? `cabuild:header-balance:${summary.user.id}:${summary.workspace.id}`
+    : "";
+
+  useEffect(() => {
+    if (!balanceScope) return;
+    try {
+      setPinnedBalance({ scope: balanceScope, id: window.localStorage.getItem(balanceScope) || "workspace" });
+    } catch {
+      setPinnedBalance({ scope: balanceScope, id: "workspace" });
+    }
+  }, [balanceScope]);
+
+  const selectBalance = (id: string) => {
+    setPinnedBalance({ scope: balanceScope, id });
+    if (balanceScope) {
+      try { window.localStorage.setItem(balanceScope, id); } catch { /* Selection still works for this page. */ }
+    }
+  };
 
   const refreshCredits = useCallback(async () => {
     setLoadingCredits(true);
     try {
       const response = await fetch("/api/account/credits", { cache: "no-store" });
-      if (response.ok) setSummary(await response.json() as AccountSummary);
+      if (!response.ok) throw new Error("Balance lookup failed");
+      const nextSummary = await response.json() as AccountSummary;
+      if (!nextSummary.user || !nextSummary.workspace || !Array.isArray(nextSummary.providers)) throw new Error("Balance response unavailable");
+      setSummary(nextSummary);
+      setCreditsError(false);
     } catch {
-      // Keep the header and its initial account summary usable while offline.
+      setCreditsError(true);
     } finally {
       setLoadingCredits(false);
     }
@@ -151,6 +179,7 @@ export default function GlobalHeader({
   };
   const panelGroupProps = (panel: "normal" | "drama" | "credits" | "account") => ({
     "data-header-panel": panel,
+    onFocusCapture: () => { if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current); },
     onPointerEnter: (event: React.PointerEvent<HTMLDivElement>) => {
       if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current);
       if (event.pointerType === "mouse" && panel !== "account") {
@@ -161,11 +190,12 @@ export default function GlobalHeader({
     onPointerLeave: (event: React.PointerEvent<HTMLDivElement>) => {
       if (suppressedPanel === panel) setSuppressedPanel(null);
       if (event.pointerType === "mouse" && panel !== "account") {
+        if (panel === "credits" && event.currentTarget.contains(document.activeElement)) return;
         hoverCloseTimer.current = setTimeout(() => setOpenPanel(current => current === panel ? null : current), 220);
       }
     },
     onBlurCapture: (event: React.FocusEvent<HTMLDivElement>) => {
-      if (!event.currentTarget.contains(event.relatedTarget as Node)) setOpenPanel(current => current === panel ? null : current);
+      if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) setOpenPanel(current => current === panel ? null : current);
     },
   });
   const logout = async () => {
@@ -175,6 +205,18 @@ export default function GlobalHeader({
   };
   const account = summary?.user ?? initialAccount;
   const workspaceCredits = summary?.workspace?.credits ?? initialWorkspaceCredits;
+  const balanceOptions = [
+    { id: "workspace", label: "Content Agent", configured: true, credits: workspaceCredits ?? null, unit: "CA credits", message: `${summary?.workspace.plan || "Workspace"} · ${summary?.workspace.name || "Content Agent"}`, kind: "Workspace credits" },
+    ...(summary?.providers ?? []).map(provider => ({ ...provider, unit: provider.unit, kind: provider.unit === "USD" ? "Remaining monthly allowance" : provider.unit === "credits" ? "Provider credits" : "Connection status" })),
+  ];
+  const selectedBalance = balanceOptions.find(option => option.id === (pinnedBalance.scope === balanceScope ? pinnedBalance.id : "workspace")) ?? balanceOptions[0];
+  const formatBalance = (balance: typeof balanceOptions[number]) => {
+    if (typeof balance.credits !== "number" || !Number.isFinite(balance.credits)) return balance.configured ? "Unavailable" : "Not connected";
+    return balance.unit === "USD"
+      ? `${balance.credits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`
+      : `${balance.credits.toLocaleString()} ${balance.unit || "credits"}`;
+  };
+  const checkedAt = summary?.checkedAt && !Number.isNaN(Date.parse(summary.checkedAt)) ? new Date(summary.checkedAt) : null;
   const initials = (account?.name || "Content Agent")
     .split(/\s+/)
     .filter(Boolean)
@@ -245,30 +287,27 @@ export default function GlobalHeader({
           <div {...panelGroupProps("credits")} className={`global-action-group ${openPanel === "credits" ? "open" : ""} ${suppressedPanel === "credits" ? "suppress-hover" : ""}`}>
             <button type="button" className="global-credit-trigger" aria-label="Show credit balances" aria-expanded={openPanel === "credits"} onClick={() => setOpenPanel(openPanel === "credits" ? null : "credits")}>
               <Coins size={15} />
-              <span className="global-action-label"><b>{workspaceCredits ?? "—"}</b> CA credits</span>
+              <span className="global-action-label credit-pinned-label"><small>{selectedBalance.label}{creditsError ? " · Last known" : ""}</small><b>{formatBalance(selectedBalance)}</b></span>
               <ChevronDown size={12} />
             </button>
             <div className="global-popover credit-popover">
               <div className="global-popover-head">
-                <div><b>Credits &amp; API balances</b><small>Live balances where provider APIs support them</small></div>
-                <button type="button" onClick={() => void refreshCredits()} aria-label="Refresh credit balances"><RefreshCcw size={13} /></button>
+                <div><b>Credits &amp; API balances</b><small>Choose the balance shown in your header</small></div>
+                <button type="button" onClick={() => void refreshCredits()} disabled={loadingCredits} aria-label="Refresh credit balances"><RefreshCcw size={16} className={loadingCredits ? "credit-refreshing" : ""} /></button>
               </div>
-              <div className="credit-provider-list">
-                <div className="credit-provider-row primary-balance"><span><b>Content Agent</b><small>{summary?.workspace?.plan || "Workspace balance"}</small></span><strong>{workspaceCredits ?? "—"} CA</strong></div>
-                {summary?.providers?.map((provider) => (
-                  <div className="credit-provider-row" key={provider.id}>
-                    <span><b>{provider.label}</b><small>{provider.message}</small></span>
-                    <strong className={provider.configured ? "connected" : "unavailable"}>
-                      {provider.credits !== null
-                        ? provider.unit === "USD"
-                          ? `$${provider.credits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                          : `${provider.credits.toLocaleString()} credits`
-                        : provider.configured ? "Connected" : "Not connected"}
-                    </strong>
-                  </div>
+              <p className={`credit-update-status ${creditsError ? "credit-update-error" : ""}`} role="status">
+                {loadingCredits ? "Refreshing balances…" : creditsError ? "Could not refresh. Displayed balances may be out of date." : checkedAt ? `Checked ${checkedAt.toLocaleString()}` : "Balance details available below"}
+              </p>
+              <fieldset className="credit-provider-list"><legend>Show in header</legend>
+                {balanceOptions.map(balance => (
+                  <label className={`credit-balance-choice ${selectedBalance.id === balance.id ? "selected" : ""}`} key={balance.id}>
+                    <input type="radio" name={balanceRadioName} value={balance.id} checked={selectedBalance.id === balance.id} onChange={() => selectBalance(balance.id)} aria-label={`Show ${balance.label} in header`} />
+                    <span className="credit-balance-copy"><b>{balance.label}</b><small>{balance.kind}</small><strong>{formatBalance(balance)}</strong><small>{balance.message}</small></span>
+                    {selectedBalance.id === balance.id ? <span className="credit-selected-badge">Showing</span> : null}
+                  </label>
                 ))}
-                {loadingCredits && !summary?.providers?.length ? <div className="popover-loading">Checking provider balances…</div> : null}
-              </div>
+              </fieldset>
+              <p className="credit-balance-note">CA credits, provider credits and USD allowances are separate balances.</p>
             </div>
           </div>
 

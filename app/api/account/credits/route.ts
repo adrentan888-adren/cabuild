@@ -8,6 +8,12 @@ export const dynamic = "force-dynamic";
 
 type ApifyProvider = "apify" | "apifyBackup";
 
+function readBalanceNumber(value: unknown): number | null {
+  if (typeof value !== "number" && (typeof value !== "string" || value.trim() === "")) return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : null;
+}
+
 async function readApifyBalance(provider: ApifyProvider, isConfigured: boolean) {
   if (!isConfigured) {
     return { credits: null, unit: null, message: "API key not configured" };
@@ -21,13 +27,13 @@ async function readApifyBalance(provider: ApifyProvider, isConfigured: boolean) 
     });
     const payload = await response.json() as {
       data?: {
-        limits?: { maxMonthlyUsageUsd?: number };
-        current?: { monthlyUsageUsd?: number };
+        limits?: { maxMonthlyUsageUsd?: unknown };
+        current?: { monthlyUsageUsd?: unknown };
       };
     };
-    const limit = Number(payload.data?.limits?.maxMonthlyUsageUsd);
-    const used = Number(payload.data?.current?.monthlyUsageUsd);
-    if (response.ok && Number.isFinite(limit) && Number.isFinite(used)) {
+    const limit = readBalanceNumber(payload.data?.limits?.maxMonthlyUsageUsd);
+    const used = readBalanceNumber(payload.data?.current?.monthlyUsageUsd);
+    if (response.ok && limit !== null && used !== null) {
       return {
         credits: Math.max(0, Number((limit - used).toFixed(2))),
         unit: "USD",
@@ -58,9 +64,9 @@ export async function GET() {
         headers: { Authorization: `Bearer ${apiKey}` },
         cache: "no-store",
       });
-      const payload = await response.json() as { code?: number | string; data?: number };
-      const credits = Number(payload.data);
-      if (response.ok && Number(payload.code) === 200 && Number.isFinite(credits)) {
+      const payload = await response.json() as { code?: number | string; data?: unknown };
+      const credits = readBalanceNumber(payload.data);
+      if (response.ok && Number(payload.code) === 200 && credits !== null) {
         kieCredits = credits;
         kieMessage = "Live provider balance";
       }
@@ -77,8 +83,9 @@ export async function GET() {
   ]);
 
   return NextResponse.json({
-    user: { name: user.name, email: user.email, role: user.role },
+    user: { id: user.id, name: user.name, email: user.email, role: user.role },
     workspace: {
+      id: user.workspaceId,
       name: workspace?.name || "Content Agent",
       plan: workspace?.plan || "Starter",
       credits: workspace?.credits ?? 0,

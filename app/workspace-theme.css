@@ -437,8 +437,27 @@
 .drama-embedded-root .compact-story-workspace .studio-episode-range p { font-size:13px; color:#75657f; line-height:1.5; margin:8px 0 0; }
 .drama-embedded-root .compact-image-workspace .story-studio-subsection-head { display:flex; justify-content:space-between; align-items:center; gap:14px; }
 .drama-embedded-root .compact-image-workspace .story-studio-subsection-head h3 { font-size:22px; color:#615569; }
-.drama-embedded-root .compact-image-workspace .story-studio-asset { display:grid; grid-template-columns:minmax(0,1fr); align-content:start; min-width:0; gap:14px; }
-.drama-embedded-root .story-image-gallery { display:grid; align-items:start; }
+.drama-embedded-root .compact-image-workspace .story-image-gallery .story-studio-asset { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); grid-template-areas:"image prompt" "title actions" "error error"; align-content:start; min-width:0; gap:16px; padding:16px; }
+.drama-embedded-root .story-image-gallery { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:stretch; }
+.drama-embedded-root .compact-image-workspace .story-image-gallery .story-studio-asset-visual { grid-area:image; height:300px; min-height:300px; max-height:none; aspect-ratio:auto; }
+.drama-embedded-root .compact-image-workspace .story-image-gallery .story-image-prompt { grid-area:prompt; display:grid; grid-template-rows:auto minmax(0,1fr); gap:10px; min-width:0; height:300px; margin:0; }
+.drama-embedded-root .compact-image-workspace .story-image-gallery .story-image-prompt > span { font-size:15px; font-weight:700; color:#675570; }
+.drama-embedded-root .compact-image-workspace .story-image-gallery .story-image-prompt textarea { width:100%; height:100%; min-height:0; box-sizing:border-box; padding:12px; resize:none; font-size:16px; line-height:1.6; border:1px solid #d8cce1; border-radius:10px; background:#fcf9fd; }
+.drama-embedded-root .compact-image-workspace .story-image-gallery .story-studio-asset-copy { grid-area:title; padding:0; align-self:start; }
+.drama-embedded-root .compact-image-workspace .story-image-gallery .story-studio-asset-actions { grid-area:actions; align-self:start; margin:0; }
+.drama-embedded-root .compact-image-workspace .story-image-gallery .story-studio-asset-actions button { min-height:44px; padding:10px; font-size:14px; line-height:1.4; }
+.drama-embedded-root .compact-image-workspace .story-image-gallery .story-studio-asset-error { grid-area:error; margin:0; }
+.drama-embedded-root .studio-open-prompt > header { padding:16px 20px; background:#f1eaf6; color:#675570; }
+.drama-embedded-root .studio-open-prompt > header h4 { margin:6px 0 0; font-size:20px; line-height:1.4; }
+.drama-embedded-root .studio-open-prompt > header small { font-size:13px; }
+.drama-embedded-root .studio-open-settings > header { display:flex; align-items:center; flex-wrap:wrap; gap:10px; background:#ece3f3; border-radius:12px 12px 0 0; color:#62506f; }
+.drama-embedded-root .studio-open-settings > header h3 { margin:0; font-size:19px; }
+.drama-embedded-root .studio-open-settings > header small { margin-left:auto; font-size:13px; }
+@media(max-width:1100px) { .drama-embedded-root .story-image-gallery { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:600px) {
+ .drama-embedded-root .compact-image-workspace .story-image-gallery .story-studio-asset { grid-template-columns:minmax(0,1fr); grid-template-areas:"image" "title" "prompt" "actions" "error"; padding:12px; gap:14px; }
+ .drama-embedded-root .compact-image-workspace .story-image-gallery .story-image-prompt { height:260px; }
+}
 .drama-embedded-root .story-image-card-meta { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; font-size:13px; color:#75667c; }
 .drama-embedded-root .story-image-status { border-radius:999px; padding:5px 10px; background:#f0eaf4; color:#65556f; font-size:13px; font-weight:650; }
 .drama-embedded-root .story-image-status.ready { background:#e8f2e9; color:#386348; }

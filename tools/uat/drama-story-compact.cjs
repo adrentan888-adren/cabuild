@@ -45,7 +45,7 @@ const fs = require('node:fs');
   const episodes=workspace.getByRole('tablist',{name:'Story episodes',exact:true});
   assert.equal(await episodes.getByRole('tab').count(),12);
   assert.equal(await workspace.getByRole('textbox',{name:/Episode .* title/}).count(),1,'One episode editor is mounted for a twelve-episode series');
-  assert.equal(await workspace.locator('.story-studio-scenes details').count(),1,'Only selected episode prompts are mounted');
+  assert.equal(await workspace.locator('.story-studio-scenes article').count(),1,'Only selected episode prompts are mounted');
   const episodeOne=workspace.getByLabel('Episode 1 title',{exact:true});await episodeOne.fill('Edited first episode');
   const firstTab=episodes.getByRole('tab').first();await firstTab.focus();await page.keyboard.press('End');
   assert.equal(await episodes.getByRole('tab').last().getAttribute('aria-selected'),'true');
@@ -53,7 +53,7 @@ const fs = require('node:fs');
   await page.keyboard.press('Home');await episodeOne.waitFor();assert.equal(await episodeOne.inputValue(),'Edited first episode');
   await firstTab.focus();await page.keyboard.press('ArrowRight');await workspace.getByLabel('Episode 2 title',{exact:true}).waitFor();
   await page.keyboard.press('ArrowLeft');await episodeOne.waitFor();
-  assert.equal(await workspace.locator('details').filter({has:page.locator('summary').filter({hasText:'Generation settings'})}).first().getAttribute('open'),null,'Advanced settings start collapsed');
+  assert.equal(await workspace.locator('.compact-episode-workspace details').count(),0,'Episode controls and prompts are always open');
   await section('Series');await workspace.getByLabel('Series storyline',{exact:true}).fill('Revised series outline');
   await section('Images');const groups=workspace.getByRole('tablist',{name:'Image groups',exact:true});
   assert.equal(await workspace.getByRole('tablist',{name:'Character images',exact:true}).count(),0,'There are no individual image tabs');
@@ -63,13 +63,13 @@ const fs = require('node:fs');
   assert.match(await imageCards.nth(8).getByRole('status').innerText(),/Failed/);
   assert.match(await imageCards.first().getByRole('status').innerText(),/Not generated/);
   assert(await workspace.getByRole('button',{name:'Generating with Kie AI',exact:true}).isDisabled());
-  await imageCards.first().locator('summary').click();await imageCards.first().getByRole('textbox').fill('Edited character gallery prompt');
+  await imageCards.first().getByRole('textbox').fill('Edited character gallery prompt');
   await groups.getByRole('tab',{name:/^Places & objects/}).focus();await page.keyboard.press('Enter');await workspace.getByRole('heading',{name:'City gate',exact:true}).waitFor();
   assert.equal(await imageCards.count(),1);
   completeHiddenImage=true;await groups.getByRole('tab',{name:/^Characters/}).getByText(/1\/10 ready/).waitFor({timeout:12000});
   assert.equal(await groups.getByRole('tab',{name:/^Places & objects/}).getAttribute('aria-selected'),'true','Hidden completion never changes the image category');assert(statusCalls>0);
   await groups.getByRole('tab',{name:/^Characters/}).click();assert.equal(await imageCards.count(),10);assert.match(await imageCards.last().getByRole('status').innerText(),/Ready/);
-  await imageCards.first().locator('summary').click();assert.equal(await imageCards.first().getByRole('textbox').inputValue(),'Edited character gallery prompt');
+  assert.equal(await imageCards.first().getByRole('textbox').inputValue(),'Edited character gallery prompt');
   await section('Episodes');assert.equal(await episodeOne.inputValue(),'Edited first episode');
   await section('Series');assert.equal(await workspace.getByLabel('Series storyline',{exact:true}).inputValue(),'Revised series outline');
   if(await page.getByRole('button',{name:'Dismiss notification'}).count())await page.getByRole('button',{name:'Dismiss notification'}).click();
@@ -81,6 +81,17 @@ const fs = require('node:fs');
       await workspace.scrollIntoViewIfNeeded();await page.waitForTimeout(250);
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Document overflow '+name+' '+width);
       for(const asset of await workspace.locator('.story-studio-asset').all())assert(await asset.evaluate(el=>el.scrollWidth<=el.clientWidth),'Ready image card overflow '+width);
+      if(name==='Images'){
+        const layout=await imageCards.first().evaluate(el=>{const rect=selector=>{const r=el.querySelector(selector).getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}};return {image:rect('.story-studio-asset-visual'),prompt:rect('.story-image-prompt'),title:rect('.story-studio-asset-copy'),actions:rect('.story-studio-asset-actions')};});
+        assert(layout.image.height>=280,'Large image preview '+width);
+        assert(layout.prompt.height>=250,'Large visible prompt '+width);
+        assert(await imageCards.first().getByRole('textbox').isVisible());
+        assert.equal(await imageCards.locator('details').count(),0,'Image prompts never collapse');
+        const boxes=await imageCards.evaluateAll(cards=>cards.slice(0,3).map(card=>{const r=card.getBoundingClientRect();return {x:r.x,y:r.y}}));
+        if(width===1440){assert(Math.abs(boxes[0].y-boxes[1].y)<2 && boxes[2].y>boxes[0].y,'Exactly two gallery cards per row');assert(Math.abs(layout.image.y-layout.prompt.y)<2,'Image and prompt top aligned');assert(Math.abs(layout.title.y-layout.actions.y)<2,'Title and actions aligned');assert(layout.prompt.x>layout.image.x,'Prompt beside image');}
+        else assert(boxes[1].y>boxes[0].y,'Single gallery column on smaller viewports');
+        await imageCards.first().scrollIntoViewIfNeeded();await page.screenshot({path:'.playwright-mcp/story-image-open-'+width+'.png'});
+      }
       for(const tablist of await workspace.getByRole('tablist').all())assert(await tablist.evaluate(el=>el.scrollWidth<=el.clientWidth),'Tab overflow '+name+' '+width);
       await card.screenshot({path:'.playwright-mcp/story-compact-'+name.toLowerCase()+'-'+width+'.png'});
     }
@@ -88,7 +99,7 @@ const fs = require('node:fs');
   assert.deepEqual(posts,[],'Tab navigation and editing never submit generation or content writes');
   assert.equal(promptPosts.length,0,'Tab navigation never submits prompt generation');
   await page.setViewportSize({width:1440,height:1000});await section('Episodes');
-  const openSettings=async()=>{const details=workspace.locator('.studio-generation-settings');if(await details.getAttribute('open')===null)await details.locator('summary').click();};
+  const openSettings=async()=>{await workspace.getByRole('region',{name:'Episode generation settings'}).waitFor();};
   const assertOnlyFirstBusy=async()=>{
     assert.match(await episodes.getByRole('tab').first().innerText(),/Generating/);
     for(let index=1;index<12;index++){

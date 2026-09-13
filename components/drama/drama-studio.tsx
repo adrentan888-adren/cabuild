@@ -3891,8 +3891,8 @@ function WorkflowContextBar({
                   )}
                   {stage === 5 && (
                     <div className="generated-job-workspace">
-                      <details className="generated-job-settings compact-settings">
-                        <summary><span><b>Generation settings</b><small>{modelLabel(videoModelOptions, videoModel)} · {videoModel === "kling-3.0" ? videoMode + " · " : ""}{videoModel === "kling-v3-turbo" ? "720p" : videoSound ? "Sound on" : "Sound off"}</small></span><ChevronDown size={18}/></summary>
+                      <details className="generated-job-settings compact-settings video-generation-settings" open>
+                        <summary><span><b><Settings size={20}/> Generation settings</b><small>{modelLabel(videoModelOptions, videoModel)} · {videoModel === "kling-3.0" ? videoMode + " · " : ""}{videoModel === "kling-v3-turbo" ? "720p" : videoSound ? "Sound on" : "Sound off"}</small></span><ChevronDown size={18}/></summary>
                         <div className="generated-job-setting-fields">
                           <StudioModelChoices
                             label="Video model"
@@ -3902,6 +3902,7 @@ function WorkflowContextBar({
                               setVideoModel(value as VideoModelId)
                             }
                           />
+                          <div className="video-secondary-settings">
                           {videoModel === "kling-3.0" && (
                             <StudioModelChoices
                               label="Kling quality"
@@ -3930,6 +3931,7 @@ function WorkflowContextBar({
                               </div>
                             </div>
                           )}
+                          </div>
                         </div>
                       </details>
                       <StudioTabs label={`Episodes for ${record.name}`} value={selectedVideoEpisode} onChange={value => { setSelectedVideoEpisodes(current => ({...current, [record.id]: value})); setExpandedEpisodeKey(`${record.id}-${value}`); }} items={videoEpisodes.map(number => {
@@ -4511,18 +4513,10 @@ function StoryStudioRecord({
             </span>
           )}
         </div>
-        <div className="story-studio-asset-copy">
-          <div className="story-image-card-meta"><span>{asset.type}</span><span className={`story-image-status ${readiness.tone}`} role="status">{readiness.status}</span></div>
-          <h4>{asset.name}</h4>
-          {asset.libraryAssetName && (
-            <span className="story-studio-library-source">
-              <ImageIcon size={11} /> Library reference: {asset.libraryAssetName}
-            </span>
-          )}
-          <p>{asset.detail}</p>
-          <details className="studio-prompt-card story-image-prompt"><summary><span>Image prompt · {asset.name}</span><ChevronDown size={18}/></summary><label>
-            <span>Editable image prompt</span>
+          <label className="story-image-prompt">
+            <span>Image prompt</span>
             <textarea
+              aria-label={`Image prompt for ${asset.name}`}
               value={asset.visualPrompt ?? asset.detail}
               onChange={(event) =>
                 onUpdate({
@@ -4534,7 +4528,16 @@ function StoryStudioRecord({
                 })
               }
             />
-          </label></details>
+          </label>
+        <div className="story-studio-asset-copy">
+          <h4>{asset.name}</h4>
+          <div className="story-image-card-meta"><span>{asset.type}</span><span className={`story-image-status ${readiness.tone}`} role="status">{readiness.status}</span></div>
+          {asset.libraryAssetName && (
+            <span className="story-studio-library-source">
+              <ImageIcon size={11} /> Library reference: {asset.libraryAssetName}
+            </span>
+          )}
+        </div>
           {asset.error && (
             <div className="story-studio-asset-error" role="alert">
               <ShieldAlert size={13} />
@@ -4571,7 +4574,6 @@ function StoryStudioRecord({
               <ImageIcon size={13} /> Choose from Asset Library
             </button>
           </div>
-        </div>
       </article>
     );
   };
@@ -4628,13 +4630,13 @@ function StoryStudioRecord({
           <textarea className="story-studio-storyline" aria-label="Series storyline" value={snapshot.storyline} onChange={event => onChangeStory(event.target.value)}/>
         </section>}
         {workspaceTab === "episodes" && <section className="story-studio-section compact-episode-workspace">
-          <details className="studio-generation-settings"><summary><Settings size={18}/><span>Generation settings</span><small>{modelLabel(chatModelOptions, chatModel)}</small><ChevronDown size={18}/></summary>
+          <section className="studio-generation-settings studio-open-settings" aria-label="Episode generation settings"><header><Settings size={18}/><h3>Generation settings</h3><small>{modelLabel(chatModelOptions, chatModel)}</small></header>
             <div className="story-studio-prompt-controls">
               <StudioModelChoices label="Prompt model" value={chatModel} options={chatModelOptions} onChange={value => setChatModel(value as ChatModelId)}/>
               <div className="studio-episode-range"><label htmlFor={`prompt-count-${record.id}`}>Episodes to generate <output>{promptCount}</output></label><input id={`prompt-count-${record.id}`} type="range" min={1} max={Math.max(1,snapshot.episodePlan.length)} step={1} value={promptCount} onChange={event=>setPromptEpisodeCount(Number(event.target.value))}/><div className="studio-range-points" aria-hidden="true">{snapshot.episodePlan.map((_,index)=><span key={index}>{index+1}</span>)}</div><p>Generates the first {promptCount} episodes. Use the episode action below for just one.</p></div>
               <GenerationCost credits={chatCreditEstimate[chatModel] * promptCount}><button className="primary-button" disabled={!snapshot.episodePlan.length || anyPromptsBusy} onClick={() => onGeneratePrompts(promptCount)}>{generatingPromptSet ? <><LoadingMark/> Generating {generatingEpisodeCount} episodes</> : snapshot.scenes.length ? <><RefreshCcw size={15}/> Regenerate selected episodes</> : <><Sparkles size={15}/> Generate episode prompts</>}</button></GenerationCost>
             </div>
-          </details>
+          </section>
           <StudioTabs label="Story episodes" value={String(episode?.number || "")} onChange={setSelectedEpisode} items={snapshot.episodePlan.map(item => ({id:String(item.number),label:`Episode ${item.number}`,...episodeStatus(item.number)}))}>
             {episode ? <>
               <div className="story-studio-episodes"><article className="story-studio-episode">
@@ -4644,7 +4646,7 @@ function StoryStudioRecord({
                 <textarea id={`episode-story-${record.id}`} aria-label={`Episode ${episode.number} storyline`} value={episode.summary} onChange={event=>onUpdate({episodePlan:snapshot.episodePlan.map(item=>item.number===episode.number ? {...item,summary:event.target.value} : item)})}/>
               </article></div>
               <div className="story-studio-scene-episode-head"><b>Episode {episode.number} prompts</b><small>{episodeScenes.length} prompts</small><GenerationCost credits={chatCreditEstimate[chatModel]}><button className="secondary-button regenerate-episode-prompts" disabled={!episode.summary.trim() || anyPromptsBusy} onClick={()=>onGeneratePrompts(1,episode.number)}>{storyBusyKeys.includes(`story-prompts-${record.id}-${episode.number}`) ? <><LoadingMark/> Regenerating</> : episodeScenes.length ? <><RefreshCcw size={15}/> Regenerate episode prompts</> : <><Sparkles size={15}/> Generate episode prompts</>}</button></GenerationCost></div>
-              <div className="story-studio-scenes">{episodeScenes.map(scene=><details className="studio-prompt-card" key={scene.id}><summary><span><small>{scene.duration}s · {scene.safety}</small><b>{scene.title}</b></span><ChevronDown size={20}/></summary><textarea aria-label={`Editable prompt for ${scene.title}`} value={scene.prompt} onChange={event=>onUpdate({scenes:snapshot.scenes.map(item=>item.id===scene.id ? {...item,prompt:event.target.value} : item)})}/></details>)}</div>
+              <div className="story-studio-scenes">{episodeScenes.map(scene=><article className="studio-prompt-card studio-open-prompt" key={scene.id}><header><small>{scene.duration}s · {scene.safety}</small><h4>{scene.title}</h4></header><textarea aria-label={`Editable prompt for ${scene.title}`} value={scene.prompt} onChange={event=>onUpdate({scenes:snapshot.scenes.map(item=>item.id===scene.id ? {...item,prompt:event.target.value} : item)})}/></article>)}</div>
               {!episodeScenes.length && <p className="story-studio-episode-prompt-empty">This episode has no prompts yet. Generate them from its storyline above.</p>}
             </> : <p>No episode storylines are available yet.</p>}
           </StudioTabs>
@@ -4769,8 +4771,6 @@ function StageCreationPanel({
   onGenerate: () => void;
 }) {
   const [selectedEpisode, setSelectedEpisode] = useState("");
-  const [videoSourceMode, setVideoSourceMode] = useState(selectedSourceId ? "story" : "scratch");
-  useEffect(() => { if (selectedSourceId) setVideoSourceMode("story"); }, [selectedSourceId]);
   const sceneEpisodes = Array.from(new Set(scenes.map(scene => scene.episode))).sort((a,b) => a-b);
   const activeEpisode = sceneEpisodes.some(number => String(number) === selectedEpisode) ? selectedEpisode : String(sceneEpisodes[0] ?? "");
   const selectedSource = sourceRecords.find(
@@ -4812,9 +4812,7 @@ function StageCreationPanel({
         ? estimateSceneCredits(selectedScenes, videoModel, videoMode)
         : chatCreditEstimate[chatModel] *
           (stage === 2 ? 2 : Math.max(1, snapshot.episodes));
-  const inputError = stage === 5 && videoSourceMode === "story" && !selectedSource
-    ? "Choose available Story Studio work to load its scene prompts."
-    : stageInputError(stage, { ...snapshot, scenes });
+  const inputError = stageInputError(stage, { ...snapshot, scenes });
   const finalSourceReady = !inputError;
   const selectedModelSummary =
     stage === 3
@@ -4843,7 +4841,7 @@ function StageCreationPanel({
 
         <div className="form-grid two">
           <label className="compact-production-title">Production title<input value={snapshot.title} onChange={(event) => onUpdateSetup({ title: event.target.value })} /></label>
-          <StudioModelChoices label="Aspect ratio" value={snapshot.aspectRatio} options={["16:9", "9:16", "1:1"].map(value => ({value, label:value}))} onChange={(value) => onUpdateSetup({ aspectRatio: value })} />
+          {stage !== 5 && <StudioModelChoices label="Aspect ratio" value={snapshot.aspectRatio} options={["16:9", "9:16", "1:1"].map(value => ({value, label:value}))} onChange={(value) => onUpdateSetup({ aspectRatio: value })} />}
         </div>
         {(stage === 2 || stage === 4) && (
           <div className="model-choice-panel">
@@ -4885,14 +4883,10 @@ function StageCreationPanel({
         )}
 
         {stage === 5 ? (
-          <section className="video-source-section" aria-label="Video starting point">
-            <StudioModelChoices label="Start your video" value={videoSourceMode} options={[{value:"scratch",label:"From scratch · Write your own scene prompts"},{value:"story",label:"From Story Studio · Use saved scenes and continuity"}]} onChange={(value) => { setVideoSourceMode(value); if (value === "scratch" && selectedSourceId) onSelectSource(""); }} />
-            {videoSourceMode === "story" && (
-              <div className="video-saved-sources">
-                <StudioModelChoices label="Available saved work" value={selectedSourceId} options={sourceRecords.filter(record => record.status !== "generating" && record.status !== "failed").map(record => ({value:record.id,label:record.name}))} onChange={onSelectSource}/>
-                {!sourceRecords.some(record => record.status !== "generating" && record.status !== "failed") && <p role="status">Your Story Studios will appear here once their scene prompts are ready.</p>}
-              </div>
-            )}
+          <section className="video-source-section video-saved-sources" aria-label="Story Studio selection">
+            <div className="video-source-heading"><h3>Story Studio <span>Optional</span></h3>{selectedSourceId && <button type="button" className="secondary-button" onClick={() => onSelectSource("")}>Clear selection</button>}</div>
+            <StudioModelChoices label="Available saved work" value={selectedSourceId} options={sourceRecords.filter(record => record.status !== "generating" && record.status !== "failed").map(record => ({value:record.id,label:record.name}))} onChange={onSelectSource}/>
+            {!sourceRecords.some(record => record.status !== "generating" && record.status !== "failed") && <p role="status">Your Story Studios will appear here once their scene prompts are ready.</p>}
           </section>
         ) : <details className="compact-settings compact-source-picker">
           <summary><span><b>{selectedSource ? "Change saved work" : "Choose saved work"}</b><small>{selectedSource?.name || "Write your own input, or select an available result"}</small></span><ChevronDown size={18}/></summary>
@@ -4976,13 +4970,16 @@ function StageCreationPanel({
               </div>
             )}
             <section className="compact-settings video-generation-settings" aria-label="Video generation settings">
-            <div className="form-grid three">
+            <h3 className="video-settings-heading"><Settings size={22}/> Generation settings</h3>
+            <div className="generated-job-setting-fields">
               <StudioModelChoices
                 label="Video model"
                 value={videoModel}
                 options={videoModelOptions}
                 onChange={(value) => setVideoModel(value as VideoModelId)}
               />
+              <div className="video-secondary-settings">
+              <StudioModelChoices label="Aspect ratio" value={snapshot.aspectRatio} options={["16:9", "9:16", "1:1"].map(value => ({value, label:value}))} onChange={(value) => onUpdateSetup({ aspectRatio: value })} />
               {videoModel === "kling-3.0" ? (
                 <>
                   <StudioModelChoices
@@ -5019,6 +5016,7 @@ function StageCreationPanel({
                   <div className="fixed-model-value">720p · no sound option</div>
                 </div>
               )}
+              </div>
             </div>
             </section>
             <details className="drama-advanced-details"><summary>Continuity and production details</summary>

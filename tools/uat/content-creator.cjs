@@ -29,14 +29,21 @@ const fs = require('node:fs');
     for(const view of ['persona','research','create','publish','automation','audit','analyse','logs']){
       await page.goto(base+'/?view='+view);await page.locator('.page-intro').waitFor();
       assert.equal(await page.locator('.page-intro-kicker').textContent(),'Content Creator');
-      assert.deepEqual(await styles(page.locator('.page-intro')),dramaIntro,view+' intro matches Drama');
+      const creatorIntro=await styles(page.locator('.page-intro'));
+      assert.equal(creatorIntro.radius,dramaIntro.radius,view+' retains shared layout');
+      assert.equal(creatorIntro.border,'rgb(213, 223, 206)',view+' original sage border');
+      assert(creatorIntro.background.includes('rgb(239, 244, 233)'),view+' original sage introduction');
+      assert.notEqual(creatorIntro.background,dramaIntro.background,'Drama retains its own lilac palette');
       assert.equal(await page.locator('.page-context-bar').count(),0);
       const nav=page.locator('.workspace-navigation nav');assert.equal(await nav.getByRole('link').count(),7);
       assert.equal(await nav.getByRole('link',{name:'Settings',exact:true}).count(),0);
       assert.equal(await nav.getByRole('link',{name:'Logs',exact:true}).count(),0);
       const logs=page.locator('.workspace-library-tools').getByRole('link',{name:'Logs',exact:true});
       assert.equal(await logs.count(),1);
-      if(view!=='logs')assert.deepEqual(await styles(logs),libraryStyle);
+      if(view!=='logs') {
+        assert.equal((await styles(logs)).radius,libraryStyle.radius);
+        assert.equal((await styles(logs)).background,'rgb(242, 246, 235)','Logs uses green workspace palette');
+      }
       else {assert.equal(await logs.getAttribute('aria-current'),'page');assert.equal(await nav.locator('[aria-current=page]').count(),0)}
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,view+' width '+width);
       if(view==='automation') {
@@ -80,7 +87,7 @@ const fs = require('node:fs');
     await page.getByRole('button',{name:'Show credit balances'}).hover();await page.locator('.credit-popover').waitFor({state:'visible'});
     assert.equal(await page.locator('.credit-balance-copy strong').first().evaluate(e=>getComputedStyle(e).color),'rgb(63, 75, 84)');
     await page.keyboard.press('Escape');
-    console.log('PASS all Content Creator pages, Drama parity, Logs/history, account hover/keyboard/direct routes and neutral credits at',width);
+    console.log('PASS all Content Creator pages, shared layout/green palette, Logs/history, account hover/keyboard/direct routes and neutral credits at',width);
   }
   await page.goto(base+'/?view=create');await page.locator('.create-page').waitFor();
   for(const label of ['Image','Text post','Video']){

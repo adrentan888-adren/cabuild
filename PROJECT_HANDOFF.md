@@ -480,3 +480,7 @@ Demo web app login:
 - The global account menu opens on mouse hover as well as tap/click and keyboard, with delayed pointer-leave dismissal, a hover corridor and Escape focus restoration. It contains Account, Settings and Log out. Account opens a read-only authenticated identity/workspace summary; Account and Settings do not display Content Creator workflow tabs.
 - Credit selection, header balance, radio accent and amount text use neutral gray/slate colors while retaining exact units, owner-scoped selection, refresh and unavailable/error states.
 - Added tools/uat/content-creator.cjs for safe desktop/mobile layout, Drama style parity, navigation/history, menu, account, credits and form-choice coverage. Expanded the page audit to include Account and updated the Home navigation regression expectations. No generation, publishing, billing or persistence schema changes.
+
+## 2026-09-13 - Preserve Content Creator green palette
+
+User clarification: keep Content Creator in its original sage/green color scheme. Restored green introductions, cards, headings, selections, buttons, focus treatments and the standalone Logs button while retaining the new layout and navigation. Drama Studio keeps its lilac theme; credits remain neutral gray. Account and Settings follow the green frontend palette. Existing focused UAT now distinguishes the two palettes while verifying shared layout and unchanged navigation.

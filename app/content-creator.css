@@ -1,68 +1,68 @@
-/* Content Creator uses Drama Studio's cream canvas, lilac cards and purple controls. */
+/* Content Creator keeps its original sage/green palette with the shared studio layout. */
 .normal-workspace-frame {
-  --text:#30322f; --muted:#716a77; --faint:#706476;
-  --line:rgba(93,71,111,.16); --line-2:rgba(93,71,111,.3);
-  --sage-ink:#675570; --surface:#fffefb;
+  --text:#29332d; --muted:#657064; --faint:#68705f;
+  --line:rgba(58,73,51,.16); --line-2:rgba(58,73,51,.3);
+  --sage-ink:#526448; --surface:#fffefb;
 }
 .normal-workspace-frame :is(.persona-page,.research-page,.audit-page,.create-page,.publish-page,.automation-page,.log-page,.insights-page,.settings-page,.account-page) {
   display:grid; grid-template-columns:minmax(0,1fr); gap:22px; min-width:0;
 }
-.normal-navigation { border-color:#dfd6e7; background:#fffefb; }
-.normal-navigation .workspace-tab-indicator { background:#ede5f3; border-color:#d4c4df; }
-.normal-navigation .workspace-navigation-item { color:#716a77; }
-.normal-navigation .workspace-navigation-item.active { color:#615070; border-color:#d4c4df; }
-.normal-navigation .workspace-navigation-item.active > span:first-child { color:#615070; }
-.normal-navigation .workspace-navigation-item:hover { background:#f3edf7; }
+.normal-navigation { border-color:#dce2d5; background:#fffefb; }
+.normal-navigation .workspace-tab-indicator { background:#e7eedf; border-color:#cad8bd; }
+.normal-navigation .workspace-navigation-item { color:#657064; }
+.normal-navigation .workspace-navigation-item.active { color:#354e2f; border-color:#cad8bd; }
+.normal-navigation .workspace-navigation-item.active > span:first-child { color:#354e2f; }
+.normal-navigation .workspace-navigation-item:hover { background:#edf2e7; }
 .normal-workspace-frame :is(.card,.research-card,.create-card,.persona-setup,.persona-card,.publish-card,.log-row,.automation-rule-card,.automation-job-row,.inline-editor,.inline-preview) {
-  border:1px solid #ded4e6; border-radius:15px; background:#fffefb; box-shadow:0 2px 6px #47345005;
+  border:1px solid #d5dfce; border-radius:15px; background:#fffefb; box-shadow:0 2px 6px #29332d03;
 }
 .normal-workspace-frame :is(.card,.research-card,.create-card) { padding:28px; }
 .normal-workspace-frame :is(.card > h2,.card > h3,.persona-step-head h3,.persona-card-head h3) {
-  color:#675570; font-size:23px; font-weight:650; letter-spacing:-.025em; line-height:1.35;
+  color:#526448; font-size:23px; font-weight:650; letter-spacing:-.025em; line-height:1.35;
 }
 .normal-workspace-frame :is(.step-label,.create-card > .clbl,.persona-advanced > .clbl,.automation-section-head b) {
-  color:#675570; font-size:18px; line-height:1.4; font-weight:650; letter-spacing:0; text-transform:none;
+  color:#526448; font-size:18px; line-height:1.4; font-weight:650; letter-spacing:0; text-transform:none;
 }
-.normal-workspace-frame .step-label > span { background:#eee5f4; color:#675570; border-color:#d4c4df; }
+.normal-workspace-frame .step-label > span { background:#e8efdf; color:#526448; border-color:#cad8bd; }
 .normal-workspace-frame :is(.persona-step-head,.persona-card-head,.automation-section-head) {
-  background:#f5eff8; border-color:#ded3e6; border-radius:10px; padding:14px 16px; gap:12px;
+  background:#edf2e7; border-color:#d7dfce; border-radius:10px; padding:14px 16px; gap:12px;
 }
 .normal-workspace-frame :is(.metric,.research-kpi,.persona-summary > div,.automation-summary > div,.brief-preview,.dimension-shell,.upbox,.check-card,.persona-reference-card,.prompt-module) {
-  background:#faf7fc; border-color:#ded4e6; border-radius:12px;
+  background:#f8faf4; border-color:#d5dfce; border-radius:12px;
 }
-.normal-workspace-frame :is(.brief-preview,.persona-advanced,.automation-builder) { border-color:#ded4e6; }
-.normal-workspace-frame :is(input,select,textarea) { background:#fffefb; border-color:#d8cce1; border-radius:9px; }
-.normal-workspace-frame :is(label,.field-label) { color:#675570; font-size:14px; line-height:1.5; }
+.normal-workspace-frame :is(.brief-preview,.persona-advanced,.automation-builder) { border-color:#d5dfce; }
+.normal-workspace-frame :is(input,select,textarea) { background:#fffefb; border-color:#cdd6c7; border-radius:9px; }
+.normal-workspace-frame :is(label,.field-label) { color:#526448; font-size:14px; line-height:1.5; }
 .normal-workspace-frame :is(input,select) { min-height:44px; }
 .normal-workspace-frame textarea { font-size:16px; line-height:1.7; padding:14px; }
 .normal-workspace-frame :is(.create-card,.persona-card) textarea { min-height:140px; }
 .normal-workspace-frame button { min-height:44px; }
-.normal-workspace-frame button.primary { background:#79638c; border-color:#79638c; color:#fff; font-size:14px; font-weight:650; }
-.normal-workspace-frame button.primary:hover:not(:disabled) { background:#674f7b; border-color:#674f7b; }
-.normal-workspace-frame button.primary:disabled { background:#e3dce8; border-color:#e3dce8; color:#75667c; }
+.normal-workspace-frame button.primary { background:#29332d; border-color:#29332d; color:#fff; font-size:14px; font-weight:650; }
+.normal-workspace-frame button.primary:hover:not(:disabled) { background:#40503e; border-color:#40503e; }
+.normal-workspace-frame button.primary:disabled { background:#d8ddd2; border-color:#d8ddd2; color:#6b7564; }
 .normal-workspace-frame :is(.create-type-grid,.create-model-options,.research-mode,.automation-tabs) {
-  display:grid; grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr)); gap:8px; padding:6px; border:1px solid #ddd2e5; border-radius:14px; background:#f5eff8;
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr)); gap:8px; padding:6px; border:1px solid #d5dfce; border-radius:14px; background:#edf2e7;
 }
 .normal-workspace-frame :is(.create-type-grid,.create-model-options,.research-mode,.automation-tabs) > button {
-  min-width:0; min-height:60px; padding:12px 14px; border:1px solid transparent; border-radius:10px; background:transparent; color:#65556f; white-space:normal;
+  min-width:0; min-height:60px; padding:12px 14px; border:1px solid transparent; border-radius:10px; background:transparent; color:#526448; white-space:normal;
 }
 .normal-workspace-frame :is(.create-type-grid button.on,.model-options button.on,.research-mode button.on,.automation-tabs button.on) {
-  background:#fffefb; border-color:#bdaacb; color:#615070; box-shadow:0 2px 6px #68537510;
+  background:#e8efdf; border-color:#91a47f; color:#3d5133; box-shadow:0 2px 6px #29332d08;
 }
 .normal-workspace-frame :is(.create-type-grid button b,.model-options button b) { font-size:16px; line-height:1.4; }
-.normal-workspace-frame :is(.create-type-grid button.on span,.model-options button.on span) { color:#75667c; }
-.normal-workspace-frame .create-model-options button.on .mcard-dot { background:#79638c; border-color:#79638c; }
-.normal-workspace-frame .persona-reference-card.on { background:#f3ecf8; border-color:#ab95bc; color:#615070; }
-.normal-workspace-frame .empty-state { padding:28px 22px; background:linear-gradient(115deg,#f0eaf6,#fcf9fe); border:1px dashed #d3c3df; color:#716a77; border-radius:13px; }
-.normal-workspace-frame .drift-banner { background:#f5eff8; border-color:#ded3e6; color:#675570; }
-.normal-workspace-frame .publish-icon { background:#eee5f4; color:#675570; }
-.normal-workspace-frame .publish-main h3 { color:#675570; font-size:20px; line-height:1.4; }
+.normal-workspace-frame :is(.create-type-grid button.on span,.model-options button.on span) { color:#6b7564; }
+.normal-workspace-frame .create-model-options button.on .mcard-dot { background:#29332d; border-color:#29332d; }
+.normal-workspace-frame .persona-reference-card.on { background:#e8efdf; border-color:#91a47f; color:#354e2f; }
+.normal-workspace-frame .empty-state { padding:28px 22px; background:linear-gradient(115deg,#f2f6eb,#fbfcf7); border:1px dashed #cbd7c0; color:#657064; border-radius:13px; }
+.normal-workspace-frame .drift-banner { background:#edf2e7; border-color:#d7dfce; color:#526448; }
+.normal-workspace-frame .publish-icon { background:#e8efdf; color:#526448; }
+.normal-workspace-frame .publish-main h3 { color:#526448; font-size:20px; line-height:1.4; }
 .normal-workspace-frame :is(.publish-actions,.row-actions,.source-actions) { gap:10px; flex-wrap:wrap; }
-.normal-workspace-frame .persona-advanced > summary { min-height:48px; padding:14px 16px; background:#fcfafc; color:#665570; border:1px solid #ded4e5; border-radius:12px; font-size:15px; font-weight:650; cursor:pointer; }
-.normal-workspace-frame :is(a,button,input,select,textarea,summary):focus-visible { outline:2px solid #79638c; outline-offset:3px; }
+.normal-workspace-frame .persona-advanced > summary { min-height:48px; padding:14px 16px; background:#f8faf4; color:#526448; border:1px solid #d5dfce; border-radius:12px; font-size:15px; font-weight:650; cursor:pointer; }
+.normal-workspace-frame :is(a,button,input,select,textarea,summary):focus-visible { outline:2px solid #29332d; outline-offset:3px; }
 .account-details { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin:20px 0 0; }
-.account-details > div { min-width:0; padding:16px; border:1px solid #ded4e6; border-radius:12px; background:#faf7fc; }
-.account-details dt { color:#716a77; font-size:13px; margin-bottom:6px; }
+.account-details > div { min-width:0; padding:16px; border:1px solid #d5dfce; border-radius:12px; background:#f8faf4; }
+.account-details dt { color:#657064; font-size:13px; margin-bottom:6px; }
 .account-details dd { margin:0; font-size:16px; overflow-wrap:anywhere; }
 .global-account-trigger { position:relative; }
 .global-header .account-popover > :is(a,button) { min-height:44px; font-size:14px; }
@@ -84,3 +84,7 @@
 }
 /* Keep page-level modes full width like Story Studio's category tabs. */
 .normal-workspace-frame :is(.automation-tabs,.research-mode) { width:100%; justify-self:stretch; }
+
+.normal-workspace-frame .workspace-library-button { background:#f2f6eb; border-color:#cad8bd; color:#526448; }
+.normal-workspace-frame .workspace-library-button:hover,.normal-workspace-frame .workspace-library-button.active { background:#e7eedf; color:#354e2f; }
+.normal-workspace-frame .workspace-library-button:focus-visible { outline-color:#526448; }

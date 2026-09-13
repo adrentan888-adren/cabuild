@@ -75,3 +75,7 @@ Independent UAT: **Pass** on the final production build. The reviewer checked 10
 - Account hover menu contains Account, Settings and Log out only. Hover corridor, keyboard activation, Escape/focus, touch and menu viewport bounds are exercised. Account and Settings remain independently accessible without workflow tabs.
 - Neutral credit amount/selection colors preserve existing balances, error handling and owner-scoped preference tests.
 - Local acceptance: lint/build, 108 page/tab/viewport cases and focused creator/header/Drama checks, at 1440/768/390/320 where applicable. Browser fixtures intercept provider/content writes; real generation quality is outside this UI check.
+
+## 2026-09-13 - Preserve Content Creator green palette
+
+User clarification: keep Content Creator in its original sage/green color scheme. Restored green introductions, cards, headings, selections, buttons, focus treatments and the standalone Logs button while retaining the new layout and navigation. Drama Studio keeps its lilac theme; credits remain neutral gray. Account and Settings follow the green frontend palette. Existing focused UAT now distinguishes the two palettes while verifying shared layout and unchanged navigation.

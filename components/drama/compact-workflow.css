@@ -121,6 +121,31 @@
 .drama-embedded-root .compact-result-copy textarea { width: 100%; min-height: 190px; font-size: 16px; line-height: 1.65; }
 .drama-embedded-root .compact-production-title { display: grid; gap: 10px; font-size: 16px; font-weight: 650; }
 .drama-embedded-root .compact-production-title input { min-height: 60px; font-size: 26px; font-weight: 700; line-height: 1.35; }
+.drama-embedded-root .video-source-section { display: grid; gap: 18px; margin-block: 24px; min-width: 0; }
+.drama-embedded-root .video-saved-sources { padding: 18px; border: 1px solid #ddd4e5; border-radius: 14px; background: #f7f2fa; min-width: 0; }
+.drama-embedded-root .video-saved-sources p { font-size: 16px; line-height: 1.6; color: #675570; margin: 10px 0 0; }
+.drama-embedded-root .video-generation-settings { margin-block: 24px; }
+.drama-embedded-root .compact-library-card .episode-generation-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+.drama-embedded-root .episode-generation-actions > .generation-cost-action { width: 100%; min-width: 0; }
+.drama-embedded-root .episode-generation-actions button {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  justify-content: center;
+  align-self: start;
+  overflow-wrap: normal;
+  word-break: normal;
+  line-height: 1.45;
+}
+.drama-embedded-root .episode-generation-actions button svg { flex-shrink: 0; }
+.drama-embedded-root .episode-generation-actions .generated-episode-combine { white-space: nowrap; }
 @media (max-width: 760px) {
   .drama-embedded-root .compact-selected-asset { grid-template-columns: minmax(0,1fr); }
   .drama-embedded-root .compact-asset-preview > span { height: 240px; }

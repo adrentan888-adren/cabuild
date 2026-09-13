@@ -56,17 +56,20 @@ const fs = require('node:fs');
   assert.equal(await workspace.locator('details').filter({has:page.locator('summary').filter({hasText:'Generation settings'})}).first().getAttribute('open'),null,'Advanced settings start collapsed');
   await section('Series');await workspace.getByLabel('Series storyline',{exact:true}).fill('Revised series outline');
   await section('Images');const groups=workspace.getByRole('tablist',{name:'Image groups',exact:true});
-  const characterTabs=workspace.getByRole('tablist',{name:'Character images',exact:true});
-  assert.equal(await characterTabs.getByRole('tab').count(),10);assert.equal(await workspace.locator('.story-studio-asset').count(),1,'One image card is mounted for ten characters');
-  assert.match(await characterTabs.getByRole('tab').last().innerText(),/Generating/);
-  assert.match(await characterTabs.getByRole('tab').nth(8).innerText(),/Failed/);
-  assert.match(await characterTabs.getByRole('tab').first().innerText(),/Not generated/);
-  await characterTabs.getByRole('tab').first().focus();await page.keyboard.press('End');await workspace.getByRole('heading',{name:'Character 10',exact:true}).waitFor();
+  assert.equal(await workspace.getByRole('tablist',{name:'Character images',exact:true}).count(),0,'There are no individual image tabs');
+  const imageCards=workspace.locator('.story-studio-asset');
+  assert.equal(await imageCards.count(),10,'All ten characters are shown together');
+  assert.match(await imageCards.last().getByRole('status').innerText(),/Generating/);
+  assert.match(await imageCards.nth(8).getByRole('status').innerText(),/Failed/);
+  assert.match(await imageCards.first().getByRole('status').innerText(),/Not generated/);
   assert(await workspace.getByRole('button',{name:'Generating with Kie AI',exact:true}).isDisabled());
-  await page.keyboard.press('Home');await workspace.getByRole('heading',{name:'Character 1',exact:true}).waitFor();
-  completeHiddenImage=true;await characterTabs.getByRole('tab').last().getByText(/Ready/).waitFor({timeout:12000});
-  assert.equal(await characterTabs.getByRole('tab').first().getAttribute('aria-selected'),'true','Hidden completion never steals selection');assert(statusCalls>0);
-  await groups.getByRole('tab',{name:/^Places & objects/}).click();await workspace.getByRole('heading',{name:'City gate',exact:true}).waitFor();
+  await imageCards.first().locator('summary').click();await imageCards.first().getByRole('textbox').fill('Edited character gallery prompt');
+  await groups.getByRole('tab',{name:/^Places & objects/}).focus();await page.keyboard.press('Enter');await workspace.getByRole('heading',{name:'City gate',exact:true}).waitFor();
+  assert.equal(await imageCards.count(),1);
+  completeHiddenImage=true;await groups.getByRole('tab',{name:/^Characters/}).getByText(/1\/10 ready/).waitFor({timeout:12000});
+  assert.equal(await groups.getByRole('tab',{name:/^Places & objects/}).getAttribute('aria-selected'),'true','Hidden completion never changes the image category');assert(statusCalls>0);
+  await groups.getByRole('tab',{name:/^Characters/}).click();assert.equal(await imageCards.count(),10);assert.match(await imageCards.last().getByRole('status').innerText(),/Ready/);
+  await imageCards.first().locator('summary').click();assert.equal(await imageCards.first().getByRole('textbox').inputValue(),'Edited character gallery prompt');
   await section('Episodes');assert.equal(await episodeOne.inputValue(),'Edited first episode');
   await section('Series');assert.equal(await workspace.getByLabel('Series storyline',{exact:true}).inputValue(),'Revised series outline');
   if(await page.getByRole('button',{name:'Dismiss notification'}).count())await page.getByRole('button',{name:'Dismiss notification'}).click();
@@ -74,7 +77,7 @@ const fs = require('node:fs');
     await page.setViewportSize({width,height:900});
     for(const name of ['Series','Episodes','Images']){
       await section(name);
-      if(name==='Images'){await groups.getByRole('tab',{name:/^Characters/}).click();await characterTabs.getByRole('tab').last().click();}
+      if(name==='Images'){await groups.getByRole('tab',{name:/^Characters/}).click();}
       await workspace.scrollIntoViewIfNeeded();await page.waitForTimeout(250);
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Document overflow '+name+' '+width);
       for(const asset of await workspace.locator('.story-studio-asset').all())assert(await asset.evaluate(el=>el.scrollWidth<=el.clientWidth),'Ready image card overflow '+width);
@@ -112,6 +115,6 @@ const fs = require('node:fs');
   }
   assert.equal(promptPosts.length,2,'Only the two explicit generation actions submit work');
   assert.deepEqual(errors,[]);
-  console.log('PASS compact Story Studio: 12 episodes and 10 character images render one selected editor/card, readable panels, status-visible hidden completion, Arrow/Home/End focus, edit preservation, no navigation POST, captured batch target/count statuses through slider changes/tab switches/collapse and success/failure, responsive 1440/768/390/320. No provider spend.');
+  console.log('PASS compact Story Studio: 12 episodes render one selected editor; all 10 character images share a gallery with per-card status, readable panels, status-visible hidden completion, Arrow/Home/End focus, edit preservation, no navigation POST, captured batch target/count statuses through slider changes/tab switches/collapse and success/failure, responsive 1440/768/390/320. No provider spend.');
   await browser.close();
 })().catch(error=>{console.error(error);process.exit(1)});

@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useLayoutEffect, useRef } from "react";
-import { Clapperboard, Wand2 } from "lucide-react";
+import { Box, Clapperboard, Wand2 } from "lucide-react";
 import { dramaPages, normalPages, type HeaderWorkspaceMode } from "@/components/global-header";
+import "./workspace-rail.css";
 
 export default function WorkspaceRail({ mode, activePage, onNormalNavigate }: {
   mode: Exclude<HeaderWorkspaceMode, null>;
@@ -11,7 +12,7 @@ export default function WorkspaceRail({ mode, activePage, onNormalNavigate }: {
   onNormalNavigate?: (page: string) => void;
 }) {
   const isNormal = mode === "normal";
-  const pages = isNormal ? normalPages : dramaPages;
+  const pages = isNormal ? normalPages : dramaPages.filter(page => page.id !== "asset-library");
   const ModeIcon = isNormal ? Wand2 : Clapperboard;
   const navRef = useRef<HTMLElement>(null);
   const indicatorRef = useRef<HTMLSpanElement>(null);
@@ -48,7 +49,7 @@ export default function WorkspaceRail({ mode, activePage, onNormalNavigate }: {
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, [activePage, mode]);
 
-  return <aside className={`workspace-navigation ${isNormal ? "normal-navigation" : "drama-navigation"}`} aria-label={`${isNormal ? "Normal Content" : "Drama Studio"} section navigation`}>
+  return <div className="workspace-navigation-group"><aside className={`workspace-navigation ${isNormal ? "normal-navigation" : "drama-navigation"}`} aria-label={`${isNormal ? "Normal Content" : "Drama Studio"} section navigation`}>
     <div className="workspace-navigation-heading"><span className="workspace-rail-icon"><ModeIcon size={15} /></span><span className="workspace-navigation-label">{isNormal ? "Normal Content" : "Drama Studio"}</span></div>
     <nav ref={navRef}>
       <span className="workspace-tab-indicator" ref={indicatorRef} hidden aria-hidden="true" />
@@ -61,5 +62,11 @@ export default function WorkspaceRail({ mode, activePage, onNormalNavigate }: {
         </Link>;
       })}
     </nav>
-  </aside>;
+  </aside>
+    {!isNormal && <div className="workspace-library-tools">
+      <Link href="/drama-studio/assets" className={`workspace-library-button ${activePage === "asset-library" ? "active" : ""}`} aria-current={activePage === "asset-library" ? "page" : undefined}>
+        <Box size={17} /><span>Asset Library</span>
+      </Link>
+    </div>}
+  </div>;
 }

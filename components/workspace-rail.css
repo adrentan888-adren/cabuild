@@ -1,0 +1,6 @@
+.workspace-navigation-group{width:100%;min-width:0;display:grid;gap:10px}
+.workspace-library-tools{display:flex;justify-content:flex-end;min-width:0}
+.workspace-library-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:9px 15px;border:1px solid #d4c4df;border-radius:10px;background:#f7f2fa;color:#615070;text-decoration:none;font-size:14px;font-weight:650;white-space:nowrap;transition:background-color .2s ease}
+.workspace-library-button:hover,.workspace-library-button.active{background:#ede5f3;color:#51405f}
+.workspace-library-button:focus-visible{outline:2px solid #79638c;outline-offset:3px}
+@media(prefers-reduced-motion:reduce){.workspace-library-button{transition:none}}

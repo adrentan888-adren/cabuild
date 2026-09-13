@@ -1526,17 +1526,7 @@ const markChanged = () => {
     const eligibleSources = stage === 2 ? workflowRecords.filter(record => record.stage === 1 && record.status !== "generating" && record.status !== "failed" && record.snapshot.generatedBrief.trim()) : workflowRecords;
     const source =
       stage === 5
-        ? workflowRecords.find((record) => record.id === sourceId) ??
-          workflowRecords.find(
-            (record) =>
-              record.stage === 2 &&
-              record.id === selectedRecordIds[2] &&
-              record.snapshot.scenes.length > 0,
-          ) ??
-          workflowRecords.find(
-            (record) => record.stage === 2 && record.snapshot.scenes.length > 0,
-          ) ??
-          workflowRecords.find((record) => record.stage === 4)
+        ? workflowRecords.find((record) => record.id === sourceId)
         : stage > 1
         ? eligibleSources.find((record) => record.id === sourceId) ??
           eligibleSources.find(
@@ -1571,7 +1561,9 @@ const markChanged = () => {
     setToast(
       stage === 1
         ? "New brief input opened."
-        : `Selected source loaded. Press Generate when you are ready.`,
+        : sourceId || source ? "Selected source loaded. Press Generate when you are ready."
+        : stage === 5 ? "New video input opened. Choose a model and prepare your clips."
+        : "New input opened. Press Generate when you are ready.",
     );
   };
 
@@ -1590,7 +1582,13 @@ const markChanged = () => {
 
   const selectSourceRecord = (sourceId: string) => {
     if (activeStep === 1) return;
-    if (!sourceId) { setDraftSourceId(""); return; }
+    if (!sourceId) {
+      if (activeStep === 5 && draftSourceId) {
+        applySnapshot({ ...createEmptyStageSnapshot(5, createBlankBriefSnapshot()), episodes: 1, scenes: [newManualScene()] });
+      }
+      setDraftSourceId("");
+      return;
+    }
     const source = workflowRecords.find((record) => record.id === sourceId);
     if (!source) return;
     setDraftSourceId(sourceId);
@@ -4044,11 +4042,7 @@ function WorkflowContextBar({
                               id={`episode-content-${episodeKey}`}
                             >
                             <div className="episode-generation-bar">
-                              <div>
-                                <span>Episode generation</span>
-                                <b>Generate every clip, or generate and automatically combine the full episode.</b>
-                              </div>
-                              <div>
+                              <section className="episode-generation-actions" aria-label="Episode generation actions">
                                 <GenerationCost credits={episodeGenerationCost}>
                                   <button
                                     className="generated-episode-button"
@@ -4127,7 +4121,7 @@ function WorkflowContextBar({
                                     <><Layers3 size={13} /> Combine</>
                                   )}
                                 </button>
-                              </div>
+                              </section>
                             </div>
                             <div className={`combined-episode-panel ${combinedEpisode ? "ready" : ""}`}>
                                 {episodeCombining ? (
@@ -4448,7 +4442,6 @@ function StoryStudioRecord({
   const [workspaceTab, setWorkspaceTab] = useState("episodes");
   const [selectedEpisode, setSelectedEpisode] = useState("");
   const [imageGroup, setImageGroup] = useState("characters");
-  const [selectedImages, setSelectedImages] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const timeout = window.setTimeout(
@@ -4497,6 +4490,7 @@ function StoryStudioRecord({
   const renderAsset = (asset: Asset) => {
     const generating = asset.status === "generating";
     const itemBusy = storyBusyKeys.includes(`story-asset-${record.id}-${asset.id}`) || storyBusyKeys.includes(`story-assets-${record.id}-${asset.type === "Character" ? "characters" : "world"}`);
+    const readiness = itemBusy && !generating ? { status: "Generating", tone: "generating" } : assetStatus(asset);
     return (
       <article className={`story-studio-asset ${asset.status}`} key={asset.id}>
         <div
@@ -4518,7 +4512,7 @@ function StoryStudioRecord({
           )}
         </div>
         <div className="story-studio-asset-copy">
-          <span>{asset.type}</span>
+          <div className="story-image-card-meta"><span>{asset.type}</span><span className={`story-image-status ${readiness.tone}`} role="status">{readiness.status}</span></div>
           <h4>{asset.name}</h4>
           {asset.libraryAssetName && (
             <span className="story-studio-library-source">
@@ -4619,7 +4613,6 @@ function StoryStudioRecord({
   };
   const promptedCount = snapshot.episodePlan.filter(item => episodeStatus(item.number).tone === "ready").length;
   const groupAssets = imageGroup === "characters" ? characterAssets : worldAssets;
-  const currentAsset = groupAssets.find(asset => asset.id === selectedImages[imageGroup]) || groupAssets[0];
   const groupBusy = imageGroup === "characters" ? generatingCharacters : generatingLocations;
   const promptCount = Math.min(promptEpisodeCount, Math.max(1, snapshot.episodePlan.length));
   const generatingEpisodeCount = snapshot.episodePlan.filter(item => storyBusyKeys.includes(`story-prompts-${record.id}-${item.number}`)).length;
@@ -4660,9 +4653,9 @@ function StoryStudioRecord({
           <details className="studio-generation-settings"><summary><Settings size={18}/><span>Image settings</span><small>{modelLabel(imageModelOptions,imageModel)}</small><ChevronDown size={18}/></summary><StudioModelChoices label="Image generation model" value={imageModel} options={imageModelOptions} onChange={value=>setImageModel(value as ImageModelId)}/></details>
           <StudioTabs label="Image groups" value={imageGroup} onChange={setImageGroup} items={[{id:"characters",label:"Characters",...imageSummary(characterAssets,generatingCharacters)},{id:"world",label:"Places & objects",...imageSummary(worldAssets,generatingLocations)}]}>
             <div className="story-studio-subsection-head"><h3>{imageGroup === "characters" ? "Character images" : "Places & objects"}</h3><GenerationCost credits={groupAssets.length * imageCreditEstimate[imageModel]}><button className="primary-button" disabled={!groupAssets.length || groupBusy} onClick={()=>onGenerateAssetGroup(imageGroup === "characters" ? "Character" : "World")}>{groupBusy ? <><LoadingMark/> {imageGroup === "characters" ? "Generating all characters" : "Generating venues and objects"}</> : <><Sparkles size={15}/> {imageGroup === "characters" ? "Generate all characters" : "Generate venues and objects"}</>}</button></GenerationCost></div>
-            <StudioTabs label={imageGroup === "characters" ? "Character images" : "World images"} value={currentAsset?.id || ""} onChange={value=>setSelectedImages(current=>({...current,[imageGroup]:value}))} items={groupAssets.map(asset=>({id:asset.id,label:asset.name,...assetStatus(asset)}))}>
-              {currentAsset ? renderAsset(currentAsset) : <p>No {imageGroup === "characters" ? "character" : "place or object"} images are planned in this story.</p>}
-            </StudioTabs>
+            <div className="story-studio-asset-grid story-image-gallery">
+              {groupAssets.length ? groupAssets.map(renderAsset) : <p>No {imageGroup === "characters" ? "character" : "place or object"} images are planned in this story.</p>}
+            </div>
           </StudioTabs>
         </section>}
       </StudioTabs>
@@ -4776,6 +4769,8 @@ function StageCreationPanel({
   onGenerate: () => void;
 }) {
   const [selectedEpisode, setSelectedEpisode] = useState("");
+  const [videoSourceMode, setVideoSourceMode] = useState(selectedSourceId ? "story" : "scratch");
+  useEffect(() => { if (selectedSourceId) setVideoSourceMode("story"); }, [selectedSourceId]);
   const sceneEpisodes = Array.from(new Set(scenes.map(scene => scene.episode))).sort((a,b) => a-b);
   const activeEpisode = sceneEpisodes.some(number => String(number) === selectedEpisode) ? selectedEpisode : String(sceneEpisodes[0] ?? "");
   const selectedSource = sourceRecords.find(
@@ -4817,7 +4812,9 @@ function StageCreationPanel({
         ? estimateSceneCredits(selectedScenes, videoModel, videoMode)
         : chatCreditEstimate[chatModel] *
           (stage === 2 ? 2 : Math.max(1, snapshot.episodes));
-  const inputError = stageInputError(stage, { ...snapshot, scenes });
+  const inputError = stage === 5 && videoSourceMode === "story" && !selectedSource
+    ? "Choose available Story Studio work to load its scene prompts."
+    : stageInputError(stage, { ...snapshot, scenes });
   const finalSourceReady = !inputError;
   const selectedModelSummary =
     stage === 3
@@ -4887,10 +4884,20 @@ function StageCreationPanel({
           </div>
         )}
 
-        <details className="compact-settings compact-source-picker">
+        {stage === 5 ? (
+          <section className="video-source-section" aria-label="Video starting point">
+            <StudioModelChoices label="Start your video" value={videoSourceMode} options={[{value:"scratch",label:"From scratch · Write your own scene prompts"},{value:"story",label:"From Story Studio · Use saved scenes and continuity"}]} onChange={(value) => { setVideoSourceMode(value); if (value === "scratch" && selectedSourceId) onSelectSource(""); }} />
+            {videoSourceMode === "story" && (
+              <div className="video-saved-sources">
+                <StudioModelChoices label="Available saved work" value={selectedSourceId} options={sourceRecords.filter(record => record.status !== "generating" && record.status !== "failed").map(record => ({value:record.id,label:record.name}))} onChange={onSelectSource}/>
+                {!sourceRecords.some(record => record.status !== "generating" && record.status !== "failed") && <p role="status">Your Story Studios will appear here once their scene prompts are ready.</p>}
+              </div>
+            )}
+          </section>
+        ) : <details className="compact-settings compact-source-picker">
           <summary><span><b>{selectedSource ? "Change saved work" : "Choose saved work"}</b><small>{selectedSource?.name || "Write your own input, or select an available result"}</small></span><ChevronDown size={18}/></summary>
           <StudioModelChoices label="Available saved work" value={selectedSourceId} options={[{value:"",label:"Write your own input"},...sourceRecords.filter(record => record.status !== "generating" && record.status !== "failed").map(record => ({value:record.id,label:record.name}))]} onChange={onSelectSource}/>
-        </details>
+        </details>}
 
         {!selectedSource && stage < 5 && (
           <label className="field">
@@ -4968,7 +4975,7 @@ function StageCreationPanel({
                 <p>{inputError}</p>
               </div>
             )}
-            <details className="compact-settings"><summary><span><b>Generation settings</b><small>{selectedModelSummary}</small></span><ChevronDown size={18}/></summary>
+            <section className="compact-settings video-generation-settings" aria-label="Video generation settings">
             <div className="form-grid three">
               <StudioModelChoices
                 label="Video model"
@@ -5013,7 +5020,7 @@ function StageCreationPanel({
                 </div>
               )}
             </div>
-            </details>
+            </section>
             <details className="drama-advanced-details"><summary>Continuity and production details</summary>
             <div className="continuity-lock-preview">
               <div>

@@ -1275,7 +1275,7 @@ function ProductionInfoContent() {
           Generate the episode clips and press Combine in Generate &amp; Edit. The final
           episode, prompts, and source images will then appear here automatically.
         </p>
-        <Link href="/drama-studio" className="primary-button">
+        <Link href="/drama-studio?step=5" className="primary-button">
           Open Generate &amp; Edit <ArrowRight size={14} />
         </Link>
       </section>

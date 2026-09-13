@@ -437,7 +437,13 @@
 .drama-embedded-root .compact-story-workspace .studio-episode-range p { font-size:13px; color:#75657f; line-height:1.5; margin:8px 0 0; }
 .drama-embedded-root .compact-image-workspace .story-studio-subsection-head { display:flex; justify-content:space-between; align-items:center; gap:14px; }
 .drama-embedded-root .compact-image-workspace .story-studio-subsection-head h3 { font-size:22px; color:#615569; }
-.drama-embedded-root .compact-image-workspace .story-studio-asset { display:grid; grid-template-columns:minmax(180px,.65fr) minmax(0,1fr); align-items:start; gap:20px; }
+.drama-embedded-root .compact-image-workspace .story-studio-asset { display:grid; grid-template-columns:minmax(0,1fr); align-content:start; min-width:0; gap:14px; }
+.drama-embedded-root .story-image-gallery { display:grid; align-items:start; }
+.drama-embedded-root .story-image-card-meta { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; font-size:13px; color:#75667c; }
+.drama-embedded-root .story-image-status { border-radius:999px; padding:5px 10px; background:#f0eaf4; color:#65556f; font-size:13px; font-weight:650; }
+.drama-embedded-root .story-image-status.ready { background:#e8f2e9; color:#386348; }
+.drama-embedded-root .story-image-status.failed { background:#fbe9ed; color:#a33544; }
+.drama-embedded-root .story-image-status.generating { background:#eee6f5; color:#72508c; }
 .drama-embedded-root .compact-image-workspace .story-studio-asset-visual { min-height:230px; aspect-ratio:1; border-radius:12px; background-size:contain; background-repeat:no-repeat; background-position:center; }
 .drama-embedded-root .compact-image-workspace .story-studio-asset-copy { min-width:0; }
 .drama-embedded-root .compact-image-workspace .story-studio-asset-copy > p { margin:10px 0; }

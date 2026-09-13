@@ -50,7 +50,7 @@ const fs = require('node:fs');
   const workspace = card.locator('.story-studio-workspace');
   const section = async name => workspace.getByRole('tablist', { name: 'Story workspace', exact: true }).getByRole('tab', { name: new RegExp('^' + name + '(?: |$)') }).click();
   const settings = async name => { const detail = workspace.locator('details').filter({ has: page.locator('summary').filter({hasText: name}) }).first(); if ((await detail.getAttribute('open')) === null) await detail.locator('summary').first().click(); };
-  const selectAsset = async name => { await section('Images'); await workspace.getByRole('tablist', { name: 'Image groups', exact: true }).getByRole('tab', { name: /^Characters/ }).click(); await workspace.getByRole('tablist', { name: 'Character images', exact: true }).getByRole('tab', { name: new RegExp('^' + name + '(?: |$)') }).click(); };
+  const selectAsset = async name => { await section('Images'); await workspace.getByRole('tablist', { name: 'Image groups', exact: true }).getByRole('tab', { name: /^Characters/ }).click(); await workspace.getByRole('heading', { name, exact: true }).waitFor(); };
   await settings('Generation settings');
   assert.equal(await workspace.locator('select').count(), 0, 'No dropdowns inside Story Studio');
   assert.equal(await workspace.getByRole('group', { name: 'Prompt model', exact: true }).getByRole('radio').count(), 2);

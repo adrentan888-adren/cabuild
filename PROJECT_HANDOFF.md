@@ -471,3 +471,12 @@ Demo web app login:
 - Generate & Edit uses Story Studio's shared generation-settings disclosure in both creation and saved jobs, with the selected video model in the heading and model radios inside. Compact ratio, quality and sound choices retain their existing behavior.
 - Selected episodes and their clip tabs/editors render directly when a job is opened or an episode is selected. Removed the redundant episode and Episode clips collapse controls; job-card collapse and episode/clip navigation remain available.
 - This is a presentation change: source selection, edited prompts, model persistence, generation locks and recovery are preserved. Release validation and independent local/production UAT are recorded in the persistent project log.
+
+## 2026-09-13 - Content Creator workspace and Drama visual alignment
+
+- Renamed the Normal Content workspace to Content Creator in the shared header, Home launcher, navigation names and page introductions. Existing query routes and saved content identifiers remain compatible.
+- Persona, Research, Create Content, My Contents, Automation, Social Audit, Analyze and Logs now use Drama Studio's cream/lilac cards, purple section hierarchy, full-width navigation, grouped format/model choices and responsive controls. Removed the duplicate context/metrics header to match Drama's page layout. Page-specific counts and refresh/polling behavior remain in their existing modules.
+- Logs is a separate 44px button beneath the seven content tabs, matching Drama's Asset Library component style, with active state and browser history support. Settings is removed from the workspace directory and tabs.
+- The global account menu opens on mouse hover as well as tap/click and keyboard, with delayed pointer-leave dismissal, a hover corridor and Escape focus restoration. It contains Account, Settings and Log out. Account opens a read-only authenticated identity/workspace summary; Account and Settings do not display Content Creator workflow tabs.
+- Credit selection, header balance, radio accent and amount text use neutral gray/slate colors while retaining exact units, owner-scoped selection, refresh and unavailable/error states.
+- Added tools/uat/content-creator.cjs for safe desktop/mobile layout, Drama style parity, navigation/history, menu, account, credits and form-choice coverage. Expanded the page audit to include Account and updated the Home navigation regression expectations. No generation, publishing, billing or persistence schema changes.

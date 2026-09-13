@@ -49,7 +49,6 @@ export const normalPages = [
   { id: "automation", label: "Automation", detail: "Schedule repeatable content workflows", icon: RefreshCcw },
   { id: "audit", label: "Social Audit", detail: "Understand connected-account performance", icon: BarChart3 },
   { id: "analyse", label: "Analyze", detail: "Track themes, gaps and performance", icon: Activity },
-  { id: "settings", label: "Settings", detail: "Account connections and workspace preferences", icon: Settings },
   { id: "logs", label: "Logs", detail: "Inspect provider jobs and errors", icon: Bug },
 ] as const;
 
@@ -175,22 +174,22 @@ export default function GlobalHeader({
     event?.preventDefault();
     onNormalNavigate(page);
     setOpenPanel(null);
-    setSuppressedPanel("normal");
+    setSuppressedPanel(openPanel === "account" ? "account" : "normal");
   };
   const panelGroupProps = (panel: "normal" | "drama" | "credits" | "account") => ({
     "data-header-panel": panel,
     onFocusCapture: () => { if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current); },
     onPointerEnter: (event: React.PointerEvent<HTMLDivElement>) => {
       if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current);
-      if (event.pointerType === "mouse" && panel !== "account") {
+      if (event.pointerType === "mouse") {
         setSuppressedPanel(null);
         setOpenPanel(panel);
       }
     },
     onPointerLeave: (event: React.PointerEvent<HTMLDivElement>) => {
       if (suppressedPanel === panel) setSuppressedPanel(null);
-      if (event.pointerType === "mouse" && panel !== "account") {
-        if (panel === "credits" && event.currentTarget.contains(document.activeElement)) return;
+      if (event.pointerType === "mouse") {
+        if ((panel === "credits" || panel === "account") && event.currentTarget.contains(document.activeElement)) return;
         hoverCloseTimer.current = setTimeout(() => setOpenPanel(current => current === panel ? null : current), 220);
       }
     },
@@ -240,14 +239,14 @@ export default function GlobalHeader({
           <div {...panelGroupProps("normal")} className={`global-nav-group ${openPanel === "normal" ? "open" : ""} ${suppressedPanel === "normal" ? "suppress-hover" : ""}`}>
             <div className={`global-nav-trigger ${activeMode === "normal" ? "active" : ""}`}>
               <Link href={destination("/?view=persona")} onClick={(event) => openNormal("persona", event)}>
-                <Wand2 size={15} /> Normal Content
+                <Wand2 size={15} /> Content Creator
               </Link>
-              <button type="button" aria-label="Show Normal Content pages" aria-expanded={openPanel === "normal"} onClick={() => setOpenPanel(openPanel === "normal" ? null : "normal")}>
+              <button type="button" aria-label="Show Content Creator pages" aria-expanded={openPanel === "normal"} onClick={() => setOpenPanel(openPanel === "normal" ? null : "normal")}>
                 <ChevronDown size={13} />
               </button>
             </div>
             <div className="global-nav-menu normal-menu" role="menu">
-              <div className="global-menu-heading"><span>Normal Content</span><small>Content workflow and operations</small></div>
+              <div className="global-menu-heading"><span>Content Creator</span><small>Content workflow and operations</small></div>
               <div className="global-menu-grid">
                 {normalPages.map(({ id, label, detail, icon: Icon }) => (
                   <Link key={id} href={destination(`/?view=${id}`)} className={`global-menu-item ${activeMode === "normal" && activePage === id ? "active" : ""}`} onClick={(event) => openNormal(id, event)} role="menuitem">
@@ -314,14 +313,14 @@ export default function GlobalHeader({
           </div>
 
           <div {...panelGroupProps("account")} className={`global-action-group ${openPanel === "account" ? "open" : ""} ${suppressedPanel === "account" ? "suppress-hover" : ""}`}>
-            <button type="button" className="global-account-trigger" aria-label="Open account menu" aria-expanded={openPanel === "account"} onClick={() => setOpenPanel(openPanel === "account" ? null : "account")}>
+            <button type="button" className="global-account-trigger" aria-label="Open account menu" aria-expanded={openPanel === "account"} onClick={() => { if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current); setOpenPanel(openPanel === "account" ? null : "account"); }}>
               <span className="global-account-avatar">{initials || "CA"}</span>
               <span className="global-action-label"><b>{account?.name || "Account"}</b><small>{account?.role || "Workspace user"}</small></span>
               <ChevronDown size={12} />
             </button>
             <div className="global-popover account-popover">
               <div className="account-summary"><span className="global-account-avatar large">{initials || "CA"}</span><span><b>{account?.name || "Content Agent user"}</b><small>{account?.email || "Signed-in account"}</small></span></div>
-              <Link href={destination("/?view=persona")} onClick={(event) => openNormal("persona", event)}><UserRound size={14} /> Persona</Link>
+              <Link href={destination("/?view=account")} onClick={(event) => openNormal("account", event)}><UserRound size={14} /> Account</Link>
               <Link href={destination("/?view=settings")} onClick={(event) => openNormal("settings", event)}><Settings size={14} /> Settings</Link>
               <button type="button" onClick={() => void logout()}><LogOut size={14} /> Log out</button>
             </div>

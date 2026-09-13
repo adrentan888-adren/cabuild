@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./workspace-theme.css";
+import "./content-creator.css";
 
 export const metadata: Metadata = {
   title: "ContentAgent Social",

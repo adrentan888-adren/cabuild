@@ -1,16 +1,16 @@
 # Website capabilities
 
-Updated: 2026-09-05. This guide describes the routes and controls implemented in this repository. Provider-backed features require an authenticated account, a configured provider, and sufficient balance. A visible control does not imply a successful live provider test.
+Updated: 2026-09-13. This guide describes the routes and controls implemented in this repository. Provider-backed features require an authenticated account, a configured provider, and sufficient balance. A visible control does not imply a successful live provider test.
 
 ## Getting around
 
-The Content Agent logo returns Home. The header keeps Home on the left and Normal Content, Drama Studio, credits and account controls on the right. Hover over either workspace to see its page links, or hover over Credits for balances. Tap/click toggles and keyboard access remain available. Create Content and My Contents are available inside the Normal Content menu, without duplicate top-level buttons. Section links remain visible inside each workspace; Settings is available in Normal Content and the account menu. Pages share a centered 1080px content canvas with responsive gutters; phone navigation wraps into two columns.
+The Content Agent logo returns Home. The header keeps Home on the left and Content Creator, Drama Studio, credits and account controls on the right. Hover over either workspace to see its page links, or hover over Credits for balances. Tap/click toggles and keyboard access remain available. Create Content and My Contents are available inside the Content Creator menu, without duplicate top-level buttons. Section links remain visible inside each workspace; Logs appears below the workflow tabs as a separate button, matching Drama Asset Library. Settings is available only through the account menu, which opens on hover, tap/click or keyboard and contains Account, Settings and Log out. Pages share a centered 1080px content canvas with responsive gutters; phone navigation wraps into two columns.
 
 ## Page and feature directory
 
 | Page | Address | What you can do |
 | --- | --- | --- |
-| Home | `/` | Explore a visual welcome page explaining Normal Content and Drama Studio, follow the flexible research/create/review/automation pipeline, and preview the latest completed workspace outputs. Empty workspaces show clearly labeled illustrated examples. |
+| Home | `/` | Explore a visual welcome page explaining Content Creator and Drama Studio, follow the flexible research/create/review/automation pipeline, and preview the latest completed workspace outputs. Empty workspaces show clearly labeled illustrated examples. |
 | Persona | `/?view=persona` | Create or update the single active persona; describe voice, audience, topics and positioning; autofill from public profiles; upload or record reference audio; maintain logo, avatar and product images. |
 | Research | `/?view=research` | Search by source URL or keyword; choose the source/platform and content filters; set minimum views; inspect saved scan history; sort results by views, likes or date; open original posts; create from an exact result in the inline editor. Scans run in the background and expose progress/errors. |
 | Create Content | `/?view=create` | Generate video, image or text; edit prompt, caption and hashtags; choose a supported model, format and duration; select Persona references or upload one-off media; use AI assistance where offered. Generation hands off to My Contents. |
@@ -19,6 +19,7 @@ The Content Agent logo returns Home. The header keeps Home on the left and Norma
 | Social Audit | `/?view=audit` | Connect social accounts, audit connected profiles, review performance signals, trends, content pillars, top posts and diagnostic recommendations. Auditing can invoke an external research provider. |
 | Analyze | `/?view=analyse` | View published-post count and average opportunity gap score. The engagement forecast is explicitly labeled as an example; it is a fixed demonstration value, not a measured forecast. |
 | Logs | `/?view=logs` | Inspect and filter operational/provider activity, job status and error details for diagnosis. |
+| Account | `/?view=account` | View your authenticated name, email, role, workspace and plan. |
 | Settings | `/?view=settings` | Edit workspace name and brand/niche context; obtain a social-account connection link; open permitted admin controls. Account connection requires the external provider's authorization page. |
 | Creative Brief | `/drama-studio?step=1` | Describe a story and production format, audience, language, pacing, tone and rating; optionally generate a creative seed or finished brief; save and review library records. Open Generate & Edit directly at any point. |
 | Story Studio | `/drama-studio?step=2` | Supply your own brief or reuse saved work; generate and edit the season story, episode outlines, recurring characters, asset descriptions and scene prompts; reuse library images and generate selected assets. |

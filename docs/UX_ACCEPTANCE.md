@@ -67,3 +67,11 @@ Independent UAT: **Pass** on the final production build. The reviewer checked 10
 - tools/uat/drama-stage-api.cjs executes the actual TypeScript stage handler with mocked session/key/provider boundaries: successful brief, complete nested provider error, non-JSON failure, malformed output,210s deadline/504 with no retry, store failure503, anonymous/missing-key401 and invalid-body400 all pass.
 - tools/uat/drama-proxy.cjs launches the built frontend with APP_SURFACE=frontend and a local API fixture. Its real middleware rewrite returns a valid brief after32,028ms (one upstream request), beyond the former30-second cutoff. A separate diagnostic agent reproduced the original error at30,068ms and confirmed the240-second configuration succeeds.
 - These tests create no paid jobs. No live provider success is claimed; the precise duration of the user's production request could not be read because local Cloud logging credentials/tooling were unavailable.
+
+## Content Creator redesign - 2026-09-13
+
+- All eight content pages share Drama introduction styling, card surfaces, purple hierarchy, responsive controls and the same centered canvas. Home and shared header use Content Creator. Existing routes remain valid.
+- Seven workflow links; Settings and Logs are absent from tabs. Logs uses the same standalone button styling as Asset Library, indicates its active page and supports Back.
+- Account hover menu contains Account, Settings and Log out only. Hover corridor, keyboard activation, Escape/focus, touch and menu viewport bounds are exercised. Account and Settings remain independently accessible without workflow tabs.
+- Neutral credit amount/selection colors preserve existing balances, error handling and owner-scoped preference tests.
+- Local acceptance: lint/build, 108 page/tab/viewport cases and focused creator/header/Drama checks, at 1440/768/390/320 where applicable. Browser fixtures intercept provider/content writes; real generation quality is outside this UI check.

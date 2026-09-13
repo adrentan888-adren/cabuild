@@ -18,7 +18,7 @@ export function PageArtwork({ kind = "create" }: { kind?: PageArt }) {
   </div>;
 }
 
-export default function PageIntro({ title, description, eyebrow = "Normal Content", tone = "sage", art = "create", children }: {
+export default function PageIntro({ title, description, eyebrow = "Content Creator", tone = "lilac", art = "create", children }: {
   title: string; description: string; eyebrow?: string; tone?: "sage" | "lilac" | "slate"; art?: PageArt; children?: ReactNode;
 }) {
   return <section className={`page-intro theme-${tone}`} aria-label={`${title} introduction`}>

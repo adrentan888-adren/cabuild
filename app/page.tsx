@@ -312,7 +312,7 @@ export default function Home() {
 
   useEffect(() => {
     const requestedView = new URLSearchParams(window.location.search).get("view");
-    const normalViews = new Set(["audit", "persona", "research", "create", "publish", "automation", "analyse", "logs", "settings"]);
+    const normalViews = new Set(["audit", "persona", "research", "create", "publish", "automation", "analyse", "logs", "settings", "account"]);
     const syncView = () => {
       const view = new URLSearchParams(window.location.search).get("view");
       setScreen(view && normalViews.has(view) ? view : "home");
@@ -342,16 +342,6 @@ export default function Home() {
     }
   }
 
-  const metrics = useMemo(() => {
-    if (!data) return null;
-    return {
-      high: data.opportunities.filter((item) => item.gapScore >= 80 && item.status !== "dismissed").length,
-      research: data.researchScans.filter((item) => item.status === "running" || item.status === "done").length,
-      assets: data.assets.filter((item) => item.status === "ready").length,
-      scheduled: data.publishQueue.filter((item) => item.status === "scheduled").length
-    };
-  }, [data]);
-
   if (loading) return <div className="loading">Loading ContentAgent Social...</div>;
 
   if (!data) return <div className="loading">Redirecting to sign in...</div>;
@@ -362,30 +352,14 @@ export default function Home() {
       <main className="main">
         <header className="topbar">
           <GlobalHeader
-            activeMode={screen === "home" ? null : "normal"}
+            activeMode={screen === "home" || screen === "account" || screen === "settings" ? null : "normal"}
             activePage={screen}
             initialAccount={data.user}
             initialWorkspaceCredits={data.workspace.credits}
             onHomeNavigate={() => navigateScreen("home")}
             onNormalNavigate={navigateScreen}
           />
-          {screen !== "home" && (
-            <div className="page-context-bar">
-              <div className="page-context-inner">
-                <div className="page-context-title">
-                  <div className="topbar-title">{title(screen)}</div>
-                  <div className="topbar-breadcrumb">{data.workspace.niche}</div>
-                </div>
-                <div className="page-context-metrics" aria-label="Workspace status">
-                  <span><Sparkles size={13} /><b>{metrics?.high}</b><small>priority gaps</small></span>
-                  <span><Search size={13} /><b>{metrics?.research}</b><small>research</small></span>
-                  <span><Wand2 size={13} /><b>{metrics?.assets}</b><small>ready assets</small></span>
-                  <span><CalendarDays size={13} /><b>{metrics?.scheduled}</b><small>scheduled</small></span>
-                  <button className="icon-btn context-refresh" title="Refresh page data" onClick={refresh}><RefreshCcw size={15} /></button>
-                </div>
-              </div>
-            </div>
-          )}
+
         </header>
 
         {screen === "home" ? (
@@ -394,7 +368,7 @@ export default function Home() {
           </section>
         ) : (
           <div className="workspace-content-frame normal-workspace-frame">
-            <WorkspaceRail mode="normal" activePage={screen} onNormalNavigate={navigateScreen} />
+            {screen !== "account" && screen !== "settings" && <WorkspaceRail mode="normal" activePage={screen} onNormalNavigate={navigateScreen} />}
             <section className="panel active">
               {screen === "research" && directCreateInitial && (
                 <ResearchInlineEditor key={directCreateInitial.sourceResultId || directCreateInitial.sourceTitle} initial={directCreateInitial} personaAssets={data.personaProfile.mediaAssets || []} run={run} onClose={() => setDirectCreateInitial(null)} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} />
@@ -409,6 +383,7 @@ export default function Home() {
               {screen === "automation" && <AutomationPanel data={data} run={run} />}
               {screen === "analyse" && <AnalyticsPanel data={data} />}
               {screen === "logs" && <LogPanel data={data} />}
+              {screen === "account" && <AccountPanel data={data} />}
               {screen === "settings" && <SettingsPanel data={data} run={run} integrations={integrations} />}
             </section>
             <span className="workspace-rail-balance" aria-hidden="true" />
@@ -420,9 +395,7 @@ export default function Home() {
   );
 }
 
-function title(screen: string) {
-  return ({ home: "Home", audit: "Social Audit", persona: "Persona", research: "Research", create: "Create Content", publish: "My Contents", drama: "Drama Studio", "asset-library": "Asset Library", automation: "Automation", analyse: "Analyze", logs: "Logs", admin: "Backend", settings: "Settings" } as Record<string, string>)[screen];
-}
+
 
 function AnimatedDots({ label }: { label: string }) {
   const [count, setCount] = useState(1);
@@ -2777,6 +2750,18 @@ function AdminPanel({ data, run, integrations }: { data: AppData; run: (a: strin
   );
 }
 
+function AccountPanel({ data }: { data: AppData }) {
+  return <div className="account-page"><PageIntro title="Account" eyebrow="Your workspace" description="Your signed-in identity and workspace membership." art="identity" />
+    <section className="card"><h2>Account details</h2><dl className="account-details">
+      <div><dt>Name</dt><dd>{data.user.name}</dd></div>
+      <div><dt>Email</dt><dd>{data.user.email}</dd></div>
+      <div><dt>Role</dt><dd>{data.user.role}</dd></div>
+      <div><dt>Workspace</dt><dd>{data.workspace.name}</dd></div>
+      <div><dt>Plan</dt><dd>{data.workspace.plan}</dd></div>
+    </dl></section>
+  </div>;
+}
+
 function SettingsPanel({ data, run, integrations }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; integrations: IntegrationData | null }) {
   const [connectUrl, setConnectUrl] = useState("");
   const [connectError, setConnectError] = useState("");
@@ -2794,7 +2779,7 @@ function SettingsPanel({ data, run, integrations }: { data: AppData; run: (a: st
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   }
   return (
-    <div className="settings-page"><PageIntro title="Settings" description="Keep your workspace context and account connections in one place." art="operations" /><div className="grid two">
+    <div className="settings-page"><PageIntro title="Settings" eyebrow="Account" description="Keep your workspace context and account connections in one place." art="operations" /><div className="grid two">
       <PanelCard title="Workspace context">
         <form className="brand-form" action={(form) => run("updateWorkspace", Object.fromEntries(form.entries()), "Workspace context saved")}>
           <label>Workspace name<input name="name" defaultValue={data.workspace.name} /></label>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useLayoutEffect, useRef } from "react";
-import { Box, Clapperboard, Wand2 } from "lucide-react";
+import { Box, Bug, Clapperboard, Wand2 } from "lucide-react";
 import { dramaPages, normalPages, type HeaderWorkspaceMode } from "@/components/global-header";
 import "./workspace-rail.css";
 
@@ -12,7 +12,7 @@ export default function WorkspaceRail({ mode, activePage, onNormalNavigate }: {
   onNormalNavigate?: (page: string) => void;
 }) {
   const isNormal = mode === "normal";
-  const pages = isNormal ? normalPages : dramaPages.filter(page => page.id !== "asset-library");
+  const pages = isNormal ? normalPages.filter(page => page.id !== "logs") : dramaPages.filter(page => page.id !== "asset-library");
   const ModeIcon = isNormal ? Wand2 : Clapperboard;
   const navRef = useRef<HTMLElement>(null);
   const indicatorRef = useRef<HTMLSpanElement>(null);
@@ -49,8 +49,8 @@ export default function WorkspaceRail({ mode, activePage, onNormalNavigate }: {
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, [activePage, mode]);
 
-  return <div className="workspace-navigation-group"><aside className={`workspace-navigation ${isNormal ? "normal-navigation" : "drama-navigation"}`} aria-label={`${isNormal ? "Normal Content" : "Drama Studio"} section navigation`}>
-    <div className="workspace-navigation-heading"><span className="workspace-rail-icon"><ModeIcon size={15} /></span><span className="workspace-navigation-label">{isNormal ? "Normal Content" : "Drama Studio"}</span></div>
+  return <div className="workspace-navigation-group"><aside className={`workspace-navigation ${isNormal ? "normal-navigation" : "drama-navigation"}`} aria-label={`${isNormal ? "Content Creator" : "Drama Studio"} section navigation`}>
+    <div className="workspace-navigation-heading"><span className="workspace-rail-icon"><ModeIcon size={15} /></span><span className="workspace-navigation-label">{isNormal ? "Content Creator" : "Drama Studio"}</span></div>
     <nav ref={navRef}>
       <span className="workspace-tab-indicator" ref={indicatorRef} hidden aria-hidden="true" />
       {pages.map(page => {
@@ -63,7 +63,11 @@ export default function WorkspaceRail({ mode, activePage, onNormalNavigate }: {
       })}
     </nav>
   </aside>
-    {!isNormal && <div className="workspace-library-tools">
+    {isNormal ? <div className="workspace-library-tools">
+      <Link href="/?view=logs" className={`workspace-library-button ${activePage === "logs" ? "active" : ""}`} aria-current={activePage === "logs" ? "page" : undefined} onClick={onNormalNavigate ? event => { event.preventDefault(); onNormalNavigate("logs"); } : undefined}>
+        <Bug size={17} /><span>Logs</span>
+      </Link>
+    </div> : <div className="workspace-library-tools">
       <Link href="/drama-studio/assets" className={`workspace-library-button ${activePage === "asset-library" ? "active" : ""}`} aria-current={activePage === "asset-library" ? "page" : undefined}>
         <Box size={17} /><span>Asset Library</span>
       </Link>

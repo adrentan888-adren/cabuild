@@ -280,43 +280,66 @@ Create a complete editable content plan. Return ONLY valid JSON with this exact 
 }`;
 }
 
+export class KieBriefError extends Error {
+  constructor(message: string, public readonly userMessage: string, public readonly retryable = false) {
+    super(message);
+    this.name = "KieBriefError";
+  }
+}
+
 export async function generateContentPlanWithGpt55(input: { idea: string; niche: string; requestedFormat?: string; requestedDuration?: number; requestedModel?: string; personaContext?: string }, prompt = buildAiBriefPrompt(input)) {
   const apiToken = await token();
-  if (!apiToken) throw new Error("KIE_API_TOKEN is not configured.");
-  const res = await fetch(`${baseUrl}/codex/v1/responses`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: "gpt-5-5",
-      stream: false,
-      input: [
-        {
-          role: "user",
-          content: [{ type: "input_text", text: prompt }]
-        }
-      ],
-      reasoning: { effort: "medium" }
-    })
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Kie GPT-5.5 failed with HTTP ${res.status}: ${text.slice(0, 180)}`);
-  const parsed = JSON.parse(text) as KieResponsesResponse;
-  if (parsed.error?.message) throw new Error(parsed.error.message);
-  const content = (parsed.output || [])
-    .flatMap((item) => item.content || [])
-    .map((item) => item.text || "")
-    .join("")
-    .trim();
-  const json = extractJson(content || text) as Record<string, unknown>;
-  const code = json.code || json.statusCode || json.status;
-  const message = String(json.msg || json.message || json.error || "");
-  if ((typeof code === "number" && code >= 400) || /server exception|failed|error/i.test(message)) {
-    throw new Error(message || `Kie GPT-5.5 returned ${code}`);
+  if (!apiToken) throw new KieBriefError("KIE_API_TOKEN is not configured.", "The brief service is not configured. Check the provider settings or write your brief manually.");
+  const unavailable = "Kie’s brief service is temporarily unavailable. Your idea is still here. Try again shortly, or write the brief manually.";
+  const invalid = "Kie returned an incomplete brief. Your idea is still here. Try again, or write the brief manually.";
+  // Only retry an explicit server rejection, never an ambiguous network timeout.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let text: string;
+    let res: Response;
+    try {
+      res = await fetch(baseUrl + "/codex/v1/responses", {
+        method: "POST",
+        signal: AbortSignal.timeout(90_000),
+        headers: { Authorization: "Bearer " + apiToken, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-5-5", stream: false,
+          input: [{ role: "user", content: [{ type: "input_text", text: prompt }] }],
+          reasoning: { effort: "medium" }
+        })
+      });
+      text = await res.text();
+    } catch (error) {
+      throw new KieBriefError("Kie GPT-5.5 connection failed: " + (error instanceof Error ? error.message : "Unknown network error"), "The connection to Kie was interrupted. Your idea is still here. Check Logs before trying again, or write the brief manually.");
+    }
+    const transient = [500, 502, 503, 504].includes(res.status);
+    if (!res.ok) {
+      if (transient && attempt === 0) {
+        const retryAfter = Number(res.headers.get("retry-after"));
+        await new Promise(resolve => setTimeout(resolve, Math.min(5000, Math.max(1000, Number.isFinite(retryAfter) ? retryAfter * 1000 : 1000))));
+        continue;
+      }
+      throw new KieBriefError("Kie GPT-5.5 failed with HTTP " + res.status + ": " + text.slice(0, 180),
+        transient ? unavailable : res.status === 401 || res.status === 403 ? "Kie could not authorize the brief request. Check the provider key in Settings, or write your brief manually." : res.status === 429 ? "Kie’s brief service is busy or its quota has been reached. Try again later, or check the provider account." : "Kie could not generate this brief. Your idea is still here. Check Logs for details, or write the brief manually.", transient || res.status === 429);
+    }
+    let parsed: KieResponsesResponse;
+    try { parsed = JSON.parse(text) as KieResponsesResponse; }
+    catch { throw new KieBriefError("Kie GPT-5.5 returned invalid response JSON.", invalid, true); }
+    if (!parsed || parsed.error || (parsed.status && parsed.status !== "completed")) {
+      throw new KieBriefError("Kie GPT-5.5 did not complete: " + (parsed?.error?.message || parsed?.status || "Empty response"), invalid, true);
+    }
+    const content = (Array.isArray(parsed.output) ? parsed.output : [])
+      .flatMap(item => Array.isArray(item.content) ? item.content : [])
+      .filter(item => item.type === "output_text" && typeof item.text === "string")
+      .map(item => item.text).join("").trim();
+    let plan: Record<string, unknown>;
+    try { plan = extractJson(content) as Record<string, unknown>; }
+    catch { throw new KieBriefError("Kie GPT-5.5 returned no valid brief JSON.", invalid, true); }
+    if (!plan || Array.isArray(plan) || typeof plan.topic !== "string" || !plan.topic.trim() || typeof plan.videoPrompt !== "string" || !plan.videoPrompt.trim()) {
+      throw new KieBriefError("Kie GPT-5.5 brief is missing a topic or creation prompt.", invalid, true);
+    }
+    return plan;
   }
-  return json;
+  throw new KieBriefError("Kie GPT-5.5 retries exhausted.", unavailable, true);
 }
 
 const fallbackVideoPromptRefineTemplate = `You are ContentAgent's senior video prompt engineer.

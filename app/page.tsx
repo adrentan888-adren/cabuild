@@ -9,6 +9,8 @@ import {
   Activity,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
+  ArrowDown,
   BarChart3,
   Bug,
   CalendarDays,
@@ -31,6 +33,7 @@ import {
   Wand2
 } from "lucide-react";
 import PageIntro from "@/components/page-intro";
+import ContentDialog from "@/components/content-dialog";
 import GlobalHeader from "@/components/global-header";
 import WelcomeHome from "@/components/welcome-home";
 import WorkspaceRail from "@/components/workspace-rail";
@@ -642,14 +645,18 @@ function PersonaMediaLibrary({ assets, onChange }: { assets: PersonaMediaAsset[]
   );
 }
 
-function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
+function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any> }) {
   const [showAutofill, setShowAutofill] = useState(false);
   const [autoFilling, setAutoFilling] = useState(false);
+  const [autofillError, setAutofillError] = useState("");
+  const autofillBusy = useRef(false);
   const persona = data.personaProfile;
+  const storedMediaAssets = JSON.stringify(persona.mediaAssets || []);
   const [mediaAssets, setMediaAssets] = useState<PersonaMediaAsset[]>(persona.mediaAssets || []);
   useEffect(() => {
-    setMediaAssets(persona.mediaAssets || []);
-  }, [persona.updatedAt, persona.mediaAssets]);
+    // A failed action refreshes app data; an identical response must keep local edits.
+    setMediaAssets(JSON.parse(storedMediaAssets) as PersonaMediaAsset[]);
+  }, [persona.updatedAt, storedMediaAssets]);
   const completionChecks = [
     persona.displayName,
     persona.role,
@@ -664,11 +671,21 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
     form.set("mediaAssets", JSON.stringify(mediaAssets));
     await run("updatePersonaProfile", Object.fromEntries(form.entries()), "Persona saved");
   };
-  const autoFill = async (form?: HTMLFormElement | null) => {
-    if (!form || autoFilling) return;
+  const autoFill = async (form: HTMLFormElement) => {
+    if (autofillBusy.current) return;
+    const values = Object.fromEntries(new FormData(form).entries());
+    if (!Object.values(values).some(value => String(value).trim())) {
+      setAutofillError("Add at least one public profile or website URL.");
+      return;
+    }
+    autofillBusy.current = true;
     setAutoFilling(true);
-    await run("autoFillPersonaProfile", Object.fromEntries(new FormData(form).entries()), "Persona auto-filled from public profiles");
-    setAutoFilling(false);
+    setAutofillError("");
+    try {
+      const result = await run("autoFillPersonaProfile", values, "Persona auto-filled from public profiles");
+      if (result) setShowAutofill(false);
+      else setAutofillError("We couldn’t auto-fill your profile. Your URLs are still here; please try again.");
+    } finally { autofillBusy.current = false; setAutoFilling(false); }
   };
   return (
     <div className="persona-page">
@@ -686,42 +703,32 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
         <Metric label="Sources" value={Object.values(persona.sourceUrls).filter(Boolean).length} />
       </section>
 
-      <form action={save} className="persona-setup">
+      {showAutofill && <ContentDialog title="Auto-fill persona" description="Use your public profiles to build your persona. Review the results before creating content." busy={autoFilling} onClose={() => setShowAutofill(false)}>
+        <form onSubmit={event => { event.preventDefault(); void autoFill(event.currentTarget); }} className="persona-autofill-form">
+          <p className="autofill-notice">Auto-fill replaces your current persona, including unsaved profile edits.</p>
+          <fieldset disabled={autoFilling} className="grid two">
+            <label>LinkedIn<input name="linkedinUrl" defaultValue={persona.sourceUrls.linkedin} placeholder="linkedin.com/in/yourname" /></label>
+            <label>Facebook<input name="facebookUrl" defaultValue={persona.sourceUrls.facebook || ""} placeholder="facebook.com/yourprofile" /></label>
+            <label>Website<input name="websiteUrl" defaultValue={persona.sourceUrls.website} placeholder="yourcompany.com" /></label>
+            <label>Instagram<input name="instagramUrl" defaultValue={persona.sourceUrls.instagram} placeholder="instagram.com/yourhandle" /></label>
+            <label>X / Twitter<input name="xUrl" defaultValue={persona.sourceUrls.x} placeholder="x.com/yourhandle" /></label>
+          </fieldset>
+          {autofillError && <p role="alert" className="provider-error">{autofillError}</p>}
+          <div className="dialog-actions"><button type="button" disabled={autoFilling} onClick={() => setShowAutofill(false)}>Cancel</button><button type="submit" className="primary" disabled={autoFilling}>{autoFilling ? <AnimatedDots label="Auto-filling persona" /> : "Auto-fill persona"}</button></div>
+        </form>
+      </ContentDialog>}
+      <form key={persona.updatedAt || "unsaved"} action={save} className="persona-setup">
         <div className="persona-step-head">
           <h3>Persona setup</h3>
           <span className="badge">Prompt voice source</span>
         </div>
 
-        {showAutofill && (
-          <section className="persona-card">
-            <div className="persona-card-head">
-              <div>
-                <div className="clbl">Auto-fill sources</div>
-                <h3>Online presence URLs</h3>
-              </div>
-              <button type="button" onClick={() => setShowAutofill(false)}>Close</button>
-            </div>
-            <p className="muted">Apify crawls public snippets from these URLs, then GPT-5.5 in Kie maps the findings into the core persona fields.</p>
-            <div className="grid two">
-              <label>LinkedIn<input name="linkedinUrl" defaultValue={persona.sourceUrls.linkedin} placeholder="linkedin.com/in/yourname" /></label>
-              <label>Facebook<input name="facebookUrl" defaultValue={persona.sourceUrls.facebook || ""} placeholder="facebook.com/yourprofile" /></label>
-              <label>Website<input name="websiteUrl" defaultValue={persona.sourceUrls.website} placeholder="yourcompany.com" /></label>
-              <label>Instagram<input name="instagramUrl" defaultValue={persona.sourceUrls.instagram} placeholder="instagram.com/yourhandle" /></label>
-              <label>X / Twitter<input name="xUrl" defaultValue={persona.sourceUrls.x} placeholder="x.com/yourhandle" /></label>
-            </div>
-            <div className="autofill-actions">
-              <button type="button" className="primary" onClick={(event) => autoFill(event.currentTarget.form)} disabled={autoFilling}>{autoFilling ? <AnimatedDots label="Auto-filling persona" /> : "Auto-fill persona"}</button>
-              <span>Uses only public crawl results. Review and edit the saved persona after auto-fill.</span>
-            </div>
-          </section>
-        )}
-
         <section className="persona-card">
           <div className="persona-fields">
-            <div className="autofill-banner"><span className="dot" /><span>Use the few fields below as the default prompt persona. Public URLs can auto-fill them when needed.</span><button type="button" onClick={() => setShowAutofill(true)}>Auto-fill</button></div>
+            <div className="autofill-banner"><span className="dot" /><span>Use the few fields below as the default prompt persona. Public URLs can auto-fill them when needed.</span><button id="persona-autofill-trigger" type="button" onClick={() => { setAutofillError(""); setShowAutofill(true); }}>Auto-fill</button></div>
 
             <div className="persona-advanced">
-              <div className="clbl">Core profile</div>
+              <h2 className="persona-section-title">Core profile</h2><p className="persona-section-description">Introduce yourself and the business behind your content.</p>
               <div className="grid two">
                 <label>Display name<input name="displayName" defaultValue={persona.displayName} placeholder="Sean C" /></label>
                 <label>Role<input name="role" defaultValue={persona.role} placeholder="Founder / CEO" /></label>
@@ -731,7 +738,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
             </div>
 
             <div className="persona-advanced">
-              <div className="clbl">Audience and voice</div>
+              <h2 className="persona-section-title">Audience and voice</h2><p className="persona-section-description">Define who you speak to and how your content should sound.</p>
               <label>Primary audience<input name="primaryAudience" defaultValue={persona.primaryAudience} placeholder="SME owners and operators in SEA" /></label>
               <label>Audience insight<textarea name="audienceInsight" defaultValue={persona.audienceInsight} placeholder="They want automation wins, but worry about cost, complexity, and disruption." /></label>
               <div className="grid two">
@@ -742,7 +749,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
             </div>
 
             <div className="persona-advanced">
-              <div className="clbl">Reusable media references</div>
+              <h2 className="persona-section-title">Reusable media references</h2><p className="persona-section-description">Keep your brand and personal references ready for your next creation.</p>
               <p className="muted">These saved assets can be selected later in Create Content and Automation. Product photos can have multiple entries; logo, avatar, and audio keep one default each.</p>
               <PersonaMediaLibrary assets={mediaAssets} onChange={setMediaAssets} />
             </div>
@@ -775,9 +782,11 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
   const [searchMode, setSearchMode] = useState<"url" | "keywords">("url");
   const [sortBy, setSortBy] = useState<"views" | "likes" | "date">("views");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [sortOpen, setSortOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [activeScanId, setActiveScanId] = useState<string | null>(data.researchScans[0]?.id || null);
+  const [researchView, setResearchView] = useState<"history" | "search" | "results">("history");
+  const [resultFilters, setResultFilters] = useState({ minViews: "", maxViews: "", minLikes: "", maxLikes: "" });
+  const [searchUrl, setSearchUrl] = useState("");
+  const [searchMinViews, setSearchMinViews] = useState("0");
+  const [activeScanId, setActiveScanId] = useState<string | null>(null);
   const [keywordText, setKeywordText] = useState("");
   const [actorSource, setActorSource] = useState("instagram");
   const [contentType, setContentType] = useState("");
@@ -787,7 +796,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
   const [scanElapsed, setScanElapsed] = useState(0);
   const [sourcePreview, setSourcePreview] = useState<SourceMediaPreview | null>(null);
-  const activeScan = data.researchScans.find((scan) => scan.id === activeScanId) || data.researchScans[0];
+  const activeScan = data.researchScans.find((scan) => scan.id === activeScanId);
   const availableContentTypes = useMemo(
     () => [
       researchContentTypes[0],
@@ -798,9 +807,14 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
   const activeScanStatus = scanStatus || pendingScan || (activeScan?.status === "running" ? (activeScan.query ? "keywords" : "url") : null);
   const visibleResults = activeScan
     ? data.competitorResults.filter((item) => activeScan.resultIds.includes(item.id))
-    : data.competitorResults;
-  const activeScanResultCount = activeScan ? visibleResults.length : 0;
-  const sortedResults = [...visibleResults].sort((a, b) => {
+    : [];
+  const filteredResults = visibleResults.filter(item =>
+    (resultFilters.minViews === "" || item.views >= Number(resultFilters.minViews)) &&
+    (resultFilters.maxViews === "" || item.views <= Number(resultFilters.maxViews)) &&
+    (resultFilters.minLikes === "" || item.likes >= Number(resultFilters.minLikes)) &&
+    (resultFilters.maxLikes === "" || item.likes <= Number(resultFilters.maxLikes))
+  );
+  const sortedResults = [...filteredResults].sort((a, b) => {
     const direction = sortDir === "desc" ? 1 : -1;
     if (sortBy === "likes") return (b.likes - a.likes) * direction;
     if (sortBy === "date") return (new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()) * direction;
@@ -836,13 +850,23 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
       window.clearInterval(timer);
     };
   }, [activeScan?.id, activeScan?.status, refresh]);
-  const chooseSort = (next: "views" | "likes" | "date") => {
-    if (next === sortBy) setSortDir((dir) => (dir === "desc" ? "asc" : "desc"));
-    else {
-      setSortBy(next);
-      setSortDir("desc");
-    }
-    setSortOpen(false);
+  const openScan = (id: string) => {
+    setActiveScanId(id);
+    setResultFilters({ minViews: "", maxViews: "", minLikes: "", maxLikes: "" });
+    setResearchView("results");
+  };
+  const newSearch = () => {
+    setActiveScanId(null); setSearchUrl(""); setKeywordText(""); setSearchMinViews("0");
+    setActorSource("instagram"); setContentType(""); setUploadDate(""); setResearchView("search");
+  };
+  const editSearch = () => {
+    if (!activeScan) return;
+    setSearchMode(activeScan.query || activeScan.url.startsWith("keyword:") ? "keywords" : "url");
+    setKeywordText(scanLabel(activeScan)); setSearchUrl(activeScan.query ? "" : activeScan.url);
+    setSearchMinViews(String(activeScan.minViews));
+    setActorSource(activeScan.dimensions?.actorSources?.[0] || "instagram");
+    setContentType(activeScan.dimensions?.contentType || activeScan.dimensions?.contentTypes?.[0] || "");
+    setUploadDate(activeScan.dimensions?.uploadDate || ""); setActiveScanId(null); setResearchView("search");
   };
   const scanUrl = async (form: FormData) => {
     flushSync(() => {
@@ -852,7 +876,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
     });
     try {
       const result = await run("scanResearchUrl", Object.fromEntries(form.entries()), "Research scan started. You can leave and come back later.");
-      if (result?.id) setActiveScanId(result.id);
+      if (result?.id) openScan(result.id);
     } finally {
       setScanStatus(null);
       setPendingScan(null);
@@ -871,7 +895,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
         minViews: Number(form.get("minViews") || 0),
         dimensions: { actorSources: [actorSource], contentType, contentTypes: contentType ? [contentType] : [], uploadDate }
       }, "Keyword research complete");
-      if (result?.id) setActiveScanId(result.id);
+      if (result?.id) openScan(result.id);
     } finally {
       setScanStatus(null);
       setPendingScan(null);
@@ -898,39 +922,47 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
   return (
     <div className="research-page">
       {sourcePreview && <SourceMediaPreviewPanel source={sourcePreview} onClose={() => setSourcePreview(null)} />}
-      <PageIntro title="Research" description="Discover source ideas by URL or keyword, then make the strongest ones your own." art="research"><div className="history-wrap">
-          <button onClick={() => setHistoryOpen((open) => !open)}>History</button>
-          {historyOpen && (
-            <div className="history-menu">
-              {data.researchScans.slice(0, 10).map((scanItem) => (
-                <button key={scanItem.id} onClick={() => { setActiveScanId(scanItem.id); setHistoryOpen(false); }}>
-                  <b>{scanItem.query ? "Keyword search" : scanItem.platform}</b>
-                  <span>{scanLabel(scanItem)}</span>
-                  <small>{scanItem.status === "running" ? "Scanning in background" : new Date(scanItem.createdAt).toLocaleString()} ﾂｷ min {compact(scanItem.minViews)}</small>
-                </button>
-              ))}
-              {data.researchScans.length === 0 && <div className="history-empty">No previous scans</div>}
-            </div>
-          )}
+      <PageIntro title="Research" description="Revisit your saved searches or discover the next idea for your content." art="research">
+        <div className="research-navigation">
+          {researchView !== "history" && <button onClick={() => { setActiveScanId(null); setResearchView("history"); }}><ArrowLeft size={16} />Search history</button>}
+          <button className="primary" onClick={newSearch} disabled={!!pendingScan}><Plus size={16} />New search</button>
         </div>
       </PageIntro>
+      {researchView === "history" && <section className="research-card research-history">
+        <div className="research-head"><div><h2>Search history</h2><p>Open a search to see its original query, filters and saved results.</p></div><button onClick={() => void refresh()}><RefreshCcw size={16} />Refresh history</button></div>
+        <div className="research-history-list">
+          {[...data.researchScans].sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(scan => <button key={scan.id} className="research-history-entry" onClick={() => openScan(scan.id)}>
+            <span className="history-entry-icon"><Search size={20} /></span>
+            <span className="history-entry-main"><b>{scanLabel(scan)}</b><span>{scan.query || scan.url.startsWith("keyword:") ? "Keyword search" : "URL search"} · {scan.dimensions?.actorSources?.join(", ") || scan.platform} · {new Date(scan.createdAt).toLocaleString()}</span><small>{scan.resultIds.length} saved results · Minimum {compact(scan.minViews)} views</small></span>
+            <span className={"history-entry-status " + (scan.status || "done")}>{scan.status === "running" ? "Searching" : scan.status === "failed" ? "Failed" : "Completed"}</span><ArrowRight size={18} />
+          </button>)}
+          {!data.researchScans.length && <div className="empty-state"><h3>Your research starts here</h3><p>Search by URL or keywords. Your searches and results will appear here.</p><button className="primary" onClick={newSearch}>Start a search</button></div>}
+        </div>
+      </section>}
+      {researchView === "results" && activeScan && <section className="research-card saved-search-summary">
+        <div className="research-head"><div><span className="clbl">{activeScan.query ? "Keyword search" : "URL search"}</span><h2>{scanLabel(activeScan)}</h2><p>{new Date(activeScan.createdAt).toLocaleString()} · {activeScan.dimensions?.actorSources?.join(", ") || activeScan.platform}</p></div><button onClick={editSearch} disabled={activeScan.status === "running"}>Edit search</button></div>
+        <div className="saved-search-filters"><span>Minimum views: {compact(activeScan.minViews)}</span><span>Type: {activeScan.dimensions?.contentType || activeScan.dimensions?.contentTypes?.join(", ") || "All types"}</span><span>Upload date: {activeScan.dimensions?.uploadDate?.replaceAll("-", " ") || "Any time"}</span></div>
+        {activeScan.status === "failed" && <p className="provider-error" role="alert">Search failed: {activeScan.error || "The provider could not complete this search. Edit the search to try again."}</p>}
+        {activeScan.status !== "failed" && activeScan.error && <p className="provider-error">{activeScan.error}</p>}
+        {activeScan.source === "fallback" && <p className="muted">Fallback results</p>}
+      </section>}
+      {researchView === "results" && <div className="research-kpis">
 
-      <div className="research-kpis">
         <Metric label="Tracked sources" value={data.competitors.length} />
         <Metric label="Qualified results" value={sortedResults.length} />
         <Metric label="Total views" value={compact(totalViews)} />
         <Metric label="Top post" value={topResult ? compact(topResult.views) : "-"} />
-      </div>
+      </div>}
 
-      <section className={`research-card ${activeScanStatus ? "loading" : ""}`}>
+      {researchView === "search" && <section className={`research-card ${activeScanStatus ? "loading" : ""}`}>
         <div className="research-mode">
           <button className={searchMode === "url" ? "on" : ""} onClick={() => setSearchMode("url")}><Radar size={14} />Search by URL</button>
           <button className={searchMode === "keywords" ? "on" : ""} onClick={() => setSearchMode("keywords")}><Search size={14} />Search by keywords</button>
         </div>
         {searchMode === "url" ? (
           <form onSubmit={(event) => { event.preventDefault(); if (!activeScanStatus) void scanUrl(new FormData(event.currentTarget)); }} className="research-form">
-            <label>Social URL<input name="url" type="url" placeholder="LinkedIn profile/page, TikTok, Instagram, YouTube, Facebook, or X URL" required /></label>
-            <label>Minimum views<input name="minViews" type="number" min="0" step="1" defaultValue="0" /></label>
+            <label>Social URL<input name="url" value={searchUrl} onChange={event => setSearchUrl(event.target.value)} type="url" placeholder="LinkedIn profile/page, TikTok, Instagram, YouTube, Facebook, or X URL" required /></label>
+            <label>Minimum views<input name="minViews" type="number" min="0" step="1" value={searchMinViews} onChange={event => setSearchMinViews(event.target.value)} /></label>
             <button
               type="button"
               className="primary"
@@ -950,7 +982,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
           <form onSubmit={(event) => { event.preventDefault(); if (!activeScanStatus) void scanKeywords(new FormData(event.currentTarget)); }} className="keyword-form">
             <div className="keyword-input-row">
               <label>Keywords<input name="keywords" value={keywordText} onChange={(event) => setKeywordText(event.target.value)} placeholder="Enter keywords, e.g. sheila majid" required /></label>
-              <label>Minimum views<input name="minViews" type="number" min="0" step="1" defaultValue="0" /></label>
+              <label>Minimum views<input name="minViews" type="number" min="0" step="1" value={searchMinViews} onChange={event => setSearchMinViews(event.target.value)} /></label>
               <button
                 type="button"
                 className="primary"
@@ -985,33 +1017,22 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
           </form>
         )}
         {activeScanStatus && <div className="scan-progress"><span />{activeScanStatus === "keywords" ? "Searching Apify in the background. You can leave this page and come back later." : "Scanning only the submitted URL/profile with Apify in the background. You can leave this page and come back later."}<b>{scanElapsed}s</b></div>}
-        {!activeScanStatus && activeScan && activeScan.status !== "failed" && (
-          <div className={`scan-outcome ${activeScan.source}`}>
-            {activeScan.source === "apify" ? "Apify search completed" : "Fallback results shown"}
-            <b>{activeScanResultCount}</b>
-            <span>qualified results</span>
-          </div>
-        )}
-        {activeScan?.status === "failed" && <p className="provider-error">Apify scan failed: {activeScan.error}</p>}
-        {activeScan?.status !== "failed" && activeScan?.error && <p className="provider-error">Apify fallback used: {activeScan.error}</p>}
-      </section>
+      </section>}
 
-      <section className={`research-card results-card ${activeScanStatus ? "loading" : ""}`} aria-busy={activeScanStatus ? "true" : "false"}>
+      {researchView === "results" && <section className={`research-card results-card ${activeScanStatus ? "loading" : ""}`} aria-busy={activeScanStatus ? "true" : "false"}>
         <div className="research-head">
           <div>
             <h3>Qualified competitor results</h3>
-            <p>Only posts above the selected minimum views are shown.</p>
+            <p aria-live="polite">{sortedResults.length} of {visibleResults.length} saved results · Filters update instantly.</p>
           </div>
-          <div className="sort-dropdown">
-            <button onClick={() => setSortOpen((open) => !open)}>Sort: {sortBy === "date" ? "Date" : sortBy[0].toUpperCase() + sortBy.slice(1)} {sortDir}</button>
-            {sortOpen && (
-              <div className="sort-menu">
-                <button onClick={() => chooseSort("views")}>Views {sortBy === "views" ? sortDir : ""}</button>
-                <button onClick={() => chooseSort("likes")}>Likes {sortBy === "likes" ? sortDir : ""}</button>
-                <button onClick={() => chooseSort("date")}>Date {sortBy === "date" ? sortDir : ""}</button>
-              </div>
-            )}
+          <div className="research-sort">
+            <label>Sort by<select aria-label="Sort by" value={sortBy} onChange={event => setSortBy(event.target.value as "views" | "likes" | "date")}><option value="views">Views</option><option value="likes">Likes</option><option value="date">Date</option></select></label>
+            <button className="sort-direction" aria-label={sortDir === "desc" ? "Descending order. Switch to ascending" : "Ascending order. Switch to descending"} title={sortDir === "desc" ? "Highest first" : "Lowest first"} onClick={() => setSortDir(dir => dir === "desc" ? "asc" : "desc")}>{sortDir === "desc" ? <ArrowDown size={20} /> : <ArrowUp size={20} />}</button>
           </div>
+        </div>
+        <div className="result-filters" aria-label="Filter saved results">
+          {([["minViews", "Minimum view count"], ["maxViews", "Maximum view count"], ["minLikes", "Minimum like count"], ["maxLikes", "Maximum like count"]] as const).map(([key,label]) => <label key={key}>{label}<input type="number" min="0" step="1" placeholder={key.startsWith("min") ? "0" : "No limit"} value={resultFilters[key]} onChange={event => setResultFilters(previous => ({...previous, [key]: event.target.value}))} /></label>)}
+          <button disabled={!Object.values(resultFilters).some(Boolean)} onClick={() => setResultFilters({minViews: "", maxViews: "", minLikes: "", maxLikes: ""})}>Clear filters</button>
         </div>
         <div className="result-list">
           {activeScanStatus && (
@@ -1025,10 +1046,10 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
           {sortedResults.map((item, index) => (
             <article className="result-row" key={item.id}>
               <div className="result-rank">{index + 1}</div>
-              <div className="result-thumb">{item.thumbnailUrl ? <img src={proxiedMediaUrl(item.thumbnailUrl)} alt="" /> : <span>{item.platform.slice(0, 2).toUpperCase()}</span>}</div>
+              <button type="button" className="result-thumb" aria-label={"Preview " + item.title} onClick={() => openSourcePreview(item)}>{item.thumbnailUrl ? <img src={proxiedMediaUrl(item.thumbnailUrl)} alt="" /> : <span>{item.platform.slice(0, 2).toUpperCase()}</span>}</button>
               <div className="result-main">
                 <button className="result-title-button" type="button" onClick={() => openSourcePreview(item)}>{item.title}</button>
-                <span>{new Date(item.publishedAt).toLocaleString()} ﾂｷ captured {new Date(item.capturedAt).toLocaleDateString()}</span>
+                <span>{new Date(item.publishedAt).toLocaleString()} · captured {new Date(item.capturedAt).toLocaleDateString()}</span>
                 {item.description && <small>{item.description}</small>}
               </div>
               <div className="result-stat"><b>{compact(item.views)}</b><span>views</span></div>
@@ -1041,9 +1062,9 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
             </article>
           ))}
           </div>
-          {sortedResults.length === 0 && !activeScanStatus && <div className="empty-state">{activeScan ? "Search completed, but no content matched the selected minimum views and filters. Generate Content appears beside each result entry, so lower the minimum views, broaden the filters, or open a previous non-empty scan from History." : "No qualified results yet. Search by URL or keywords to begin."}</div>}
+          {sortedResults.length === 0 && !activeScanStatus && <div className="empty-state">{visibleResults.length ? "No results match these view and like counts. Adjust or clear the filters to see more." : activeScan?.status === "failed" ? "This search could not be completed. Edit the search to try again." : "This search has no saved results. Edit the search to broaden its filters."}</div>}
         </div>
-      </section>
+      </section>}
 
     </div>
   );
@@ -1455,7 +1476,7 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
                   <label>Tell me in a sentence or few, then I can create anything for you.
                     <textarea name="idea" placeholder="Example: Create an Instagram image post about why SME owners should automate invoice follow-ups." autoFocus />
                   </label>
-                  {aiError && <div className="provider-error">{aiError}</div>}
+                  {aiError && <div role="alert" className="provider-error">{aiError}</div>}
                   <div className="row-actions">
                     <button className="primary" type="submit" disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Generating" /> : "Fill fields"}</button>
                     <button type="button" onClick={() => setAiPromptOpen(false)} disabled={aiGenerating}>Cancel</button>
@@ -1563,6 +1584,7 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
   const [busy, setBusy] = useState(false);
   const [aiPromptOpen, setAiPromptOpen] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
+  const aiBusy = useRef(false);
   const [aiError, setAiError] = useState("");
   const [aiIdea, setAiIdea] = useState("");
   const [assetRefs, setAssetRefs] = useState<AssetReference[]>([]);
@@ -1613,12 +1635,14 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
     setSelectedPersonaAssetIds((current) => checked ? Array.from(new Set([...current, id])) : current.filter((item) => item !== id));
   };
   const generateAiDraft = async () => {
+    if (aiBusy.current) return;
     const idea = aiIdea.trim();
     if (!idea) {
       setAiError("Tell me what you want to create first.");
       return;
     }
     setAiError("");
+    aiBusy.current = true;
     setAiGenerating(true);
     try {
       const draft = await post("generateBriefWithAi", {
@@ -1633,6 +1657,7 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
     } catch (error) {
       setAiError(error instanceof Error ? error.message : "AI generation failed.");
     } finally {
+      aiBusy.current = false;
       setAiGenerating(false);
     }
   };
@@ -1687,11 +1712,11 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
           <div className="ai-plan-box compact">
             <div className="ai-plan-inner">
               <label>Tell me in a sentence or few, then I will fill the fields below.
-                <textarea name="idea" value={aiIdea} onChange={(event) => setAiIdea(event.target.value)} placeholder="Example: Create a 9:16 product demo video for busy SME founders about invoice follow-up automation." autoFocus />
+                <textarea name="idea" disabled={aiGenerating} value={aiIdea} onChange={(event) => setAiIdea(event.target.value)} placeholder="Example: Create a 9:16 product demo video for busy SME founders about invoice follow-up automation." autoFocus />
               </label>
-              {aiError && <div className="provider-error">{aiError}</div>}
+              {aiError && <div role="alert" className="provider-error">{aiError}</div>}
               <div className="row-actions">
-                <button className="primary" type="button" onClick={() => void generateAiDraft()} disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Filling fields" /> : "Fill fields"}</button>
+                <button className="primary" type="button" onClick={() => void generateAiDraft()} disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Preparing brief" /> : aiError ? "Try again" : "Fill fields"}</button>
                 <button type="button" onClick={() => setAiPromptOpen(false)} disabled={aiGenerating}>Cancel</button>
               </div>
             </div>
@@ -2183,32 +2208,24 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
 }
 
 function SourceMediaPreviewPanel({ source, onClose }: { source: SourceMediaPreview; onClose: () => void }) {
-  useEffect(() => { document.querySelector(".inline-preview")?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [source]);
-  const previewRef = useInlineFocus(source);
+  const [mediaFailed, setMediaFailed] = useState(false);
   const playable = source.mediaUrl || "";
   const isVideo = source.mediaType === "video" || /\.(mp4|webm|mov|m3u8)(\?|$)/i.test(playable);
   const isImage = source.mediaType === "image" || /\.(jpg|jpeg|png|webp|gif)(\?|$)/i.test(playable);
-  const imageUrl = isImage ? playable : source.thumbnailUrl;
+  const imageUrl = isImage && playable ? playable : source.thumbnailUrl;
   const displayImageUrl = proxiedMediaUrl(imageUrl);
   return (
-    <div ref={previewRef} tabIndex={-1} className="inline-preview" aria-label="Media preview">
-      <section className="video-player-modal source-media-modal">
-        <div className="modal-head">
-          <div>
-            <div className="clbl">Source Media</div>
-            <h3>{source.title}</h3>
-            <p>{source.platform || "Research source"}</p>
-          </div>
-          <button type="button" className="icon-btn" aria-label="Close media preview" onClick={onClose}>x</button>
-        </div>
-        {playable && isVideo ? (
-          <video src={playable} controls autoPlay playsInline />
-        ) : displayImageUrl ? (
-          <img className="asset-preview-image" src={displayImageUrl} alt={`${source.title} source preview`} />
+    <ContentDialog title="Media preview" description={source.platform || "Research source"} onClose={onClose}>
+      <section className="source-media-popup">
+        <h3>{source.title}</h3>
+        {!mediaFailed && playable && isVideo ? (
+          <video src={playable} controls autoPlay playsInline onError={() => setMediaFailed(true)} />
+        ) : !mediaFailed && displayImageUrl ? (
+          <img className="asset-preview-image" onError={() => setMediaFailed(true)} src={displayImageUrl} alt={`${source.title} source preview`} />
         ) : (
           <div className="source-media-empty">
             <Film size={28} />
-            <b>No direct media file returned by the source actor</b>
+            <b>{mediaFailed ? "This media preview could not be loaded" : "No media preview is available"}</b>
             <span>The original post can still be opened for comparison.</span>
           </div>
         )}
@@ -2219,7 +2236,7 @@ function SourceMediaPreviewPanel({ source, onClose }: { source: SourceMediaPrevi
           <button type="button" onClick={onClose}>Close</button>
         </div>
       </section>
-    </div>
+    </ContentDialog>
   );
 }
 

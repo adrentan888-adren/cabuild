@@ -19,13 +19,15 @@ export default function ContentOutputCard({ item, asset, onPreview, onInfo, onSo
     <div className="content-output-description"><p>{item.caption || "No description added."}</p>{item.hashtags?.length ? <small>{item.hashtags.join(" ")}</small> : null}
       {item.status === "generating" && <small role="status">Generation continues in the background.</small>}
       {item.error && <p className="provider-error" role="alert">{item.error}</p>}
+      {onSource && <button type="button" className="content-source-link" onClick={onSource}><Eye size={15} />View source media</button>}
     </div>
     <footer className="content-output-footer">
-      <span className="content-type-icon" role="img" aria-label={type} title={type}><TypeIcon size={19} /></span>
-      <button type="button" className="icon-btn" onClick={onInfo} aria-label="Info" title="Content information"><Info size={19} /></button>
-      {onSource && <button type="button" className="icon-btn" onClick={onSource} aria-label="View source media" title="View source media"><Eye size={19} /></button>}
-      {url && (video || image) && <a className="icon-btn" href={`/api/assets/${item.assetId}/download`} aria-label={`Download ${type.toLowerCase()}`} title={`Download ${type.toLowerCase()}`}><Download size={19} /></a>}
+      <span className="content-type-label"><TypeIcon size={17} aria-hidden="true" />{type}</span>
       <time dateTime={createdAt}>{new Date(createdAt).toLocaleString(undefined, { year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" })}</time>
+      <div className="content-output-actions">
+      {url && (video || image) && <a className="icon-btn" href={`/api/assets/${item.assetId}/download`} aria-label={`Download ${type.toLowerCase()}`} title={`Download ${type.toLowerCase()}`}><Download size={19} /></a>}
+      <button type="button" className="icon-btn" onClick={onInfo} aria-label="Info" title="Content information"><Info size={19} /></button>
+      </div>
     </footer>
   </article>;
 }

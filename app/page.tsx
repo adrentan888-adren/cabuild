@@ -14,6 +14,10 @@ import {
   BarChart3,
   Bug,
   CalendarDays,
+  Clock3,
+  SlidersHorizontal,
+  Cpu,
+  ImageIcon,
   Check,
   Pencil,
   ExternalLink,
@@ -36,7 +40,8 @@ import {
 } from "lucide-react";
 import PageIntro from "@/components/page-intro";
 import ContentDialog from "@/components/content-dialog";
-import ChoiceButtons from "@/components/choice-buttons";
+import ChoiceButtons, { AspectRatioIcon } from "@/components/choice-buttons";
+import PlatformIcon from "@/components/platform-icon";
 import ContentInfo from "@/components/content-info";
 import ContentOutputCard from "@/components/content-output-card";
 import PersonaPreview from "@/components/persona-preview";
@@ -298,14 +303,16 @@ export default function Home() {
   const [directCreateInitial, setDirectCreateInitial] = useState<CreateContentInitial | null>(null);
   const [loading, setLoading] = useState(true);
   const [personaEditing, setPersonaEditing] = useState(false);
-  const confirmLeave = useLeaveWarning(personaEditing);
+  const { confirmLeave, shouldWarn, open: leaveDialogOpen, answerLeave } = useLeaveWarning(personaEditing);
   const historyIndex = useRef(0);
   const restoringHistory = useRef(false);
+  const pendingHistoryTarget = useRef<number | null>(null);
+  const approvedHistoryTarget = useRef<number | null>(null);
 
-  const navigateScreen = useCallback((nextScreen: string) => {
+  const navigateScreen = useCallback(async (nextScreen: string) => {
     const nextUrl = nextScreen === "home" ? "/" : `/?view=${encodeURIComponent(nextScreen)}`;
     if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
-      if (!confirmLeave()) return;
+      if (!await confirmLeave()) return;
       window.history.pushState({ ...window.history.state, creatorIndex: ++historyIndex.current }, "", nextUrl);
     }
     setScreen(nextScreen);
@@ -344,23 +351,32 @@ export default function Home() {
         restoringHistory.current = false;
         // The router never left this entry. Do not restore its older cached tree.
         event.stopImmediatePropagation();
+        const target = pendingHistoryTarget.current;
+        pendingHistoryTarget.current = null;
+        if (target !== null) void confirmLeave().then(leave => {
+          if (!leave) return;
+          approvedHistoryTarget.current = target;
+          window.history.go(target - historyIndex.current);
+        });
         return;
       }
       restoringHistory.current = false;
-      if (!confirmLeave()) {
+      if (approvedHistoryTarget.current !== nextIndex && shouldWarn()) {
         // Keep Next's router from unmounting this editor before history is restored.
         event.stopImmediatePropagation();
         restoringHistory.current = true;
+        pendingHistoryTarget.current = nextIndex;
         window.history.go(historyIndex.current - nextIndex || 1);
         return;
       }
+      approvedHistoryTarget.current = null;
       historyIndex.current = nextIndex;
       const view = new URLSearchParams(window.location.search).get("view");
       setScreen(view && normalViews.has(view) ? view : "home");
     };
     if (requestedView && normalViews.has(requestedView)) setScreen(requestedView);
     return subscribeHistoryGuard(syncView);
-  }, [confirmLeave]);
+  }, [confirmLeave, shouldWarn]);
 
   useEffect(() => {
     if (!pendingGeneration || !data?.publishQueue.length) return;
@@ -389,6 +405,9 @@ export default function Home() {
   return (
     <div className={`app-shell ${screen === "home" ? "home-shell" : "workspace-shell"}`}>
       <StatusToast toast={toast} onDismiss={() => setToast(null)} />
+      {leaveDialogOpen && <ContentDialog title="Leave without saving?" description="Your unsaved edits will be discarded. Your saved persona will stay unchanged." onClose={() => answerLeave(false)}>
+        <div className="dialog-actions"><button type="button" autoFocus onClick={() => answerLeave(false)}>Keep editing</button><button type="button" className="primary" onClick={() => answerLeave(true)}>Discard changes and leave</button></div>
+      </ContentDialog>}
       <main className="main">
         <header className="topbar">
           <GlobalHeader
@@ -692,8 +711,8 @@ function PersonaPanel({ data, run, onEditingChange }: { data: AppData; run: (a: 
   const autofillBusy = useRef(false);
   const [autofillDraft, setAutofillDraft] = useState<PersonaProfile | null>(null);
   const persona = autofillDraft || data.personaProfile;
-  useEffect(() => { onEditingChange(mode === "edit"); return () => onEditingChange(false); }, [mode, onEditingChange]);
-  const cancelEdits = () => { setAutofillDraft(null); setMediaAssets(data.personaProfile.mediaAssets || []); setEditVersion(version => version + 1); setMode("preview"); };
+  useEffect(() => () => onEditingChange(false), [onEditingChange]);
+  const cancelEdits = () => { onEditingChange(false); setAutofillDraft(null); setMediaAssets(data.personaProfile.mediaAssets || []); setEditVersion(version => version + 1); setMode("preview"); };
   const storedMediaAssets = JSON.stringify(persona.mediaAssets || []);
   const [mediaAssets, setMediaAssets] = useState<PersonaMediaAsset[]>(persona.mediaAssets || []);
   useEffect(() => {
@@ -716,7 +735,10 @@ function PersonaPanel({ data, run, onEditingChange }: { data: AppData; run: (a: 
     setSaving(true);
     try {
       const result = await run("updatePersonaProfile", Object.fromEntries(form.entries()), "Persona saved");
-      if (result) { setAutofillDraft(null); setMode("preview"); }
+      if (result) {
+        onEditingChange(false); setAutofillDraft(null); setMode("preview");
+        requestAnimationFrame(() => document.getElementById("edit-persona")?.focus({ preventScroll: false }));
+      }
     } finally { setSaving(false); }
   };
   const autoFill = async (form: HTMLFormElement) => {
@@ -731,7 +753,7 @@ function PersonaPanel({ data, run, onEditingChange }: { data: AppData; run: (a: 
     setAutofillError("");
     try {
       const result = await run("autoFillPersonaProfile", { ...values, previewOnly: true }, "Persona draft prepared. Save to apply your changes.");
-      if (result) { setAutofillDraft({ ...result, mediaAssets }); setEditVersion(version => version + 1); setShowAutofill(false); }
+      if (result) { onEditingChange(true); setAutofillDraft({ ...result, mediaAssets }); setEditVersion(version => version + 1); setShowAutofill(false); }
       else setAutofillError("We couldn’t auto-fill your profile. Your URLs are still here; please try again.");
     } finally { autofillBusy.current = false; setAutoFilling(false); }
   };
@@ -742,7 +764,7 @@ function PersonaPanel({ data, run, onEditingChange }: { data: AppData; run: (a: 
         <span className="badge">Single active profile</span>
       </div>
 
-      <PageIntro title="Persona" description="Your voice, audience and brand references, ready for every creation." art="identity"><span className="last-upd">{data.personaProfile.updatedAt ? `Updated ${new Date(data.personaProfile.updatedAt).toLocaleString()}` : "Not saved yet"}</span>{mode === "preview" && <button type="button" className="primary" onClick={() => setMode("edit")}><Pencil size={16} />Edit persona</button>}
+      <PageIntro title="Persona" description="Your voice, audience and brand references, ready for every creation." art="identity"><span className="last-upd">{data.personaProfile.updatedAt ? `Updated ${new Date(data.personaProfile.updatedAt).toLocaleString()}` : "Not saved yet"}</span>{mode === "preview" && <button id="edit-persona" type="button" className="primary" onClick={() => setMode("edit")}><Pencil size={16} />Edit persona</button>}
       </PageIntro>
 
       {mode === "edit" && <p className="persona-edit-notice" role="status"><Pencil size={17} />Editing persona · Save to apply your changes, or cancel to keep your saved profile.</p>}
@@ -767,7 +789,7 @@ function PersonaPanel({ data, run, onEditingChange }: { data: AppData; run: (a: 
         </form>
       </ContentDialog>}
       {mode === "preview" && <PersonaPreview persona={data.personaProfile} />}
-      <div hidden={mode !== "edit"}><form key={(persona.updatedAt || "unsaved") + editVersion} action={save} className="persona-setup"><fieldset className="persona-edit-fields" disabled={saving || autoFilling}>
+      <div hidden={mode !== "edit"}><form key={(persona.updatedAt || "unsaved") + editVersion} onSubmit={event => { event.preventDefault(); void save(new FormData(event.currentTarget)); }} onChange={() => onEditingChange(true)} className="persona-setup"><fieldset className="persona-edit-fields" disabled={saving || autoFilling}>
         <div className="persona-step-head">
           <h3>Persona setup</h3>
           <span className="badge">Prompt voice source</span>
@@ -801,7 +823,7 @@ function PersonaPanel({ data, run, onEditingChange }: { data: AppData; run: (a: 
             <div className="persona-advanced">
               <h2 className="persona-section-title">Reusable media references</h2><p className="persona-section-description">Keep your brand and personal references ready for your next creation.</p>
               <p className="muted">These saved assets can be selected later in Create Content and Automation. Product photos can have multiple entries; logo, avatar, and audio keep one default each.</p>
-              <PersonaMediaLibrary assets={mediaAssets} onChange={setMediaAssets} />
+              <PersonaMediaLibrary assets={mediaAssets} onChange={assets => { setMediaAssets(assets); onEditingChange(true); }} />
             </div>
 
             <details className="persona-advanced">
@@ -975,7 +997,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
       {sourcePreview && <SourceMediaPreviewPanel source={sourcePreview} onClose={() => setSourcePreview(null)} />}
       <PageIntro title="Research" description="Revisit your saved searches or discover the next idea for your content." art="research">
         <div className="research-navigation">
-          {researchView !== "history" && <button onClick={() => { setActiveScanId(null); setResearchView("history"); }}><ArrowLeft size={16} />Research history</button>}
+          {researchView !== "history" && <button onClick={() => { setActiveScanId(null); setResearchView("history"); }}>Research history</button>}
           {researchView !== "search" && <button className="primary" onClick={newSearch} disabled={!!pendingScan}><Search size={16} />Search</button>}
         </div>
       </PageIntro>
@@ -1640,7 +1662,6 @@ function CreateContentModule({ initial, persona, personaAssets = [], onSubmit, o
   const [submitError, setSubmitError] = useState("");
   const submitBusy = useRef(false);
   const [busy, setBusy] = useState(false);
-  const [aiPromptOpen, setAiPromptOpen] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const aiBusy = useRef(false);
   const [aiError, setAiError] = useState("");
@@ -1713,7 +1734,6 @@ function CreateContentModule({ initial, persona, personaAssets = [], onSubmit, o
         requestedModel: model
       }) as PlanDraft;
       resetFormFromInitial(createContentInitialFromDraft(draft));
-      setAiPromptOpen(false);
       setAiIdea("");
     } catch (error) {
       setAiError(error instanceof Error ? error.message : "AI generation failed.");
@@ -1774,27 +1794,24 @@ function CreateContentModule({ initial, persona, personaAssets = [], onSubmit, o
         {!usePersona && <p className="muted">Saved persona context and references will not be added. Review any text already in your brief before generating.</p>}
       </section>
       <section className="create-card">
-        <div className="optional-brief-heading"><h2>Generate Brief</h2><span className="badge">Optional</span></div>
+        <div className="optional-brief-heading"><Sparkles size={22} /><h2>Generate Brief</h2><span className="badge">Optional</span></div>
         <div className="brief-preview">
           <span>{activeInitial.sourceLabel}</span>
           <b>{activeInitial.sourceTitle}</b>
           <p>{activeInitial.sourceDescription}</p>
         </div>
-        <div className="source-actions">
-          {allowAiAssist && <button type="button" className="primary" onClick={() => setAiPromptOpen(true)} disabled={aiGenerating}><Sparkles size={14} />Generate Brief</button>}
-          {onUsePlan && <button type="button" className="linkish secondary-plan-link" onClick={onUsePlan}>Load from Content Plan</button>}
-        </div>
+        {onUsePlan && <div className="source-actions"><button type="button" className="linkish secondary-plan-link" onClick={onUsePlan}>Load from Content Plan</button></div>}
         <p className="step-helper">Use AI to prepare a brief, or skip this and write your generation prompt directly below.</p>
-        {aiPromptOpen && (
+        {allowAiAssist && (
           <div className="ai-plan-box compact">
             <div className="ai-plan-inner">
               <label>Tell me in a sentence or few, then I will fill the fields below.
-                <textarea name="idea" disabled={aiGenerating} value={aiIdea} onChange={(event) => setAiIdea(event.target.value)} placeholder="Example: Create a 9:16 product demo video for busy SME founders about invoice follow-up automation." autoFocus />
+                <textarea name="idea" disabled={aiGenerating} value={aiIdea} onChange={(event) => setAiIdea(event.target.value)} placeholder="Example: Create a 9:16 product demo video for busy SME founders about invoice follow-up automation." />
               </label>
               {aiError && <div role="alert" className="provider-error">{aiError}</div>}
               <div className="row-actions">
-                <button className="primary" type="button" onClick={() => void generateAiDraft()} disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Preparing brief" /> : aiError ? "Try again" : "Fill fields"}</button>
-                <button type="button" onClick={() => setAiPromptOpen(false)} disabled={aiGenerating}>Cancel</button>
+                <button className="primary" type="button" onClick={() => void generateAiDraft()} disabled={aiGenerating}><Sparkles size={14} />{aiGenerating ? <AnimatedDots label="Preparing brief" /> : aiError ? "Try again" : "Generate Brief"}</button>
+                <button type="button" onClick={() => { setAiIdea(""); setAiError(""); }} disabled={aiGenerating || (!aiIdea && !aiError)}>Clear</button>
               </div>
             </div>
           </div>
@@ -1803,26 +1820,16 @@ function CreateContentModule({ initial, persona, personaAssets = [], onSubmit, o
 
       <section className="create-card">
         <div className="step-label">Choose format, model, and references</div>
-        <ChoiceButtons label="Primary platform" name="platform" value={platform} options={Array.from(new Set([...platforms, "YouTube"])).map(value => ({value,label:value}))} onChange={value => setPlatform(value as Platform)} />
+        <ChoiceButtons label="Primary platform" name="platform" value={platform} options={Array.from(new Set([...platforms, "YouTube"])).map(value => ({value,label:value,icon:<PlatformIcon platform={value} />}))} onChange={value => setPlatform(value as Platform)} />
         <div className="create-type-grid">
-          <button type="button" aria-pressed={kind === "video"} className={kind === "video" ? "on" : ""} onClick={() => changeKind("video")}><b>Video</b><span>TikTok, Reels, Shorts</span></button>
-          <button type="button" aria-pressed={kind === "image"} className={kind === "image" ? "on" : ""} onClick={() => changeKind("image")}><b>Image</b><span>Instagram, LinkedIn, Facebook</span></button>
-          <button type="button" aria-pressed={kind === "text"} className={kind === "text" ? "on" : ""} onClick={() => changeKind("text")}><b>Text post</b><span>LinkedIn, X, Threads</span></button>
+          <button type="button" aria-pressed={kind === "video"} className={kind === "video" ? "on" : ""} onClick={() => changeKind("video")}><Film size={23} /><b>Video</b><span>TikTok, Reels, Shorts</span></button>
+          <button type="button" aria-pressed={kind === "image"} className={kind === "image" ? "on" : ""} onClick={() => changeKind("image")}><ImageIcon size={23} /><b>Image</b><span>Instagram, LinkedIn, Facebook</span></button>
+          <button type="button" aria-pressed={kind === "text"} className={kind === "text" ? "on" : ""} onClick={() => changeKind("text")}><FileText size={23} /><b>Text post</b><span>LinkedIn, X, Threads</span></button>
         </div>
         <div className="plat-row">
           {placementsForKind(kind).map((label) => <span className="pc on" key={label}><span className="pd" />{label}</span>)}
         </div>
-        <div className="creation-option-group">
-        <div className="clbl">Generation settings</div>
-        <div className="generation-choice-grid">
-          {kind === "video" && <ChoiceButtons label="Duration" name="duration" value={duration} options={durationOptions.map(value => ({value:String(value),label:value + " seconds"}))} onChange={setDuration} />}
-          {kind !== "text" && <ChoiceButtons label="Aspect ratio" name="aspectRatio" value={aspectRatio} options={(kind === "video" ? ["9:16", "16:9"] : ["1:1", "4:5", "16:9", "9:16"]).map(value => ({value,label:value}))} onChange={setAspectRatio} />}
-          {kind === "image" && <ChoiceButtons label="Variants" name="variants" value={variants} options={["1","2","3","4"].map(value => ({value,label:value}))} onChange={setVariants} />}
-          {kind === "text" && <><ChoiceButtons label="Tone" name="tone" value={tone} options={["Practical founder-led","Educational","Contrarian","Executive concise"].map(value => ({value,label:value}))} onChange={setTone} /><ChoiceButtons label="Length" name="length" value={length} options={["Short","Medium","Long"].map(value => ({value,label:value}))} onChange={setLength} /></>}
-        </div>
-        </div>
-
-        <div className="creation-option-group"><div className="clbl">Model</div>
+        <div className="creation-option-group"><div className="clbl"><Cpu size={19} />Model</div>
         <div className="model-options create-model-options">
           {generationModels[kind].map(([value, label, price]) => (
             <button type="button" key={value} aria-pressed={model === value} className={model === value ? "on" : ""} onClick={() => changeModel(value)}>
@@ -1832,6 +1839,16 @@ function CreateContentModule({ initial, persona, personaAssets = [], onSubmit, o
             </button>
           ))}
         </div></div>
+
+        <div className="creation-option-group">
+        <div className="clbl"><SlidersHorizontal size={19} />Generation settings</div>
+        <div className="generation-choice-grid">
+          {kind === "video" && <ChoiceButtons label="Duration" name="duration" value={duration} options={durationOptions.map(value => ({value:String(value),label:value + " seconds",icon:<Clock3 size={18} />}))} onChange={setDuration} />}
+          {kind !== "text" && <ChoiceButtons label="Aspect ratio" name="aspectRatio" value={aspectRatio} options={(kind === "video" ? ["9:16", "16:9"] : ["1:1", "4:5", "16:9", "9:16"]).map(value => ({value,label:value,icon:<AspectRatioIcon value={value} />}))} onChange={setAspectRatio} />}
+          {kind === "image" && <ChoiceButtons label="Variants" name="variants" value={variants} options={["1","2","3","4"].map(value => ({value,label:value}))} onChange={setVariants} />}
+          {kind === "text" && <><ChoiceButtons label="Tone" name="tone" value={tone} options={["Practical founder-led","Educational","Contrarian","Executive concise"].map(value => ({value,label:value}))} onChange={setTone} /><ChoiceButtons label="Length" name="length" value={length} options={["Short","Medium","Long"].map(value => ({value,label:value}))} onChange={setLength} /></>}
+        </div>
+        </div>
 
       {visualAssetsEnabled && (
         <div className="creation-option-group">

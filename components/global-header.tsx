@@ -76,7 +76,7 @@ export default function GlobalHeader({
   initialAccount?: { name: string; email: string; role: string };
   initialWorkspaceCredits?: number;
   onHomeNavigate?: () => void;
-  onBeforeLeave?: () => boolean;
+  onBeforeLeave?: () => boolean | Promise<boolean>;
   onNormalNavigate?: (page: string) => void;
 }) {
   const router = useRouter();
@@ -213,7 +213,7 @@ export default function GlobalHeader({
     },
   });
   const logout = async () => {
-    if (onBeforeLeave && !onBeforeLeave()) return;
+    if (onBeforeLeave && !await onBeforeLeave()) return;
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
     router.refresh();

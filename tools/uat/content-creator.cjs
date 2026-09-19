@@ -98,6 +98,16 @@ const fs = require('node:fs');
   await page.getByRole('button',{name:'Search',exact:true}).click();
   await page.getByRole('button',{name:'Search by keywords'}).click();await page.getByPlaceholder('Enter keywords, e.g. sheila majid').waitFor();
   assert.deepEqual(errors,[]);assert.equal(mutations.length,0,'Navigation causes no content/provider mutations');
+  for(const route of ['/?view=persona','/drama-studio?step=1']){
+    await page.goto(base+route);await page.locator('.global-header').waitFor();
+    for(const [label,menu,theme] of [['Show Content Creator pages','.normal-menu','green'],['Show Drama Studio pages','.drama-menu','purple']]){
+      await page.getByRole('button',{name:label}).hover();await page.locator(menu).waitFor({state:'visible'});
+      const colors=await page.locator(menu+' .global-menu-item>span:first-child').evaluateAll(es=>es.map(e=>getComputedStyle(e).color.match(/\d+/g).map(Number)));
+      assert(colors.every(([r,g,b])=>theme==='green'?g>r&&g>b:b>g&&r>g),theme+' menu icons retain their theme on '+route);
+      await page.keyboard.press('Escape');
+    }
+  }
+  console.log('PASS green Creator and purple Drama menu icons from both workspaces');
   const touch=await browser.newContext({storageState:await context.storageState(),viewport:{width:390,height:844},hasTouch:true,isMobile:true});
   await touch.route('**/api/**',r=>{const path=new URL(r.request().url()).pathname;if(path==='/api/app')return r.fulfill({json:data});if(r.request().method()!=='GET')return r.fulfill({status:403,json:{error:'No-spend'}});if(/credits|integrations/.test(path))return r.fulfill({json:{user:data.user,workspace:data.workspace,providers:[]}});return r.continue()});
   const phone=await touch.newPage();await phone.goto(base+'/?view=persona');await phone.locator('.persona-page').waitFor();

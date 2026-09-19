@@ -95,7 +95,7 @@ const fs = require('node:fs');
     assert(await page.locator('.create-model-options button').first().isVisible());
   }
   await page.goto(base+'/?view=research');await page.locator('.research-page').waitFor();
-  await page.getByRole('button',{name:'New search',exact:true}).click();
+  await page.getByRole('button',{name:'Search',exact:true}).click();
   await page.getByRole('button',{name:'Search by keywords'}).click();await page.getByPlaceholder('Enter keywords, e.g. sheila majid').waitFor();
   assert.deepEqual(errors,[]);assert.equal(mutations.length,0,'Navigation causes no content/provider mutations');
   const touch=await browser.newContext({storageState:await context.storageState(),viewport:{width:390,height:844},hasTouch:true,isMobile:true});

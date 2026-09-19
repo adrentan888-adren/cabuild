@@ -2008,6 +2008,7 @@ export async function POST(req: Request) {
         const existingIndex = db.personaProfiles.findIndex((item) => item.workspaceId === workspaceId);
         const previous = existingIndex >= 0 ? db.personaProfiles[existingIndex] : existing;
         const merged = personaFromBody(workspaceId, { ...compactGenerated, ...Object.fromEntries(Object.entries(sourceUrls).map(([key, value]) => [`${key}Url`, value])) }, previous);
+        if (body.previewOnly === true) return merged;
         if (existingIndex >= 0) db.personaProfiles[existingIndex] = merged;
         else db.personaProfiles.push(merged);
         db.activity.push({ id: id("act"), workspaceId, message: crawlFallbackReason ? `Persona auto-filled from public URLs because Apify crawl was unavailable.` : `Persona auto-filled from ${crawled.length} public source(s).`, createdAt: new Date().toISOString() });

@@ -14,8 +14,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
    if(path==='/api/social'&&body.action==='autoFillPersonaProfile'){
     await new Promise(resolve=>setTimeout(resolve,400));
     if(autoMode==='fail')return r.fulfill({status:502,json:{error:'Fixture auto-fill unavailable'}});
-    data.personaProfile={...data.personaProfile,displayName:'Autofilled creator',company:'Updated company',updatedAt:new Date().toISOString()};
-    return r.fulfill({json:data.personaProfile});
+    assert.equal(body.previewOnly,true);return r.fulfill({json:{...data.personaProfile,displayName:'Autofilled creator',company:'Updated company',updatedAt:new Date().toISOString()}});
    }
    if(path==='/api/social'&&body.action==='generateBriefWithAi'){
     await new Promise(resolve=>setTimeout(resolve,300));
@@ -47,7 +46,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
  const bounds=async()=>assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'No page horizontal overflow');
  for(const width of [1440,768,390,320]){
   await page.setViewportSize({width,height:1000});
-  await page.goto(base+'/?view=persona');await page.locator('.persona-page').waitFor();await page.getByRole('button',{name:'Edit mode',exact:true}).click();
+  await page.goto(base+'/?view=persona');await page.locator('.persona-page').waitFor();await page.getByRole('button',{name:'Edit persona',exact:true}).click();
   assert.equal(await page.locator('.persona-section-title').count(),3);
   assert(await page.locator('.persona-section-title').first().evaluate(e=>Number(getComputedStyle(e).fontWeight)>=700));
   const sections=await page.locator('.persona-fields > .persona-advanced').evaluateAll(es=>es.map(e=>{const r=e.getBoundingClientRect();return{top:r.top,bottom:r.bottom}}));
@@ -69,7 +68,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
   await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
   assert.equal(await page.locator('.persona-media-item input').inputValue(),'Unsaved media label','Failed auto-fill preserves media edits');
   await bounds();
-  await page.goto(base+'/?view=research');await page.locator('.research-history-entry').first().waitFor();
+  if(await page.locator('.persona-setup:visible').count())await page.locator('.persona-setup').getByRole('button',{name:'Cancel',exact:true}).click();await page.goto(base+'/?view=research');await page.getByRole('button',{name:'Research history',exact:true}).click();await page.locator('.research-history-entry').first().waitFor();
   assert.equal(await page.locator('.result-row').count(),0);assert.equal(await page.locator('.research-form').count(),0);assert.equal(await page.locator('.research-history-entry').count(),3);
   await page.screenshot({path:'.playwright-mcp/research-history-'+width+'.png'});await bounds();
   await page.locator('.research-history-entry').filter({hasText:'creator ideas'}).click();
@@ -97,14 +96,14 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
   await page.keyboard.press('Escape');assert(await preview.evaluate(e=>e===document.activeElement));
   await page.screenshot({path:'.playwright-mcp/research-results-'+width+'.png'});await bounds();
   await page.getByRole('button',{name:'Research history',exact:true}).click();await page.locator('.research-history-entry').filter({hasText:'another-profile'}).click();assert.deepEqual(await titles(),['Fixture other']);
-  await page.reload();await page.locator('.research-history').waitFor();assert.equal(await page.locator('.result-row').count(),0);
+  await page.reload();await page.getByLabel('Social URL',{exact:true}).waitFor();await page.getByRole('button',{name:'Research history',exact:true}).click();await page.locator('.research-history').waitFor();assert.equal(await page.locator('.result-row').count(),0);
   console.log('PASS persona sections/dialog error/focus, history isolation, live filters/arrows, bigger thumbnails and modal preview at',width);
  }
- await page.goto(base+'/?view=persona');await page.getByRole('button',{name:'Edit mode',exact:true}).click();await page.getByRole('button',{name:'Auto-fill',exact:true}).click();await page.getByRole('dialog').getByLabel('Website',{exact:true}).fill('https://example.test');autoMode='success';await page.getByRole('button',{name:'Auto-fill persona',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});assert.equal(await page.getByLabel('Display name',{exact:true}).inputValue(),'Autofilled creator');
+ await page.goto(base+'/?view=persona');await page.getByRole('button',{name:'Edit persona',exact:true}).click();await page.getByRole('button',{name:'Auto-fill',exact:true}).click();await page.getByRole('dialog').getByLabel('Website',{exact:true}).fill('https://example.test');autoMode='success';await page.getByRole('button',{name:'Auto-fill persona',exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});assert.equal(await page.getByLabel('Display name',{exact:true}).inputValue(),'Autofilled creator');
  assert.equal(await page.evaluate(()=>document.activeElement.id),'persona-autofill-trigger','Successful auto-fill restores focus after form replacement');
- await page.goto(base+'/?view=research');await page.locator('.research-history-entry').filter({hasText:'empty search'}).click();assert(await page.getByText('This search has no saved results.',{exact:false}).isVisible());await page.getByRole('button',{name:'Research history',exact:true}).click();assert.equal(await page.locator('.research-history-entry').filter({hasText:'failed search'}).count(),0);
- await page.getByRole('button',{name:'New search',exact:true}).click();await page.getByRole('button',{name:'Search by keywords'}).click();await page.getByLabel('Keywords',{exact:true}).fill('New fixture');await page.getByRole('button',{name:'Search',exact:true}).click();await page.locator('.saved-search-summary h2').filter({hasText:'New fixture'}).waitFor();
- await page.goto(base+'/?view=create');await page.getByRole('button',{name:'Fill fields with AI'}).click();const idea=page.locator('textarea[name="idea"]');await idea.fill('Keep my original idea');await page.getByRole('button',{name:'Fill fields',exact:true}).click();await page.getByRole('button',{name:'Try again',exact:true}).waitFor();assert.equal(await idea.inputValue(),'Keep my original idea');assert((await page.locator('.ai-plan-box .provider-error').innerText()).includes('temporarily unavailable'));
+ await page.goto(base+'/?view=research');await page.getByRole('button',{name:'Research history',exact:true}).click();await page.locator('.research-history-entry').filter({hasText:'empty search'}).click();assert(await page.getByText('This search has no saved results.',{exact:false}).isVisible());await page.getByRole('button',{name:'Research history',exact:true}).click();assert.equal(await page.locator('.research-history-entry').filter({hasText:'failed search'}).count(),0);
+ await page.getByRole('button',{name:'Search',exact:true}).click();await page.getByRole('button',{name:'Search by keywords'}).click();await page.getByLabel('Keywords',{exact:true}).fill('New fixture');await page.getByRole('button',{name:'Search',exact:true}).click();await page.locator('.saved-search-summary h2').filter({hasText:'New fixture'}).waitFor();
+ await page.goto(base+'/?view=create');await page.getByRole('button',{name:'Generate Brief'}).click();const idea=page.locator('textarea[name="idea"]');await idea.fill('Keep my original idea');await page.getByRole('button',{name:'Fill fields',exact:true}).click();await page.getByRole('button',{name:'Try again',exact:true}).waitFor();assert.equal(await idea.inputValue(),'Keep my original idea');assert((await page.locator('.ai-plan-box .provider-error').innerText()).includes('temporarily unavailable'));
  briefMode='success';await page.getByRole('button',{name:'Try again',exact:true}).click();await page.locator('.ai-plan-box').waitFor({state:'hidden'});assert((await page.locator('textarea[name="prompt"]').inputValue()).includes('Recovered creation prompt'));
  assert.deepEqual(blocked,[]);assert.deepEqual(errors,[]);console.log('PASS auto-fill success updates fields, empty/failed search, new keyword search and brief failure/manual retry; no real content/provider writes');await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});

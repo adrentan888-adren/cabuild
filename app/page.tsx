@@ -15,6 +15,7 @@ import {
   Bug,
   CalendarDays,
   Check,
+  Pencil,
   ExternalLink,
   Eye,
   FileText,
@@ -37,7 +38,11 @@ import PageIntro from "@/components/page-intro";
 import ContentDialog from "@/components/content-dialog";
 import ChoiceButtons from "@/components/choice-buttons";
 import ContentInfo from "@/components/content-info";
+import ContentOutputCard from "@/components/content-output-card";
 import PersonaPreview from "@/components/persona-preview";
+import { browserHistoryIndex, useLeaveWarning } from "@/lib/use-leave-warning";
+import { subscribeHistoryGuard } from "@/components/history-guard";
+import { notifyCreditUsage } from "@/lib/credit-refresh";
 import { contentCreatorQueue } from "@/lib/content-origin";
 import GlobalHeader from "@/components/global-header";
 import WelcomeHome from "@/components/welcome-home";
@@ -269,13 +274,18 @@ function createInitialFromResearchResult(item: CompetitorResult, templates: Prom
 }
 
 async function post(action: string, payload: Record<string, unknown> = {}) {
+  const chargeable = /generate|refine|autoFill|startAsset/i.test(action) || ["scanResearchUrl", "scanKeywordResearch", "runAutomationNow", "runSourceWatcherNow"].includes(action);
+  try {
   const res = await fetch("/api/social", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action, ...payload })
   });
   if (!res.ok) throw new Error((await res.json()).error || "Request failed");
-  return res.json();
+  const result = await res.json();
+  if (action === "pollAsset" && ["ready", "failed", "done"].includes(result?.status)) notifyCreditUsage();
+  return result;
+  } finally { if (chargeable) notifyCreditUsage(); }
 }
 
 export default function Home() {
@@ -287,16 +297,21 @@ export default function Home() {
   const [pendingGeneration, setPendingGeneration] = useState<PendingGeneration | null>(null);
   const [directCreateInitial, setDirectCreateInitial] = useState<CreateContentInitial | null>(null);
   const [loading, setLoading] = useState(true);
+  const [personaEditing, setPersonaEditing] = useState(false);
+  const confirmLeave = useLeaveWarning(personaEditing);
+  const historyIndex = useRef(0);
+  const restoringHistory = useRef(false);
 
   const navigateScreen = useCallback((nextScreen: string) => {
-    setScreen(nextScreen);
     const nextUrl = nextScreen === "home" ? "/" : `/?view=${encodeURIComponent(nextScreen)}`;
     if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) {
-      window.history.pushState({}, "", nextUrl);
+      if (!confirmLeave()) return;
+      window.history.pushState({ ...window.history.state, creatorIndex: ++historyIndex.current }, "", nextUrl);
     }
+    setScreen(nextScreen);
     document.querySelector<HTMLElement>(".main")?.scrollTo({ top: 0, behavior: "auto" });
     window.scrollTo({ top: 0, behavior: "auto" });
-  }, []);
+  }, [confirmLeave]);
 
   async function refresh() {
     const res = await fetch("/api/app", { cache: "no-store" });
@@ -321,14 +336,31 @@ export default function Home() {
   useEffect(() => {
     const requestedView = new URLSearchParams(window.location.search).get("view");
     const normalViews = new Set(["audit", "persona", "research", "create", "publish", "automation", "analyse", "logs", "settings", "account"]);
-    const syncView = () => {
+    historyIndex.current = browserHistoryIndex() ?? window.history.state?.creatorIndex ?? 0;
+    window.history.replaceState({ ...window.history.state, creatorIndex: historyIndex.current }, "");
+    const syncView = (event: PopStateEvent) => {
+      const nextIndex = browserHistoryIndex() ?? event.state?.creatorIndex ?? historyIndex.current - 1;
+      if (restoringHistory.current && nextIndex === historyIndex.current) {
+        restoringHistory.current = false;
+        // The router never left this entry. Do not restore its older cached tree.
+        event.stopImmediatePropagation();
+        return;
+      }
+      restoringHistory.current = false;
+      if (!confirmLeave()) {
+        // Keep Next's router from unmounting this editor before history is restored.
+        event.stopImmediatePropagation();
+        restoringHistory.current = true;
+        window.history.go(historyIndex.current - nextIndex || 1);
+        return;
+      }
+      historyIndex.current = nextIndex;
       const view = new URLSearchParams(window.location.search).get("view");
       setScreen(view && normalViews.has(view) ? view : "home");
     };
     if (requestedView && normalViews.has(requestedView)) setScreen(requestedView);
-    window.addEventListener("popstate", syncView);
-    return () => window.removeEventListener("popstate", syncView);
-  }, []);
+    return subscribeHistoryGuard(syncView);
+  }, [confirmLeave]);
 
   useEffect(() => {
     if (!pendingGeneration || !data?.publishQueue.length) return;
@@ -364,6 +396,7 @@ export default function Home() {
             activePage={screen === "create" ? "publish" : screen}
             initialAccount={data.user}
             initialWorkspaceCredits={data.workspace.credits}
+            onBeforeLeave={confirmLeave}
             onHomeNavigate={() => navigateScreen("home")}
             onNormalNavigate={navigateScreen}
           />
@@ -382,9 +415,9 @@ export default function Home() {
                 <ResearchInlineEditor key={directCreateInitial.sourceResultId || directCreateInitial.sourceTitle} initial={directCreateInitial} persona={data.personaProfile} personaAssets={data.personaProfile.mediaAssets || []} run={run} onClose={() => setDirectCreateInitial(null)} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} />
               )}
               {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
-              {screen === "persona" && <PersonaPanel data={data} run={run} />}
+              {screen === "persona" && <PersonaPanel data={data} run={run} onEditingChange={setPersonaEditing} />}
               {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={(initial) => { setDirectCreateInitial(initial); window.setTimeout(() => document.getElementById("research-inline-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0); }} />}
-              {(screen === "create" || screen === "publish") && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} onCreate={() => navigateScreen("create")} composer={screen === "create" ? <CreateContentPanel data={data} run={run} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} /> : undefined} />}
+              {(screen === "create" || screen === "publish") && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} onCreate={() => navigateScreen("create")} onLibrary={() => navigateScreen("publish")} composer={screen === "create" ? <CreateContentPanel data={data} run={run} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} /> : undefined} />}
               {screen === "drama" && <DramaWorkspacePanel src="/drama-studio" title="Drama Studio" refresh={refresh} />}
               {screen === "asset-library" && <DramaWorkspacePanel src="/drama-studio/assets" title="Asset Library" refresh={refresh} />}
               {screen === "automation" && <AutomationPanel data={data} run={run} />}
@@ -649,7 +682,7 @@ function PersonaMediaLibrary({ assets, onChange }: { assets: PersonaMediaAsset[]
   );
 }
 
-function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any> }) {
+function PersonaPanel({ data, run, onEditingChange }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onEditingChange: (editing: boolean) => void }) {
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [editVersion, setEditVersion] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -657,7 +690,10 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   const [autoFilling, setAutoFilling] = useState(false);
   const [autofillError, setAutofillError] = useState("");
   const autofillBusy = useRef(false);
-  const persona = data.personaProfile;
+  const [autofillDraft, setAutofillDraft] = useState<PersonaProfile | null>(null);
+  const persona = autofillDraft || data.personaProfile;
+  useEffect(() => { onEditingChange(mode === "edit"); return () => onEditingChange(false); }, [mode, onEditingChange]);
+  const cancelEdits = () => { setAutofillDraft(null); setMediaAssets(data.personaProfile.mediaAssets || []); setEditVersion(version => version + 1); setMode("preview"); };
   const storedMediaAssets = JSON.stringify(persona.mediaAssets || []);
   const [mediaAssets, setMediaAssets] = useState<PersonaMediaAsset[]>(persona.mediaAssets || []);
   useEffect(() => {
@@ -676,10 +712,11 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   const completion = Math.round((completionChecks.filter(Boolean).length / completionChecks.length) * 100);
   const save = async (form: FormData) => {
     form.set("mediaAssets", JSON.stringify(mediaAssets));
+    Object.entries(persona.sourceUrls).forEach(([key, value]) => form.set(key + "Url", value));
     setSaving(true);
     try {
       const result = await run("updatePersonaProfile", Object.fromEntries(form.entries()), "Persona saved");
-      if (result) setMode("preview");
+      if (result) { setAutofillDraft(null); setMode("preview"); }
     } finally { setSaving(false); }
   };
   const autoFill = async (form: HTMLFormElement) => {
@@ -693,22 +730,22 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
     setAutoFilling(true);
     setAutofillError("");
     try {
-      const result = await run("autoFillPersonaProfile", values, "Persona auto-filled from public profiles");
-      if (result) setShowAutofill(false);
+      const result = await run("autoFillPersonaProfile", { ...values, previewOnly: true }, "Persona draft prepared. Save to apply your changes.");
+      if (result) { setAutofillDraft({ ...result, mediaAssets }); setEditVersion(version => version + 1); setShowAutofill(false); }
       else setAutofillError("We couldn’t auto-fill your profile. Your URLs are still here; please try again.");
     } finally { autofillBusy.current = false; setAutoFilling(false); }
   };
   return (
     <div className="persona-page">
       <div className="drift-banner">
-        <div><b>Persona setup</b> - Store one active founder profile. Saving or auto-filling replaces the current profile.</div>
+        <div><b>Persona setup</b> - Store one active founder profile. Save applies your edits to the current profile.</div>
         <span className="badge">Single active profile</span>
       </div>
 
-      <PageIntro title="Persona" description="Your voice, audience and brand references, ready for every creation." art="identity"><span className="last-upd">{persona.updatedAt ? `Updated ${new Date(persona.updatedAt).toLocaleString()}` : "Not saved yet"}</span>
+      <PageIntro title="Persona" description="Your voice, audience and brand references, ready for every creation." art="identity"><span className="last-upd">{data.personaProfile.updatedAt ? `Updated ${new Date(data.personaProfile.updatedAt).toLocaleString()}` : "Not saved yet"}</span>{mode === "preview" && <button type="button" className="primary" onClick={() => setMode("edit")}><Pencil size={16} />Edit persona</button>}
       </PageIntro>
 
-      <div className="persona-mode-bar"><ChoiceButtons label="Persona mode" value={mode} options={[{value:"preview",label:"Preview"},{value:"edit",label:"Edit mode"}]} onChange={value => setMode(value as "preview" | "edit")} /><p>{mode === "preview" ? "Your saved profile, ready to use in your next creation." : "Update your profile, then save to refresh the preview."}</p></div>
+      {mode === "edit" && <p className="persona-edit-notice" role="status"><Pencil size={17} />Editing persona · Save to apply your changes, or cancel to keep your saved profile.</p>}
       <section className="persona-summary">
         <Metric label="Profile completion" value={`${completion}%`} />
         <Metric label="Voice" value={persona.voiceStyle ? "set" : "missing"} />
@@ -717,7 +754,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
 
       {showAutofill && <ContentDialog title="Auto-fill persona" description="Use your public profiles to build your persona. Review the results before creating content." busy={autoFilling} onClose={() => setShowAutofill(false)}>
         <form onSubmit={event => { event.preventDefault(); void autoFill(event.currentTarget); }} className="persona-autofill-form">
-          <p className="autofill-notice">Auto-fill replaces your current persona, including unsaved profile edits.</p>
+          <p className="autofill-notice">Auto-fill updates this draft. Review the results and press Save persona to apply them.</p>
           <fieldset disabled={autoFilling} className="grid two">
             <label>LinkedIn<input name="linkedinUrl" defaultValue={persona.sourceUrls.linkedin} placeholder="linkedin.com/in/yourname" /></label>
             <label>Facebook<input name="facebookUrl" defaultValue={persona.sourceUrls.facebook || ""} placeholder="facebook.com/yourprofile" /></label>
@@ -729,8 +766,8 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
           <div className="dialog-actions"><button type="button" disabled={autoFilling} onClick={() => setShowAutofill(false)}>Cancel</button><button type="submit" className="primary" disabled={autoFilling}>{autoFilling ? <AnimatedDots label="Auto-filling persona" /> : "Auto-fill persona"}</button></div>
         </form>
       </ContentDialog>}
-      {mode === "preview" && <PersonaPreview persona={persona} />}
-      <div hidden={mode !== "edit"}><form key={(persona.updatedAt || "unsaved") + editVersion} action={save} className="persona-setup">
+      {mode === "preview" && <PersonaPreview persona={data.personaProfile} />}
+      <div hidden={mode !== "edit"}><form key={(persona.updatedAt || "unsaved") + editVersion} action={save} className="persona-setup"><fieldset className="persona-edit-fields" disabled={saving || autoFilling}>
         <div className="persona-step-head">
           <h3>Persona setup</h3>
           <span className="badge">Prompt voice source</span>
@@ -784,9 +821,9 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
 
         <div className="persona-footer">
           <span className="muted">Used by research video, image, and text generation prompts.</span>
-          <div className="row-actions"><button type="button" disabled={saving} onClick={() => { setMediaAssets(persona.mediaAssets || []); setEditVersion(version => version + 1); setMode("preview"); }}>Cancel edits</button><button className="primary" type="submit" disabled={saving}><Check size={14} />{saving ? "Saving…" : "Save persona"}</button></div>
+          <div className="row-actions"><button type="button" disabled={saving} onClick={cancelEdits}>Cancel</button><button className="primary" type="submit" disabled={saving}><Check size={14} />{saving ? "Saving…" : "Save persona"}</button></div>
         </div>
-      </form></div>
+      </fieldset></form></div>
     </div>
   );
 }
@@ -795,7 +832,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
   const [searchMode, setSearchMode] = useState<"url" | "keywords">("url");
   const [sortBy, setSortBy] = useState<"views" | "likes" | "date">("views");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [researchView, setResearchView] = useState<"history" | "search" | "results">("history");
+  const [researchView, setResearchView] = useState<"history" | "search" | "results">("search");
   const [resultFilters, setResultFilters] = useState({ minViews: "", maxViews: "", minLikes: "", maxLikes: "" });
   const [searchUrl, setSearchUrl] = useState("");
   const [searchMinViews, setSearchMinViews] = useState("0");
@@ -939,7 +976,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
       <PageIntro title="Research" description="Revisit your saved searches or discover the next idea for your content." art="research">
         <div className="research-navigation">
           {researchView !== "history" && <button onClick={() => { setActiveScanId(null); setResearchView("history"); }}><ArrowLeft size={16} />Research history</button>}
-          <button className="primary" onClick={newSearch} disabled={!!pendingScan}><Plus size={16} />New search</button>
+          {researchView !== "search" && <button className="primary" onClick={newSearch} disabled={!!pendingScan}><Search size={16} />Search</button>}
         </div>
       </PageIntro>
       {researchView === "history" && <section className="research-card research-history">
@@ -989,7 +1026,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
                 void scanUrl(new FormData(form));
               }}
             >
-              <Radar size={14} />{activeScanStatus === "url" ? "Scanning..." : "Scan"}
+              <Search size={14} />{activeScanStatus === "url" ? "Searching..." : "Search"}
             </button>
           </form>
         ) : (
@@ -1737,17 +1774,17 @@ function CreateContentModule({ initial, persona, personaAssets = [], onSubmit, o
         {!usePersona && <p className="muted">Saved persona context and references will not be added. Review any text already in your brief before generating.</p>}
       </section>
       <section className="create-card">
-        <div className="step-label"><span>1</span>Build the brief</div>
+        <div className="optional-brief-heading"><h2>Generate Brief</h2><span className="badge">Optional</span></div>
         <div className="brief-preview">
           <span>{activeInitial.sourceLabel}</span>
           <b>{activeInitial.sourceTitle}</b>
           <p>{activeInitial.sourceDescription}</p>
         </div>
         <div className="source-actions">
-          {allowAiAssist && <button type="button" className="primary" onClick={() => setAiPromptOpen(true)} disabled={aiGenerating}><Sparkles size={14} />Fill fields with AI</button>}
+          {allowAiAssist && <button type="button" className="primary" onClick={() => setAiPromptOpen(true)} disabled={aiGenerating}><Sparkles size={14} />Generate Brief</button>}
           {onUsePlan && <button type="button" className="linkish secondary-plan-link" onClick={onUsePlan}>Load from Content Plan</button>}
         </div>
-        <p className="step-helper">This step only prepares editable prompt, caption, and hashtags. It will not spend generation credits or create a video/image yet.</p>
+        <p className="step-helper">Use AI to prepare a brief, or skip this and write your generation prompt directly below.</p>
         {aiPromptOpen && (
           <div className="ai-plan-box compact">
             <div className="ai-plan-inner">
@@ -1765,7 +1802,7 @@ function CreateContentModule({ initial, persona, personaAssets = [], onSubmit, o
       </section>
 
       <section className="create-card">
-        <div className="step-label"><span>2</span>Choose format, model, and references</div>
+        <div className="step-label">Choose format, model, and references</div>
         <ChoiceButtons label="Primary platform" name="platform" value={platform} options={Array.from(new Set([...platforms, "YouTube"])).map(value => ({value,label:value}))} onChange={value => setPlatform(value as Platform)} />
         <div className="create-type-grid">
           <button type="button" aria-pressed={kind === "video"} className={kind === "video" ? "on" : ""} onClick={() => changeKind("video")}><b>Video</b><span>TikTok, Reels, Shorts</span></button>
@@ -1775,10 +1812,17 @@ function CreateContentModule({ initial, persona, personaAssets = [], onSubmit, o
         <div className="plat-row">
           {placementsForKind(kind).map((label) => <span className="pc on" key={label}><span className="pd" />{label}</span>)}
         </div>
-      </section>
+        <div className="creation-option-group">
+        <div className="clbl">Generation settings</div>
+        <div className="generation-choice-grid">
+          {kind === "video" && <ChoiceButtons label="Duration" name="duration" value={duration} options={durationOptions.map(value => ({value:String(value),label:value + " seconds"}))} onChange={setDuration} />}
+          {kind !== "text" && <ChoiceButtons label="Aspect ratio" name="aspectRatio" value={aspectRatio} options={(kind === "video" ? ["9:16", "16:9"] : ["1:1", "4:5", "16:9", "9:16"]).map(value => ({value,label:value}))} onChange={setAspectRatio} />}
+          {kind === "image" && <ChoiceButtons label="Variants" name="variants" value={variants} options={["1","2","3","4"].map(value => ({value,label:value}))} onChange={setVariants} />}
+          {kind === "text" && <><ChoiceButtons label="Tone" name="tone" value={tone} options={["Practical founder-led","Educational","Contrarian","Executive concise"].map(value => ({value,label:value}))} onChange={setTone} /><ChoiceButtons label="Length" name="length" value={length} options={["Short","Medium","Long"].map(value => ({value,label:value}))} onChange={setLength} /></>}
+        </div>
+        </div>
 
-      <section className="create-card">
-        <div className="clbl">Model - quality vs cost</div>
+        <div className="creation-option-group"><div className="clbl">Model</div>
         <div className="model-options create-model-options">
           {generationModels[kind].map(([value, label, price]) => (
             <button type="button" key={value} aria-pressed={model === value} className={model === value ? "on" : ""} onClick={() => changeModel(value)}>
@@ -1787,28 +1831,19 @@ function CreateContentModule({ initial, persona, personaAssets = [], onSubmit, o
               <span>{price}</span>
             </button>
           ))}
-        </div>
-      </section>
+        </div></div>
 
       {visualAssetsEnabled && (
-        <section className="create-card">
+        <div className="creation-option-group">
           <div className="clbl">Optional reference assets</div>
           <ReferenceAssetPicker personaAssets={usePersona ? personaAssets : []} selectedIds={selectedPersonaAssetIds} onTogglePersona={togglePersonaAsset} uploadRefs={assetRefs} onUploadChange={updateAssetRef} video={kind === "video"} />
-        </section>
-      )}
-
-      <section className="create-card">
-        <div className="clbl">Generation settings</div>
-        <div className="generation-choice-grid">
-          {kind === "video" && <ChoiceButtons label="Duration" name="duration" value={duration} options={durationOptions.map(value => ({value:String(value),label:value + " seconds"}))} onChange={setDuration} />}
-          {kind !== "text" && <ChoiceButtons label="Aspect ratio" name="aspectRatio" value={aspectRatio} options={(kind === "video" ? ["9:16", "16:9"] : ["1:1", "4:5", "16:9", "9:16"]).map(value => ({value,label:value}))} onChange={setAspectRatio} />}
-          {kind === "image" && <ChoiceButtons label="Variants" name="variants" value={variants} options={["1","2","3","4"].map(value => ({value,label:value}))} onChange={setVariants} />}
-          {kind === "text" && <><ChoiceButtons label="Tone" name="tone" value={tone} options={["Practical founder-led","Educational","Contrarian","Executive concise"].map(value => ({value,label:value}))} onChange={setTone} /><ChoiceButtons label="Length" name="length" value={length} options={["Short","Medium","Long"].map(value => ({value,label:value}))} onChange={setLength} /></>}
         </div>
+      )}
       </section>
 
+
       <section className="create-card">
-        <div className="step-label"><span>3</span>Review and generate final asset</div>
+        <div className="step-label">Your content</div>
         <label>Generation prompt<textarea aria-label="Generation prompt" required name="prompt" defaultValue={activeInitial.prompt} /></label>
         <label>Caption<textarea name="caption" defaultValue={activeInitial.caption} /></label>
         <label>Hashtags<input name="hashtags" defaultValue={activeInitial.hashtags} /></label>
@@ -2018,7 +2053,7 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
   const initial = defaultInitial;
   return (
     <div className="create-page">
-      <div className="composer-heading"><div><h2>Create Content</h2><p>Choose your direction, review the brief, and generate.</p></div><button type="button" onClick={() => setScreen("publish")}>Back to My Contents</button></div>
+      <div className="composer-heading"><div><h2>Create Content</h2><p>Choose your direction, write your prompt, and generate.</p></div></div>
       <CreateContentModule
         initial={initial}
         persona={data.personaProfile}
@@ -2064,7 +2099,7 @@ function DramaWorkspacePanel({ src, title, refresh }: { src: string; title: stri
   );
 }
 
-function PublishPanel({ data, run, pendingGeneration, onCreate, composer }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; pendingGeneration: PendingGeneration | null; onCreate: () => void; composer?: ReactNode }) {
+function PublishPanel({ data, run, pendingGeneration, onCreate, onLibrary, composer }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; pendingGeneration: PendingGeneration | null; onCreate: () => void; onLibrary: () => void; composer?: ReactNode }) {
   const [infoItem, setInfoItem] = useState<PublishItem | null>(null);
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [sourcePreview, setSourcePreview] = useState<SourceMediaPreview | null>(null);
@@ -2131,7 +2166,7 @@ function PublishPanel({ data, run, pendingGeneration, onCreate, composer }: { da
       {previewAsset?.assetUrl && <AssetPreviewPanel asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
 
       {infoItem && <ContentInfo item={infoItem} asset={data.assets.find(asset => asset.id === infoItem.assetId)} onClose={() => setInfoItem(null)} />}
-      <PageIntro title="My Contents" description="Create, review and download your Content Creator outputs." art="library">{!composer && <button type="button" className="primary" onClick={onCreate}><Plus size={17} />Create Content</button>}
+      <PageIntro title="My Contents" description="Create, review and download your Content Creator outputs." art="library">{composer ? <button type="button" className="primary" onClick={onLibrary}><ArrowLeft size={17} />My Contents</button> : <button type="button" className="primary" onClick={onCreate}><Plus size={17} />Create Content</button>}
       </PageIntro>
       {generationNotice && <div className="generation-notice">{generationNotice}</div>}
       {composer}
@@ -2179,47 +2214,7 @@ function PublishPanel({ data, run, pendingGeneration, onCreate, composer }: { da
               description: item.caption || asset?.prompt
             }
             : null;
-          const startingProvider = item.status === "generating" && asset?.provider === "kie" && !asset.providerTaskId;
-          return (
-            <article className={`publish-card ${isVideo || isImage ? "with-video" : ""}`} key={item.id}>
-              {isVideo && (
-                <button className={`video-thumb ${videoUrl ? "" : "pending"}`} type="button" disabled={!videoUrl} onClick={() => videoUrl && setPreviewAsset(previewableAsset)}>
-                  {videoUrl ? <video src={videoUrl} muted preload="metadata" playsInline /> : <Film size={22} />}
-                  <span>{videoUrl ? "Preview video" : item.status === "failed" ? "No video generated" : <AnimatedDots label="Generating video" />}</span>
-                </button>
-              )}
-              {!isVideo && isImage && (
-                <button className={`image-thumb ${imageUrl ? "" : "pending"}`} type="button" disabled={!imageUrl} onClick={() => imageUrl && setPreviewAsset({ ...previewableAsset, type: "image" })}>
-                  {imageUrl ? <img src={imageUrl} alt={`${item.title} generated preview`} /> : <Palette size={22} />}
-                  <span>{imageUrl ? "Preview image" : item.status === "failed" ? "No image generated" : <AnimatedDots label="Generating image" />}</span>
-                </button>
-              )}
-              <div className="publish-main">
-                <div className="publish-icon">{item.generationType === "video" ? <Film size={18} /> : item.generationType === "image" ? <Palette size={18} /> : <FileText size={18} />}</div>
-                <div>
-                  <h3>{item.title}</h3>
-                  <p>{item.caption || "No caption yet."}</p>
-                  <div className="publish-tags">
-                    <span>{item.generationType || asset?.type || "draft"}</span>
-                    <span>{item.generationModel || item.provider || "local"}</span>
-                    {item.duration && <span>{item.duration}s</span>}
-                    <span>{new Date(item.createdAt || item.scheduledAt).toLocaleString()}</span>
-                  </div>
-                  {item.hashtags?.length ? <small>{item.hashtags.join(" ")}</small> : null}
-                  {item.status === "generating" && <small className="generation-help">Provider generation is running. You can switch tabs; My Contents will keep polling automatically.</small>}
-                  {sourceMedia && <button type="button" className="asset-link asset-button-link" onClick={() => setSourcePreview(sourceMedia)}><Eye size={14} />View source media</button>}
-                  {videoUrl && <div className="asset-actions"><button type="button" onClick={() => setPreviewAsset(previewableAsset)}><Film size={14} />Play video</button><a className="asset-link" href={`/api/assets/${asset?.id}/download`}>Download MP4</a></div>}
-                  {!isVideo && imageUrl && <button type="button" className="asset-link asset-button-link" onClick={() => setPreviewAsset({ ...previewableAsset, type: "image" })}>Preview image</button>}
-                  {item.error && <span className="provider-error inline">{item.error}</span>}
-                </div>
-              </div>
-              <div className="publish-actions">
-                <button type="button" onClick={() => setInfoItem(item)}><Info size={16} />Info</button>
-                <span className={`status ${item.status}`}>{item.status === "done" ? "Done" : item.status}</span>
-                {item.status === "generating" && <span className="auto-poll"><RefreshCcw size={13} /><AnimatedDots label={startingProvider ? "Starting provider" : "Auto-checking"} /></span>}
-              </div>
-            </article>
-          );
+          return <ContentOutputCard key={item.id} item={item} asset={asset} onPreview={() => setPreviewAsset(previewableAsset)} onInfo={() => setInfoItem(item)} onSource={sourceMedia ? () => setSourcePreview(sourceMedia) : undefined} />;
         })}
         {queue.length === 0 && !pendingGeneration && <div className="empty-state">No content yet. Choose Create Content above to make your first image, video or post.</div>}
       </div>

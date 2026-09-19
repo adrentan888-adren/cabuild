@@ -16,7 +16,7 @@ const fs=require('node:fs');
     const state=await page.evaluate(()=>({document:document.documentElement.scrollWidth,viewport:innerWidth,controls:[...document.querySelectorAll('button,input,select,textarea')].filter(e=>{const r=e.getBoundingClientRect();return r.width>0&&getComputedStyle(e).visibility!=='hidden'&&(r.left < -1 || r.right > innerWidth+1)}).map(e=>({tag:e.tagName,label:e.getAttribute('aria-label')||e.textContent.slice(0,70),right:e.getBoundingClientRect().right}))}));
     let intro=null;if(hasIntro){assert.equal(await page.locator('.page-intro').count(),1,label+' unique intro');intro=await page.locator('.page-intro').boundingBox();assert(intro&&intro.x>=0&&intro.x+intro.width<=width+1,label+' intro bounds');assert.equal(await page.locator('.page-intro .page-artwork').count(),1)}
     if(label==='research'){
-      const history=await page.locator('.research-history').boundingBox();
+      const history=await page.locator('.research-card').first().boundingBox();
       assert(history&&history.x>=0&&history.x+history.width<=width+1,'Research history stays inside viewport');
     }
     checks.push({label,width,...state,intro});fs.writeFileSync('.playwright-mcp/all-pages-style.json',JSON.stringify({checks,errors,blocked},null,2));

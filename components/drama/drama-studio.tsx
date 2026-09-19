@@ -23,6 +23,7 @@ import {
   REUSABLE_ASSET_STORAGE_KEY,
   writeAssetLibrary,
 } from "@/lib/drama/asset-library";
+import { generationFetch, notifyCreditUsage } from "@/lib/credit-refresh";
 import { useKieCredits } from "@/lib/drama/use-kie-credits";
 import {
   configureCombinedEpisodeOwner,
@@ -960,7 +961,14 @@ export default function DramaStudio({
     );
   }, []);
 
+  const previousJobStatus = useRef(new Map<string, string | undefined>());
+  useEffect(() => {
+    if (workflowRecords.some(record => previousJobStatus.current.get(record.id) === "generating" && record.status !== "generating")) notifyCreditUsage();
+    previousJobStatus.current = new Map(workflowRecords.map(record => [record.id, record.status]));
+  }, [workflowRecords]);
+
   const scheduleCreditRefresh = useCallback(() => {
+    notifyCreditUsage();
     if (creditRefreshTimeout.current !== null) {
       window.clearTimeout(creditRefreshTimeout.current);
     }
@@ -1767,7 +1775,7 @@ const markChanged = () => {
         return;
       }
 
-      const response = await fetch("/api/drama/generate/stage", {
+      const response = await generationFetch("/api/drama/generate/stage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1827,7 +1835,7 @@ const markChanged = () => {
   };
 
   const submitMediaTask = async (body: Record<string, unknown>) => {
-    const response = await fetch("/api/drama/generate/media", {
+    const response = await generationFetch("/api/drama/generate/media", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2090,7 +2098,7 @@ const markChanged = () => {
     operationKeys.forEach(key => setStoryOperationBusy(key, true));
     setWorkflowRecords(current => current.map(item => item.id !== recordId ? item : { ...item, snapshot: { ...item.snapshot, episodePlan: item.snapshot.episodePlan.map(episode => targetEpisodeNumbers.has(episode.number) ? { ...episode, promptError: undefined } : episode) } }));
     try {
-      const response = await fetch("/api/drama/generate/stage", {
+      const response = await generationFetch("/api/drama/generate/stage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2501,7 +2509,7 @@ const markChanged = () => {
       window.scrollTo({ top: 0, behavior: "smooth" });
       window.localStorage.removeItem(dramaStorageKey("drama-studio:draft-" + stage));
       try {
-        const response = await fetch("/api/drama/brief-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, stage, sourceId: stage === 2 && draftSourceId ? draftSourceId : undefined, model: chatModel, snapshot }) });
+        const response = await generationFetch("/api/drama/brief-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, stage, sourceId: stage === 2 && draftSourceId ? draftSourceId : undefined, model: chatModel, snapshot }) });
         const payload = await readDramaResponse(response) as { job?: { snapshot: ProductionSnapshot; status: "generating" | "ready" | "failed"; error?: string }; message?: string };
         if (payload.job) {
           setWorkflowRecords(current => current.map(record => record.id === id ? { ...record, ...payload.job, snapshot: stage === 2 && record.status === "ready" && payload.job!.status === "ready" ? record.snapshot : payload.job!.snapshot, serverConfirmedAt: Date.now(), updatedAt: payload.job!.status } : record));
@@ -2522,7 +2530,7 @@ const markChanged = () => {
       let generationNotice = "";
 
       if (activeStep <= 4) {
-        const response = await fetch("/api/drama/generate/stage", {
+        const response = await generationFetch("/api/drama/generate/stage", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

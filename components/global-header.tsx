@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import "./header-credits.css";
+import { CREDIT_REFRESH_EVENT } from "@/lib/credit-refresh";
 import {
   Activity,
   BarChart3,
@@ -67,6 +68,7 @@ export default function GlobalHeader({
   initialWorkspaceCredits,
   onHomeNavigate,
   onNormalNavigate,
+  onBeforeLeave,
 }: {
   activeMode: HeaderWorkspaceMode;
   frontendBaseUrl?: string;
@@ -74,6 +76,7 @@ export default function GlobalHeader({
   initialAccount?: { name: string; email: string; role: string };
   initialWorkspaceCredits?: number;
   onHomeNavigate?: () => void;
+  onBeforeLeave?: () => boolean;
   onNormalNavigate?: (page: string) => void;
 }) {
   const router = useRouter();
@@ -115,7 +118,11 @@ export default function GlobalHeader({
     }
   };
 
-  const refreshCredits = useCallback(async () => {
+  const creditRequestActive = useRef(false);
+  const creditRefreshPending = useRef(false);
+  const refreshCredits = useCallback(async function loadCredits(): Promise<void> {
+    if (creditRequestActive.current) { creditRefreshPending.current = true; return; }
+    creditRequestActive.current = true;
     setLoadingCredits(true);
     try {
       const response = await fetch("/api/account/credits", { cache: "no-store" });
@@ -127,13 +134,22 @@ export default function GlobalHeader({
     } catch {
       setCreditsError(true);
     } finally {
+      creditRequestActive.current = false;
       setLoadingCredits(false);
+      if (creditRefreshPending.current) { creditRefreshPending.current = false; void loadCredits(); }
     }
   }, []);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void refreshCredits(), 0);
     return () => window.clearTimeout(timeout);
+  }, [refreshCredits]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const refreshAfterUsage = () => { clearTimeout(timer); timer = setTimeout(() => void refreshCredits(), 500); };
+    window.addEventListener(CREDIT_REFRESH_EVENT, refreshAfterUsage);
+    return () => { clearTimeout(timer); window.removeEventListener(CREDIT_REFRESH_EVENT, refreshAfterUsage); };
   }, [refreshCredits]);
 
   useEffect(() => {
@@ -197,6 +213,7 @@ export default function GlobalHeader({
     },
   });
   const logout = async () => {
+    if (onBeforeLeave && !onBeforeLeave()) return;
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
     router.refresh();

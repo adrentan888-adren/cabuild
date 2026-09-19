@@ -44,8 +44,7 @@ type AccountSummary = {
 export const normalPages = [
   { id: "persona", label: "Persona", detail: "Voice, audience and brand assets", icon: UserRound },
   { id: "research", label: "Research", detail: "Find proven topics and source content", icon: Radar },
-  { id: "create", label: "Create Content", detail: "Turn an idea into a finished asset", icon: Wand2 },
-  { id: "publish", label: "My Contents", detail: "Review generation progress and outputs", icon: CalendarDays },
+  { id: "publish", label: "My Contents", detail: "Create content and review your outputs", icon: CalendarDays },
   { id: "automation", label: "Automation", detail: "Schedule repeatable content workflows", icon: RefreshCcw },
   { id: "audit", label: "Social Audit", detail: "Understand connected-account performance", icon: BarChart3 },
   { id: "analyse", label: "Analyze", detail: "Track themes, gaps and performance", icon: Activity },
@@ -247,12 +246,11 @@ export default function GlobalHeader({
             </div>
             <div className="global-nav-menu normal-menu" role="menu">
               <div className="global-menu-heading"><span>Content Creator</span><small>Content workflow and operations</small></div>
-              <div className="global-menu-grid">
-                {normalPages.map(({ id, label, detail, icon: Icon }) => (
-                  <Link key={id} href={destination(`/?view=${id}`)} className={`global-menu-item ${activeMode === "normal" && activePage === id ? "active" : ""}`} onClick={(event) => openNormal(id, event)} role="menuitem">
-                    <span><Icon size={14} /></span><span><b>{label}</b><small>{detail}</small></span>
-                  </Link>
-                ))}
+              <div className="drama-menu-columns creator-menu-columns">
+                {[normalPages.filter(page => page.id !== "research" && page.id !== "logs"), normalPages.filter(page => page.id === "research" || page.id === "logs")].map((pages, index) => <div className="drama-menu-column" key={index}>
+                  <span className="drama-menu-column-label">{index === 0 ? "Create & manage" : "Research & logs"}</span>
+                  {pages.map(({ id, label, detail, icon: Icon }) => <Link key={id} href={destination("/?view=" + id)} className={"global-menu-item " + (activeMode === "normal" && activePage === id ? "active" : "")} onClick={event => openNormal(id, event)} role="menuitem"><span><Icon size={14} /></span><span><b>{label}</b><small>{detail}</small></span></Link>)}
+                </div>)}
               </div>
             </div>
           </div>

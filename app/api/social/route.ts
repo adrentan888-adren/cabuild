@@ -1738,7 +1738,7 @@ export async function POST(req: Request) {
     const requestedDuration = requestedFormat.toLowerCase().includes("video") ? closestVideoDuration(body.requestedDuration, requestedModel || "veo-fast") : undefined;
     const workspace = await mutateDb((db) => db.workspaces.find((item) => item.id === workspaceId) || null);
     const niche = workspace?.niche?.trim() || "";
-    const personaContext = await mutateDb((db) => buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId)));
+    const personaContext = body.usePersona === false ? "" : await mutateDb((db) => buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId)));
     const prompt = buildAiBriefPrompt({ idea, niche, requestedFormat, requestedDuration, requestedModel, personaContext });
     await debugLog(workspaceId, {
       action,
@@ -1798,7 +1798,7 @@ export async function POST(req: Request) {
     if (!prompt) return NextResponse.json({ error: "Video prompt is required." }, { status: 400 });
     const { refineTemplate, personaContext } = await mutateDb((db) => ({
       refineTemplate: db.promptTemplates?.researchVideoPromptRefine || "",
-      personaContext: buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId))
+      personaContext: body.usePersona === false ? "" : buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId))
     }));
     const promptWithPersona = appendPersonaContext(prompt, personaContext);
     const fullInstruction = buildFinalVideoPromptInstruction(promptWithPersona, refineTemplate);
@@ -2699,12 +2699,17 @@ export async function POST(req: Request) {
       const model = String(body.generationModel || (generationType === "video" ? "veo-fast" : generationType === "image" ? "gpt-image-2" : "gemini-3.5-flash"));
       const duration = generationType === "video" ? closestVideoDuration(body.duration || brief.duration || defaultDuration(brief.format) || 8, model) : undefined;
       const assetReferences = parseAssetReferences(body.assetReferences);
-      const personaContext = buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId));
+      const selectedPersona = body.usePersona === false ? undefined : db.personaProfiles.find((item) => item.workspaceId === workspaceId);
+      const personaContext = buildPersonaContext(selectedPersona);
       const basePrompt = enrichPromptWithAssetReferences(appendPersonaContext(String(body.prompt || defaultPromptForBrief(brief, generationType)), personaContext), generationType, assetReferences);
       const caption = String(body.caption || defaultCaptionForBrief(brief));
       const hashtags = parseList(body.hashtags || defaultHashtagsForBrief(brief, generationType).join(", "));
       const platform = (String(body.platform || brief.platforms[0] || "TikTok") as Platform);
       const generationSettings = {
+        source: "content-creator",
+        usePersona: body.usePersona !== false,
+        personaName: selectedPersona?.displayName || "",
+        inputPrompt: String(body.prompt || ""),
         aspectRatio: normalizeGenerationAspectRatio(generationType, body.aspectRatio),
         variants: String(body.variants || ""),
         tone: String(body.tone || ""),
@@ -2783,12 +2788,17 @@ export async function POST(req: Request) {
       const assetReferences = parseAssetReferences(body.assetReferences);
       const workspace = db.workspaces.find((entry) => entry.id === workspaceId);
       const context = workspace?.niche?.trim() || "the configured brand";
-      const personaContext = buildPersonaContext(db.personaProfiles.find((item) => item.workspaceId === workspaceId));
+      const selectedPersona = body.usePersona === false ? undefined : db.personaProfiles.find((item) => item.workspaceId === workspaceId);
+      const personaContext = buildPersonaContext(selectedPersona);
       const basePrompt = enrichPromptWithAssetReferences(appendPersonaContext(String(body.prompt || `Create a practical founder-led social post for ${context}.`), personaContext), generationType, assetReferences);
       const caption = String(body.caption || "A practical reminder for SME teams: automate repeatable work first.");
       const hashtags = parseList(body.hashtags || "#SME, #Automation, #AI");
       const platform = (String(body.platform || "TikTok") as Platform);
       const generationSettings = {
+        source: "content-creator",
+        usePersona: body.usePersona !== false,
+        personaName: selectedPersona?.displayName || "",
+        inputPrompt: String(body.prompt || ""),
         aspectRatio: normalizeGenerationAspectRatio(generationType, body.aspectRatio),
         variants: String(body.variants || ""),
         tone: String(body.tone || ""),

@@ -23,6 +23,7 @@ import {
   Lightbulb,
   Megaphone,
   Palette,
+  Info,
   Plus,
   Radar,
   RefreshCcw,
@@ -34,6 +35,10 @@ import {
 } from "lucide-react";
 import PageIntro from "@/components/page-intro";
 import ContentDialog from "@/components/content-dialog";
+import ChoiceButtons from "@/components/choice-buttons";
+import ContentInfo from "@/components/content-info";
+import PersonaPreview from "@/components/persona-preview";
+import { contentCreatorQueue } from "@/lib/content-origin";
 import GlobalHeader from "@/components/global-header";
 import WelcomeHome from "@/components/welcome-home";
 import WorkspaceRail from "@/components/workspace-rail";
@@ -328,9 +333,9 @@ export default function Home() {
   useEffect(() => {
     if (!pendingGeneration || !data?.publishQueue.length) return;
     const pendingStartedAt = pendingGeneration.startedAt - 30000;
-    const hasNewQueueItem = data.publishQueue.some((item) => new Date(item.createdAt || item.scheduledAt).getTime() >= pendingStartedAt);
+    const hasNewQueueItem = contentCreatorQueue(data.publishQueue, data.assets).some((item) => new Date(item.createdAt || item.scheduledAt).getTime() >= pendingStartedAt);
     if (hasNewQueueItem) setPendingGeneration(null);
-  }, [data?.publishQueue, pendingGeneration]);
+  }, [data?.publishQueue, data?.assets, pendingGeneration]);
 
   async function run(action: string, payload: Record<string, unknown> = {}, message = "Updated") {
     try {
@@ -356,7 +361,7 @@ export default function Home() {
         <header className="topbar">
           <GlobalHeader
             activeMode={screen === "home" || screen === "account" || screen === "settings" ? null : "normal"}
-            activePage={screen}
+            activePage={screen === "create" ? "publish" : screen}
             initialAccount={data.user}
             initialWorkspaceCredits={data.workspace.credits}
             onHomeNavigate={() => navigateScreen("home")}
@@ -371,16 +376,15 @@ export default function Home() {
           </section>
         ) : (
           <div className="workspace-content-frame normal-workspace-frame">
-            {screen !== "account" && screen !== "settings" && <WorkspaceRail mode="normal" activePage={screen} onNormalNavigate={navigateScreen} />}
+            {screen !== "account" && screen !== "settings" && <WorkspaceRail mode="normal" activePage={screen === "create" ? "publish" : screen} onNormalNavigate={navigateScreen} />}
             <section className="panel active">
               {screen === "research" && directCreateInitial && (
-                <ResearchInlineEditor key={directCreateInitial.sourceResultId || directCreateInitial.sourceTitle} initial={directCreateInitial} personaAssets={data.personaProfile.mediaAssets || []} run={run} onClose={() => setDirectCreateInitial(null)} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} />
+                <ResearchInlineEditor key={directCreateInitial.sourceResultId || directCreateInitial.sourceTitle} initial={directCreateInitial} persona={data.personaProfile} personaAssets={data.personaProfile.mediaAssets || []} run={run} onClose={() => setDirectCreateInitial(null)} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} />
               )}
               {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
               {screen === "persona" && <PersonaPanel data={data} run={run} />}
               {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={(initial) => { setDirectCreateInitial(initial); window.setTimeout(() => document.getElementById("research-inline-editor")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0); }} />}
-              {screen === "create" && <CreateContentPanel data={data} run={run} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} />}
-              {screen === "publish" && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} />}
+              {(screen === "create" || screen === "publish") && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} onCreate={() => navigateScreen("create")} composer={screen === "create" ? <CreateContentPanel data={data} run={run} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} /> : undefined} />}
               {screen === "drama" && <DramaWorkspacePanel src="/drama-studio" title="Drama Studio" refresh={refresh} />}
               {screen === "asset-library" && <DramaWorkspacePanel src="/drama-studio/assets" title="Asset Library" refresh={refresh} />}
               {screen === "automation" && <AutomationPanel data={data} run={run} />}
@@ -646,6 +650,9 @@ function PersonaMediaLibrary({ assets, onChange }: { assets: PersonaMediaAsset[]
 }
 
 function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any> }) {
+  const [mode, setMode] = useState<"preview" | "edit">("preview");
+  const [editVersion, setEditVersion] = useState(0);
+  const [saving, setSaving] = useState(false);
   const [showAutofill, setShowAutofill] = useState(false);
   const [autoFilling, setAutoFilling] = useState(false);
   const [autofillError, setAutofillError] = useState("");
@@ -669,7 +676,11 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
   const completion = Math.round((completionChecks.filter(Boolean).length / completionChecks.length) * 100);
   const save = async (form: FormData) => {
     form.set("mediaAssets", JSON.stringify(mediaAssets));
-    await run("updatePersonaProfile", Object.fromEntries(form.entries()), "Persona saved");
+    setSaving(true);
+    try {
+      const result = await run("updatePersonaProfile", Object.fromEntries(form.entries()), "Persona saved");
+      if (result) setMode("preview");
+    } finally { setSaving(false); }
   };
   const autoFill = async (form: HTMLFormElement) => {
     if (autofillBusy.current) return;
@@ -697,6 +708,7 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
       <PageIntro title="Persona" description="Your voice, audience and brand references, ready for every creation." art="identity"><span className="last-upd">{persona.updatedAt ? `Updated ${new Date(persona.updatedAt).toLocaleString()}` : "Not saved yet"}</span>
       </PageIntro>
 
+      <div className="persona-mode-bar"><ChoiceButtons label="Persona mode" value={mode} options={[{value:"preview",label:"Preview"},{value:"edit",label:"Edit mode"}]} onChange={value => setMode(value as "preview" | "edit")} /><p>{mode === "preview" ? "Your saved profile, ready to use in your next creation." : "Update your profile, then save to refresh the preview."}</p></div>
       <section className="persona-summary">
         <Metric label="Profile completion" value={`${completion}%`} />
         <Metric label="Voice" value={persona.voiceStyle ? "set" : "missing"} />
@@ -717,7 +729,8 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
           <div className="dialog-actions"><button type="button" disabled={autoFilling} onClick={() => setShowAutofill(false)}>Cancel</button><button type="submit" className="primary" disabled={autoFilling}>{autoFilling ? <AnimatedDots label="Auto-filling persona" /> : "Auto-fill persona"}</button></div>
         </form>
       </ContentDialog>}
-      <form key={persona.updatedAt || "unsaved"} action={save} className="persona-setup">
+      {mode === "preview" && <PersonaPreview persona={persona} />}
+      <div hidden={mode !== "edit"}><form key={(persona.updatedAt || "unsaved") + editVersion} action={save} className="persona-setup">
         <div className="persona-step-head">
           <h3>Persona setup</h3>
           <span className="badge">Prompt voice source</span>
@@ -771,9 +784,9 @@ function PersonaPanel({ data, run }: { data: AppData; run: (a: string, p?: Recor
 
         <div className="persona-footer">
           <span className="muted">Used by research video, image, and text generation prompts.</span>
-          <button className="primary" type="submit"><Check size={14} />Save persona</button>
+          <div className="row-actions"><button type="button" disabled={saving} onClick={() => { setMediaAssets(persona.mediaAssets || []); setEditVersion(version => version + 1); setMode("preview"); }}>Cancel edits</button><button className="primary" type="submit" disabled={saving}><Check size={14} />{saving ? "Saving…" : "Save persona"}</button></div>
         </div>
-      </form>
+      </form></div>
     </div>
   );
 }
@@ -903,7 +916,7 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
     }
   };
   const generateContentFromResearch = (item: CompetitorResult) => {
-    setDirectCreateInitial(createInitialFromResearchResult(item, data.promptTemplates, data.personaProfile));
+    setDirectCreateInitial(createInitialFromResearchResult(item, data.promptTemplates));
   };
   const openSourcePreview = (item: CompetitorResult) => {
     setSourcePreview({
@@ -918,25 +931,26 @@ function IntelligencePanel({ data, run, refresh, setDirectCreateInitial }: { dat
   };
   const selectedActor = researchActors.find((item) => item.id === actorSource);
   const selectedContentType = availableContentTypes.find((item) => item.id === contentType);
+  const historyScans = data.researchScans.filter(scan => scan.status !== "failed");
   const scanLabel = (scanItem: AppData["researchScans"][number]) => scanItem.query || (scanItem.url.startsWith("keyword:") ? scanItem.url.split("|")[0].replace("keyword:", "") : scanItem.url);
   return (
     <div className="research-page">
       {sourcePreview && <SourceMediaPreviewPanel source={sourcePreview} onClose={() => setSourcePreview(null)} />}
       <PageIntro title="Research" description="Revisit your saved searches or discover the next idea for your content." art="research">
         <div className="research-navigation">
-          {researchView !== "history" && <button onClick={() => { setActiveScanId(null); setResearchView("history"); }}><ArrowLeft size={16} />Search history</button>}
+          {researchView !== "history" && <button onClick={() => { setActiveScanId(null); setResearchView("history"); }}><ArrowLeft size={16} />Research history</button>}
           <button className="primary" onClick={newSearch} disabled={!!pendingScan}><Plus size={16} />New search</button>
         </div>
       </PageIntro>
       {researchView === "history" && <section className="research-card research-history">
-        <div className="research-head"><div><h2>Search history</h2><p>Open a search to see its original query, filters and saved results.</p></div><button onClick={() => void refresh()}><RefreshCcw size={16} />Refresh history</button></div>
+        <div className="research-head"><div><h2>Research history</h2><p>Open a search to see its original query, filters and saved results.</p></div><button onClick={() => void refresh()}><RefreshCcw size={16} />Refresh history</button></div>
         <div className="research-history-list">
-          {[...data.researchScans].sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(scan => <button key={scan.id} className="research-history-entry" onClick={() => openScan(scan.id)}>
+          {[...historyScans].sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(scan => <button key={scan.id} className="research-history-entry" onClick={() => openScan(scan.id)}>
             <span className="history-entry-icon"><Search size={20} /></span>
             <span className="history-entry-main"><b>{scanLabel(scan)}</b><span>{scan.query || scan.url.startsWith("keyword:") ? "Keyword search" : "URL search"} · {scan.dimensions?.actorSources?.join(", ") || scan.platform} · {new Date(scan.createdAt).toLocaleString()}</span><small>{scan.resultIds.length} saved results · Minimum {compact(scan.minViews)} views</small></span>
-            <span className={"history-entry-status " + (scan.status || "done")}>{scan.status === "running" ? "Searching" : scan.status === "failed" ? "Failed" : "Completed"}</span><ArrowRight size={18} />
+            {scan.status === "running" && <span className="history-entry-status running">Searching</span>}<ArrowRight size={18} />
           </button>)}
-          {!data.researchScans.length && <div className="empty-state"><h3>Your research starts here</h3><p>Search by URL or keywords. Your searches and results will appear here.</p><button className="primary" onClick={newSearch}>Start a search</button></div>}
+          {!historyScans.length && <div className="empty-state"><h3>Your research starts here</h3><p>Search by URL or keywords. Your searches and results will appear here.</p><button className="primary" onClick={newSearch}>Start a search</button></div>}
         </div>
       </section>}
       {researchView === "results" && activeScan && <section className="research-card saved-search-summary">
@@ -1574,13 +1588,20 @@ function BriefPanel({ data, run, setScreen, pendingPlan, setPendingGeneration }:
   );
 }
 
-function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate", busyLabel = "Sending to Publish", allowAiAssist = false }: { initial: CreateContentInitial; personaAssets?: PersonaMediaAsset[]; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string; busyLabel?: string; allowAiAssist?: boolean }) {
+function CreateContentModule({ initial, persona, personaAssets = [], onSubmit, onCancel, onUsePlan, onStart, submitLabel = "Generate", busyLabel = "Sending to Publish", allowAiAssist = false }: { initial: CreateContentInitial; persona?: PersonaProfile; personaAssets?: PersonaMediaAsset[]; onSubmit: (payload: Record<string, unknown>) => Promise<void>; onCancel?: () => void; onUsePlan?: () => void; onStart?: (generation: PendingGeneration) => void; submitLabel?: string; busyLabel?: string; allowAiAssist?: boolean }) {
   const [activeInitial, setActiveInitial] = useState<CreateContentInitial>(initial);
   const [formVersion, setFormVersion] = useState(0);
   const [kind, setKind] = useState<GenerationKind>(initial.kind);
   const [model, setModel] = useState<string>(initial.model || generationModels[initial.kind][0][0]);
   const [duration, setDuration] = useState(closestDuration(initial.duration || 8, durationOptionsForModel(initial.model || generationModels[initial.kind][0][0])));
   const [platform, setPlatform] = useState<Platform>(initial.platform || defaultPlatformForKind(initial.kind));
+  const [usePersona, setUsePersona] = useState(true);
+  const [aspectRatio, setAspectRatio] = useState(initial.aspectRatio || "9:16");
+  const [tone, setTone] = useState("Practical founder-led");
+  const [length, setLength] = useState("Medium");
+  const [variants, setVariants] = useState("1");
+  const [submitError, setSubmitError] = useState("");
+  const submitBusy = useRef(false);
   const [busy, setBusy] = useState(false);
   const [aiPromptOpen, setAiPromptOpen] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
@@ -1597,6 +1618,7 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
     setActiveInitial(next);
     setKind(next.kind);
     setModel(nextModel);
+    setAspectRatio(next.aspectRatio || (next.kind === "image" ? "4:5" : "9:16"));
     setPlatform(next.platform || defaultPlatformForKind(next.kind));
     setDuration(closestDuration(next.duration || 8, durationOptionsForModel(nextModel)));
     setFormVersion((value) => value + 1);
@@ -1615,6 +1637,7 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
   const changeKind = (next: GenerationKind) => {
     const nextModel = generationModels[next][0][0];
     setKind(next);
+    setAspectRatio(next === "image" ? "4:5" : "9:16");
     setModel(nextModel);
     setPlatform(defaultPlatformForKind(next));
     setDuration(closestDuration(activeInitial.duration || 8, durationOptionsForModel(nextModel)));
@@ -1647,7 +1670,8 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
     try {
       const draft = await post("generateBriefWithAi", {
         idea,
-        requestedFormat: preferredFormatForKind(kind, activeInitial.aspectRatio),
+        usePersona,
+        requestedFormat: preferredFormatForKind(kind, aspectRatio),
         requestedDuration: kind === "video" ? duration : undefined,
         requestedModel: model
       }) as PlanDraft;
@@ -1662,6 +1686,9 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
     }
   };
   const submit = async (form: FormData) => {
+    if (submitBusy.current) return;
+    submitBusy.current = true;
+    setSubmitError("");
     setBusy(true);
     try {
       const selectedPlatform = String(form.get("platform") || platform || defaultPlatformForKind(kind));
@@ -1672,12 +1699,13 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
         model,
         startedAt: Date.now()
       });
-      const personaRefs = personaAssets.filter((asset) => selectedPersonaAssetIds.includes(asset.id)).map(personaAssetToReference);
+      const personaRefs = personaAssets.filter((asset) => usePersona && selectedPersonaAssetIds.includes(asset.id)).map(personaAssetToReference);
       const cleanRefs = visualAssetsEnabled ? [...personaRefs, ...await uploadAssetReferences(assetRefs)] : [];
       const promptWithDuration = withSelectedVideoDuration(String(form.get("prompt") || ""), kind, duration);
       const prompt = enrichPromptForSocialConversion(promptWithDuration, kind, cleanRefs);
       await onSubmit({
         platform: selectedPlatform,
+        usePersona,
         prompt,
         caption: String(form.get("caption") || ""),
         hashtags: String(form.get("hashtags") || ""),
@@ -1690,12 +1718,24 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
         generationModel: model,
         duration: kind === "video" ? duration : undefined
       });
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Could not queue content. Your edits are still here.");
     } finally {
+      submitBusy.current = false;
       setBusy(false);
     }
   };
   return (
     <form key={formVersion} onSubmit={(event) => { event.preventDefault(); void submit(new FormData(event.currentTarget)); }} className="generation-form create-generation-form">
+      <fieldset className="creation-fields" disabled={busy || aiGenerating}>
+      <section className="create-card creation-persona">
+        <h2>Choose a persona</h2><p className="muted">Select your saved voice and references, or create without a persona.</p>
+        <div className="persona-choice-grid">
+          <button type="button" aria-pressed={usePersona} className={usePersona ? "on" : ""} onClick={() => setUsePersona(true)}><UserRound size={22} /><span><b>{persona?.displayName || "Saved persona"}</b><small>{[persona?.role, persona?.company].filter(Boolean).join(" · ") || "Use saved voice and audience"}</small></span></button>
+          <button type="button" aria-pressed={!usePersona} className={!usePersona ? "on" : ""} onClick={() => { setUsePersona(false); setSelectedPersonaAssetIds([]); }}><Sparkles size={22} /><span><b>No persona</b><small>Use only your brief and chosen uploads</small></span></button>
+        </div>
+        {!usePersona && <p className="muted">Saved persona context and references will not be added. Review any text already in your brief before generating.</p>}
+      </section>
       <section className="create-card">
         <div className="step-label"><span>1</span>Build the brief</div>
         <div className="brief-preview">
@@ -1726,21 +1766,11 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
 
       <section className="create-card">
         <div className="step-label"><span>2</span>Choose format, model, and references</div>
-        <div className="modal-grid">
-          <label>Content type<select value={kind} onChange={(event) => changeKind(event.target.value as GenerationKind)}>
-            <option value="video">Video</option>
-            <option value="image">Image</option>
-            <option value="text">Text post</option>
-          </select></label>
-          <label>Primary platform<select name="platform" value={platform} onChange={(event) => setPlatform(event.target.value as Platform)}>
-            {platforms.map((platform) => <option key={platform} value={platform}>{platform}</option>)}
-            <option value="YouTube">YouTube</option>
-          </select></label>
-        </div>
+        <ChoiceButtons label="Primary platform" name="platform" value={platform} options={Array.from(new Set([...platforms, "YouTube"])).map(value => ({value,label:value}))} onChange={value => setPlatform(value as Platform)} />
         <div className="create-type-grid">
-          <button type="button" className={kind === "video" ? "on" : ""} onClick={() => changeKind("video")}><b>Video</b><span>TikTok, Reels, Shorts</span></button>
-          <button type="button" className={kind === "image" ? "on" : ""} onClick={() => changeKind("image")}><b>Image</b><span>Instagram, LinkedIn, Facebook</span></button>
-          <button type="button" className={kind === "text" ? "on" : ""} onClick={() => changeKind("text")}><b>Text post</b><span>LinkedIn, X, Threads</span></button>
+          <button type="button" aria-pressed={kind === "video"} className={kind === "video" ? "on" : ""} onClick={() => changeKind("video")}><b>Video</b><span>TikTok, Reels, Shorts</span></button>
+          <button type="button" aria-pressed={kind === "image"} className={kind === "image" ? "on" : ""} onClick={() => changeKind("image")}><b>Image</b><span>Instagram, LinkedIn, Facebook</span></button>
+          <button type="button" aria-pressed={kind === "text"} className={kind === "text" ? "on" : ""} onClick={() => changeKind("text")}><b>Text post</b><span>LinkedIn, X, Threads</span></button>
         </div>
         <div className="plat-row">
           {placementsForKind(kind).map((label) => <span className="pc on" key={label}><span className="pd" />{label}</span>)}
@@ -1751,7 +1781,7 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
         <div className="clbl">Model - quality vs cost</div>
         <div className="model-options create-model-options">
           {generationModels[kind].map(([value, label, price]) => (
-            <button type="button" key={value} className={model === value ? "on" : ""} onClick={() => changeModel(value)}>
+            <button type="button" key={value} aria-pressed={model === value} className={model === value ? "on" : ""} onClick={() => changeModel(value)}>
               <span className="mcard-dot" />
               <b>{label}</b>
               <span>{price}</span>
@@ -1763,39 +1793,26 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
       {visualAssetsEnabled && (
         <section className="create-card">
           <div className="clbl">Optional reference assets</div>
-          <ReferenceAssetPicker personaAssets={personaAssets} selectedIds={selectedPersonaAssetIds} onTogglePersona={togglePersonaAsset} uploadRefs={assetRefs} onUploadChange={updateAssetRef} video={kind === "video"} />
+          <ReferenceAssetPicker personaAssets={usePersona ? personaAssets : []} selectedIds={selectedPersonaAssetIds} onTogglePersona={togglePersonaAsset} uploadRefs={assetRefs} onUploadChange={updateAssetRef} video={kind === "video"} />
         </section>
       )}
 
       <section className="create-card">
         <div className="clbl">Generation settings</div>
-        <div className="modal-grid">
-          {kind === "video" && (
-            <>
-              <label>Duration (seconds)<select name="duration" value={duration} onChange={(event) => setDuration(event.target.value)}>{durationOptions.map((option) => <option key={option} value={option}>{option} seconds</option>)}</select></label>
-              <label>Aspect ratio<select name="aspectRatio" defaultValue={activeInitial.aspectRatio === "16:9" ? "16:9" : "9:16"}><option value="9:16">9:16 vertical</option><option value="16:9">16:9 landscape</option></select></label>
-            </>
-          )}
-          {kind === "image" && (
-            <>
-              <label>Image dimension<select name="aspectRatio" defaultValue={activeInitial.aspectRatio || "4:5"}><option value="1:1">1:1 square</option><option value="4:5">4:5 portrait</option><option value="16:9">16:9 landscape</option><option value="9:16">9:16 vertical</option></select></label>
-              <label>Variants<input name="variants" type="number" min="1" max="4" defaultValue="1" /></label>
-            </>
-          )}
-          {kind === "text" && (
-            <>
-              <label>Tone<select name="tone" defaultValue="Practical founder-led"><option>Practical founder-led</option><option>Educational</option><option>Contrarian</option><option>Executive concise</option></select></label>
-              <label>Length<select name="length" defaultValue="Medium"><option>Short</option><option>Medium</option><option>Long</option></select></label>
-            </>
-          )}
+        <div className="generation-choice-grid">
+          {kind === "video" && <ChoiceButtons label="Duration" name="duration" value={duration} options={durationOptions.map(value => ({value:String(value),label:value + " seconds"}))} onChange={setDuration} />}
+          {kind !== "text" && <ChoiceButtons label="Aspect ratio" name="aspectRatio" value={aspectRatio} options={(kind === "video" ? ["9:16", "16:9"] : ["1:1", "4:5", "16:9", "9:16"]).map(value => ({value,label:value}))} onChange={setAspectRatio} />}
+          {kind === "image" && <ChoiceButtons label="Variants" name="variants" value={variants} options={["1","2","3","4"].map(value => ({value,label:value}))} onChange={setVariants} />}
+          {kind === "text" && <><ChoiceButtons label="Tone" name="tone" value={tone} options={["Practical founder-led","Educational","Contrarian","Executive concise"].map(value => ({value,label:value}))} onChange={setTone} /><ChoiceButtons label="Length" name="length" value={length} options={["Short","Medium","Long"].map(value => ({value,label:value}))} onChange={setLength} /></>}
         </div>
       </section>
 
       <section className="create-card">
         <div className="step-label"><span>3</span>Review and generate final asset</div>
-        <label>Generation prompt<textarea name="prompt" defaultValue={activeInitial.prompt} /></label>
+        <label>Generation prompt<textarea aria-label="Generation prompt" required name="prompt" defaultValue={activeInitial.prompt} /></label>
         <label>Caption<textarea name="caption" defaultValue={activeInitial.caption} /></label>
         <label>Hashtags<input name="hashtags" defaultValue={activeInitial.hashtags} /></label>
+        {submitError && <p className="provider-error" role="alert">{submitError}</p>}
         <div className="ftrow">
           <div>Selected: <b>{model}</b></div>
           <div className="row-actions">
@@ -1804,6 +1821,7 @@ function CreateContentModule({ initial, personaAssets = [], onSubmit, onCancel, 
           </div>
         </div>
       </section>
+      </fieldset>
     </form>
   );
 }
@@ -1890,7 +1908,7 @@ function useInlineFocus(identity: unknown) {
   return ref;
 }
 
-function ResearchInlineEditor({ initial, personaAssets, run, onClose, setScreen, setPendingGeneration }: { initial: CreateContentInitial; personaAssets: PersonaMediaAsset[]; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onClose: () => void; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
+function ResearchInlineEditor({ initial, persona, personaAssets, run, onClose, setScreen, setPendingGeneration }: { initial: CreateContentInitial; persona?: PersonaProfile; personaAssets: PersonaMediaAsset[]; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; onClose: () => void; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
   const editorRef = useInlineFocus(initial);
   const [promptReview, setPromptReview] = useState<{ videoPrompt: string } | null>(null);
   const [pendingPayload, setPendingPayload] = useState<Record<string, unknown> | null>(null);
@@ -1976,19 +1994,19 @@ function ResearchInlineEditor({ initial, personaAssets, run, onClose, setScreen,
           </div>
         )}
         <div hidden={Boolean(promptReview)}>
-          <CreateContentModule initial={initial} personaAssets={personaAssets} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing your prompt" : "Sending to Publish"} onSubmit={prepareGeneration} />
+          <CreateContentModule initial={initial} persona={persona} personaAssets={personaAssets} onCancel={onClose} submitLabel="Generate" busyLabel={initial.kind === "video" ? "Preparing your prompt" : "Sending to Publish"} onSubmit={prepareGeneration} />
         </div>
       </section>
     </div>
   );
 }
 
-function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
+function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<any>; setScreen: (screen: string) => void; setPendingGeneration: (generation: PendingGeneration | null) => void }) {
   const context = data.workspace.niche?.trim() || "your brand";
   const defaultInitial: CreateContentInitial = {
     sourceLabel: "Direct generation",
     sourceTitle: "Generate from scratch",
-    sourceDescription: "Use this to create a new asset directly. All outputs are sent to Publish after generation starts.",
+    sourceDescription: "Use this to create a new asset directly. Your outputs stay in My Contents after generation starts.",
     kind: "video",
     duration: 8,
     aspectRatio: "9:16",
@@ -2000,19 +2018,15 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
   const initial = defaultInitial;
   return (
     <div className="create-page">
-      <PageIntro title="Create Content" description="Bring an idea to life as an image, video or text, using your own voice and references." art="create"><span className="page-intro-note">Generated outputs appear in <b>My Contents</b>.</span></PageIntro>
+      <div className="composer-heading"><div><h2>Create Content</h2><p>Choose your direction, review the brief, and generate.</p></div><button type="button" onClick={() => setScreen("publish")}>Back to My Contents</button></div>
       <CreateContentModule
         initial={initial}
+        persona={data.personaProfile}
         personaAssets={data.personaProfile.mediaAssets || []}
         allowAiAssist
-        onStart={(generation) => {
-          flushSync(() => {
-            setPendingGeneration(generation);
-            setScreen("publish");
-          });
-        }}
+        onCancel={() => setScreen("publish")}
         onSubmit={async (payload) => {
-          await run("generateDirectContent", {
+          const result = await run("generateDirectContent", {
             ...payload,
             sourceResultId: initial.sourceResultId,
             sourceUrl: initial.sourceUrl,
@@ -2022,6 +2036,8 @@ function CreateContentPanel({ data, run, setScreen, setPendingGeneration }: { da
             sourceMediaType: initial.sourceMediaType
           }, "Generation queued in Publish");
           setPendingGeneration(null);
+          if (!result) throw new Error("Could not queue content. Your edits are still here; please try again.");
+          setScreen("publish");
         }}
       />
     </div>
@@ -2048,7 +2064,8 @@ function DramaWorkspacePanel({ src, title, refresh }: { src: string; title: stri
   );
 }
 
-function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; pendingGeneration: PendingGeneration | null }) {
+function PublishPanel({ data, run, pendingGeneration, onCreate, composer }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; pendingGeneration: PendingGeneration | null; onCreate: () => void; composer?: ReactNode }) {
+  const [infoItem, setInfoItem] = useState<PublishItem | null>(null);
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [sourcePreview, setSourcePreview] = useState<SourceMediaPreview | null>(null);
   const [generationNotice, setGenerationNotice] = useState("");
@@ -2058,7 +2075,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
     runRef.current = run;
   }, [run]);
 
-  const queue = [...data.publishQueue].sort((a, b) => new Date(b.createdAt || b.scheduledAt).getTime() - new Date(a.createdAt || a.scheduledAt).getTime());
+  const queue = [...contentCreatorQueue(data.publishQueue, data.assets)].sort((a, b) => new Date(b.createdAt || b.scheduledAt).getTime() - new Date(a.createdAt || a.scheduledAt).getTime());
   const startIds = queue
     .map((item) => {
       const asset = data.assets.find((entry) => entry.id === item.assetId);
@@ -2102,7 +2119,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
         return;
       }
       notifiedRef.current.add(item.id);
-      setGenerationNotice(item.status === "done" ? `${item.title} is ready in Publish.` : `${item.title} failed. Open Logs for the provider error.`);
+      setGenerationNotice(item.status === "done" ? `${item.title} is ready in My Contents.` : `${item.title} failed. Open Logs for the provider error.`);
     });
     if (!generationNotice) return;
     const timer = window.setTimeout(() => setGenerationNotice(""), 7000);
@@ -2113,10 +2130,12 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
       {sourcePreview && <SourceMediaPreviewPanel source={sourcePreview} onClose={() => setSourcePreview(null)} />}
       {previewAsset?.assetUrl && <AssetPreviewPanel asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
 
-      <PageIntro title="My Contents" description="Review your creations, check generation progress and download finished outputs." art="library"><Metric label="Done drafts" value={queue.filter((item) => item.status === "done").length} />
+      {infoItem && <ContentInfo item={infoItem} asset={data.assets.find(asset => asset.id === infoItem.assetId)} onClose={() => setInfoItem(null)} />}
+      <PageIntro title="My Contents" description="Create, review and download your Content Creator outputs." art="library">{!composer && <button type="button" className="primary" onClick={onCreate}><Plus size={17} />Create Content</button>}
       </PageIntro>
       {generationNotice && <div className="generation-notice">{generationNotice}</div>}
-      <div className="publish-list">
+      {composer}
+      <div className="publish-list" hidden={Boolean(composer)}>
         {pendingGeneration && (
           <article className="publish-card with-video pending-publish-card">
             <div className="image-thumb pending">
@@ -2148,6 +2167,7 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
           const isImage = item.generationType === "image" || asset?.type === "image" || asset?.type === "carousel";
           const videoUrl = isVideo ? item.assetUrl || asset?.assetUrl : "";
           const imageUrl = isImage ? item.assetUrl || asset?.assetUrl : "";
+          const previewableAsset: Asset = { id: item.assetId, workspaceId: item.workspaceId, briefId: "", title: item.title, type: isImage ? "image" : "video", status: "ready", progress: 100, createdAt: item.createdAt || item.scheduledAt, ...asset, assetUrl: videoUrl || imageUrl || asset?.assetUrl };
           const sourceMedia: SourceMediaPreview | null = item.sourceUrl || item.sourceThumbnailUrl || item.sourceMediaUrl || asset?.sourceUrl || asset?.sourceThumbnailUrl || asset?.sourceMediaUrl
             ? {
               title: item.sourceTitle || asset?.sourceTitle || item.title,
@@ -2163,13 +2183,13 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
           return (
             <article className={`publish-card ${isVideo || isImage ? "with-video" : ""}`} key={item.id}>
               {isVideo && (
-                <button className={`video-thumb ${videoUrl ? "" : "pending"}`} type="button" disabled={!videoUrl} onClick={() => asset?.assetUrl && setPreviewAsset(asset)}>
+                <button className={`video-thumb ${videoUrl ? "" : "pending"}`} type="button" disabled={!videoUrl} onClick={() => videoUrl && setPreviewAsset(previewableAsset)}>
                   {videoUrl ? <video src={videoUrl} muted preload="metadata" playsInline /> : <Film size={22} />}
-                  <span>{videoUrl ? "Preview video" : <AnimatedDots label="Generating video" />}</span>
+                  <span>{videoUrl ? "Preview video" : item.status === "failed" ? "No video generated" : <AnimatedDots label="Generating video" />}</span>
                 </button>
               )}
               {!isVideo && isImage && (
-                <button className={`image-thumb ${imageUrl ? "" : "pending"}`} type="button" disabled={!imageUrl} onClick={() => asset && imageUrl && setPreviewAsset({ ...asset, assetUrl: imageUrl, type: "image" })}>
+                <button className={`image-thumb ${imageUrl ? "" : "pending"}`} type="button" disabled={!imageUrl} onClick={() => imageUrl && setPreviewAsset({ ...previewableAsset, type: "image" })}>
                   {imageUrl ? <img src={imageUrl} alt={`${item.title} generated preview`} /> : <Palette size={22} />}
                   <span>{imageUrl ? "Preview image" : item.status === "failed" ? "No image generated" : <AnimatedDots label="Generating image" />}</span>
                 </button>
@@ -2186,21 +2206,22 @@ function PublishPanel({ data, run, pendingGeneration }: { data: AppData; run: (a
                     <span>{new Date(item.createdAt || item.scheduledAt).toLocaleString()}</span>
                   </div>
                   {item.hashtags?.length ? <small>{item.hashtags.join(" ")}</small> : null}
-                  {item.status === "generating" && <small className="generation-help">Provider generation is running. You can switch tabs; Publish will keep polling automatically.</small>}
+                  {item.status === "generating" && <small className="generation-help">Provider generation is running. You can switch tabs; My Contents will keep polling automatically.</small>}
                   {sourceMedia && <button type="button" className="asset-link asset-button-link" onClick={() => setSourcePreview(sourceMedia)}><Eye size={14} />View source media</button>}
-                  {videoUrl && <div className="asset-actions"><button type="button" onClick={() => asset && setPreviewAsset(asset)}><Film size={14} />Play video</button><a className="asset-link" href={`/api/assets/${asset?.id}/download`}>Download MP4</a></div>}
-                  {!isVideo && imageUrl && asset && <button type="button" className="asset-link asset-button-link" onClick={() => setPreviewAsset({ ...asset, assetUrl: imageUrl, type: "image" })}>Preview image</button>}
+                  {videoUrl && <div className="asset-actions"><button type="button" onClick={() => setPreviewAsset(previewableAsset)}><Film size={14} />Play video</button><a className="asset-link" href={`/api/assets/${asset?.id}/download`}>Download MP4</a></div>}
+                  {!isVideo && imageUrl && <button type="button" className="asset-link asset-button-link" onClick={() => setPreviewAsset({ ...previewableAsset, type: "image" })}>Preview image</button>}
                   {item.error && <span className="provider-error inline">{item.error}</span>}
                 </div>
               </div>
               <div className="publish-actions">
+                <button type="button" onClick={() => setInfoItem(item)}><Info size={16} />Info</button>
                 <span className={`status ${item.status}`}>{item.status === "done" ? "Done" : item.status}</span>
                 {item.status === "generating" && <span className="auto-poll"><RefreshCcw size={13} /><AnimatedDots label={startingProvider ? "Starting provider" : "Auto-checking"} /></span>}
               </div>
             </article>
           );
         })}
-        {queue.length === 0 && !pendingGeneration && <div className="empty-state">No generated drafts yet. Use Research or Create Content to create the first item.</div>}
+        {queue.length === 0 && !pendingGeneration && <div className="empty-state">No content yet. Choose Create Content above to make your first image, video or post.</div>}
       </div>
 
     </div>
@@ -2241,28 +2262,14 @@ function SourceMediaPreviewPanel({ source, onClose }: { source: SourceMediaPrevi
 }
 
 function AssetPreviewPanel({ asset, onClose }: { asset: Asset; onClose: () => void }) {
-  const previewRef = useInlineFocus(asset);
+  const [unavailable, setUnavailable] = useState(false);
   const isImage = asset.type === "image" || asset.type === "carousel";
-  useEffect(() => { document.querySelector(".inline-preview")?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [asset]);
-  const downloadLabel = isImage ? "Download image" : "Download MP4";
-  return (
-    <div ref={previewRef} tabIndex={-1} className="inline-preview" aria-label="Media preview">
-      <section className="video-player-modal">
-        <div className="modal-head">
-          <div>
-            <div className="clbl">{isImage ? "Image Preview" : "Video Preview"}</div>
-            <h3>{asset.title}</h3>
-          </div>
-          <button type="button" className="icon-btn" aria-label="Close media preview" onClick={onClose}>x</button>
-        </div>
-        {isImage ? <img className="asset-preview-image" src={asset.assetUrl} alt={`${asset.title} generated preview`} /> : <video src={asset.assetUrl} controls autoPlay playsInline />}
-        <div className="modal-actions">
-          <a className="asset-link" href={`/api/assets/${asset.id}/download`}>{downloadLabel}</a>
-          <button type="button" onClick={onClose}>Close</button>
-        </div>
-      </section>
-    </div>
-  );
+  return <ContentDialog title={isImage ? "Image preview" : "Video preview"} description={asset.title} onClose={onClose}>
+    <section className="source-media-popup">
+      {unavailable ? <div className="source-media-empty"><b>Preview could not be loaded</b><span>You can still try downloading the original file.</span></div> : isImage ? <img className="asset-preview-image" src={asset.assetUrl} alt={asset.title} onError={() => setUnavailable(true)} /> : <video src={asset.assetUrl} controls autoPlay playsInline onError={() => setUnavailable(true)} />}
+      <div className="modal-actions"><a className="asset-link" href={"/api/assets/" + asset.id + "/download"}>{isImage ? "Download image" : "Download MP4"}</a><button type="button" onClick={onClose}>Close</button></div>
+    </section>
+  </ContentDialog>;
 }
 function AnalyticsPanel({ data }: { data: AppData }) {
   return <div className="insights-page"><PageIntro title="Analyze" description="Explore your workspace counts and opportunity scores. The forecast below is a demonstration value." art="research" /><div className="grid three"><Metric label="Example engagement forecast" value="4.8%" /><Metric label="Published posts" value={data.publishQueue.filter((p) => p.status === "published").length} /><Metric label="Avg gap score" value={Math.round(data.opportunities.reduce((sum, item) => sum + item.gapScore, 0) / Math.max(1, data.opportunities.length))} /><PanelCard title="Feedback loop"><p>Published assets retain their originating brief, template, platform, and score so future recommendations can learn from performance results.</p></PanelCard></div></div>;

@@ -314,40 +314,28 @@
 .generation-choice-grid[data-video="true"] .duration-slider input[type="range"] { height:44px; min-height:44px; margin:0; }
 .generation-choice-grid[data-video="true"] .duration-slider label { line-height:21px; }
 .generation-choice-grid[data-video="true"] .duration-slider>div { align-items:center; line-height:18px; }
-/* Library controls use the same sage surfaces and stronger labels as the creator. */
-.normal-workspace-frame .content-library-filters { gap:18px; padding:22px; border:1px solid #cbd9bf; border-radius:18px; background:linear-gradient(125deg,#eef4e6,#fafbf5 75%); box-shadow:0 3px 12px #435b2f06; }
-.creator-library-heading { display:flex; align-items:center; gap:12px; }
-.creator-library-emblem { display:grid; place-items:center; width:40px; height:40px; flex-shrink:0; border:1px solid #c7d6b9; border-radius:12px; background:#e2ecd6; color:#526e3e; }
-.creator-library-heading h2 { font-size:16px; line-height:1.4; font-weight:700; color:#344d2a; margin:0; }
-.creator-library-heading p { margin:3px 0 0; font-size:12px; color:#5e7052; }
-.creator-library-count { margin-left:auto; padding:6px 10px; border:1px solid #d2dfc7; border-radius:20px; background:#ffffffa6; color:#526448; font-size:12px; white-space:nowrap; }
-.creator-library-toolbar { display:grid; grid-template-columns:minmax(230px,1.35fr) repeat(3,minmax(0,1fr)); gap:12px; }
-.normal-workspace-frame :is(.creator-library-search,.creator-library-select) { min-width:0; height:82px; margin:0; padding:12px 14px; border:1px solid #cbd9bf; border-radius:13px; background:#ffffffb8; color:#47603a; transition:border-color .15s,background .15s,box-shadow .15s; }
-.normal-workspace-frame :is(.creator-library-search,.creator-library-select):hover { border-color:#90a87a; background:#fffefb; }
-.normal-workspace-frame :is(.creator-library-search,.creator-library-select):focus-within { border-color:#647f4f; box-shadow:0 0 0 3px #78965b24; }
-.normal-workspace-frame .creator-library-search { gap:12px; }
-.creator-library-search>svg { flex-shrink:0; width:34px; height:34px; padding:8px; border-radius:50%; background:#eaf1e2; color:#5d7749; }
-.normal-workspace-frame .creator-library-search input { background:transparent; border:0; box-shadow:none; font-size:14px; color:#354c2b; }
-.creator-library-search input::placeholder { color:#5e7052; }
-.normal-workspace-frame .creator-library-select { display:grid; grid-template-rows:18px 32px; gap:4px; }
-.creator-library-select>span { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:700; letter-spacing:.04em; color:#5e7052; }
-.normal-workspace-frame .creator-library-select select { width:100%; min-width:0; height:32px; min-height:32px; padding:0 22px 0 0; border:0; border-radius:0; background:transparent; color:#354f28; font-size:14px; font-weight:650; cursor:pointer; }
-.creator-library-select>svg { right:14px; bottom:19px; color:#789065; }
-.normal-workspace-frame .creator-library-select[data-active="true"] { background:#e6efd9; border-color:#8da878; }
-.creator-library-select[data-active="true"]>span { color:#506d3a; }
-.creator-library-summary { padding-top:12px; border-top:1px solid #d6e1cd; color:#5e7052; }
-.normal-workspace-frame .creator-library-summary button { padding:5px 10px; border-radius:8px; color:#4d683b; font-size:12px; font-weight:600; }
-.normal-workspace-frame .creator-library-summary button:hover { background:#e1ecd5; }
-@media(max-width:1100px) {
- .creator-library-toolbar { grid-template-columns:repeat(3,minmax(0,1fr)); }
- .creator-library-search { grid-column:1/-1; }
-}
+/* Compact library layout with dropdown menus in the Creator palette. */
+.normal-workspace-frame .creation-aspect-ratio .choice-buttons button { font-size:22px; font-weight:650; line-height:1.3; }
+.normal-workspace-frame .creator-library-search { background:#fffefb; }
+.creator-library-search input::placeholder { color:#657064; }
+.creator-filter-dropdown { position:relative; flex:0 1 auto; min-width:165px; }
+.normal-workspace-frame .creator-filter-trigger { display:flex; align-items:center; gap:8px; width:100%; min-height:44px; padding:10px 12px; border:1px solid #cdd6c7; border-radius:9px; background:#fffefb; color:#3f5735; text-align:left; font:inherit; font-size:13px; cursor:pointer; }
+.creator-filter-label { color:#657064; font-size:12px; }
+.creator-filter-value { flex:1; font-weight:600; white-space:nowrap; }
+.creator-filter-trigger>svg { flex-shrink:0; color:#526448; }
+.normal-workspace-frame .creator-filter-trigger:hover { background:#f3f6ed; border-color:#91a47f; }
+.normal-workspace-frame .creator-filter-trigger:focus-visible { outline:2px solid #526448; outline-offset:3px; }
+.creator-filter-dropdown[data-active="true"] .creator-filter-trigger,.creator-filter-trigger[aria-expanded="true"] { border-color:#91a47f; background:#edf2e7; }
+.creator-filter-menu { position:absolute; z-index:30; top:calc(100% + 6px); left:0; width:100%; margin:0; padding:5px; list-style:none; overflow-y:auto; overscroll-behavior:contain; border:1px solid #cdd6c7; border-radius:10px; background:#fffefb; color:#3f5735; box-shadow:0 8px 24px #29332d1a; }
+.creator-filter-menu[data-above="true"] { top:auto; bottom:calc(100% + 6px); }
+.creator-filter-menu [role="option"] { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:44px; padding:10px; border-radius:6px; font-size:13px; line-height:1.4; cursor:pointer; }
+.creator-filter-menu [role="option"][aria-selected="true"] { background:#e8efdf; color:#354e2f; font-weight:600; }
+.creator-filter-menu [role="option"][data-highlighted="true"] { background:#edf2e7; outline:1px solid #91a47f; outline-offset:-1px; }
+.creator-filter-menu [role="option"] svg { flex-shrink:0; }
+.creator-library-summary { color:#657064; }
 @media(max-width:600px) {
- .normal-workspace-frame .content-library-filters { padding:16px; gap:16px; }
- .creator-library-heading { flex-wrap:wrap; }
- .creator-library-count { margin-left:52px; }
- .creator-library-toolbar { grid-template-columns:minmax(0,1fr); gap:10px; }
- .normal-workspace-frame .creator-library-search input,.normal-workspace-frame .creator-library-select select { font-size:16px; }
+ .creator-filter-dropdown { flex:1 1 100%; min-width:0; }
+ .normal-workspace-frame .creator-filter-trigger { font-size:14px; }
 }
 @media(max-width:760px) {
  .content-output-card .content-output-media { height:200px; min-height:200px; max-height:200px; }

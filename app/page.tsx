@@ -15,7 +15,6 @@ import {
   Bug,
   CalendarDays,
   Clock3,
-  ChevronDown,
   SlidersHorizontal,
   Cpu,
   ImageIcon,
@@ -44,6 +43,7 @@ import ContentDialog from "@/components/content-dialog";
 import ChoiceButtons, { AspectRatioIcon } from "@/components/choice-buttons";
 import PlatformIcon from "@/components/platform-icon";
 import ContentInfo from "@/components/content-info";
+import CreatorFilterSelect from "@/components/creator-filter-select";
 import ContentOutputCard from "@/components/content-output-card";
 import CreationAssets from "@/components/creation-assets";
 import PersonaPreview from "@/components/persona-preview";
@@ -2201,14 +2201,13 @@ function PublishPanel({ data, run, pendingGeneration, onCreate, onLibrary, compo
       {generationNotice && <div className="generation-notice">{generationNotice}</div>}
       {composer}
       {!composer && <section className="content-library-filters" aria-label="Filter and sort contents">
-        <div className="creator-library-heading"><span className="creator-library-emblem"><SlidersHorizontal size={19} /></span><div><h2>Filter &amp; sort</h2><p>Find content to share.</p></div><span className="creator-library-count" aria-live="polite">{visibleQueue.length} of {queue.length} contents</span></div>
         <div className="creator-library-toolbar">
           <label className="creator-library-search"><Search size={16} /><input type="search" aria-label="Search contents" placeholder="Search contents" value={search} onChange={event => setSearch(event.target.value)} /></label>
-          <label className="creator-library-select" data-active={typeFilter !== "all"}><span><Film size={14} />Media type</span><select aria-label="Media type" value={typeFilter} onChange={event => setTypeFilter(event.target.value)}><option value="all">All media</option><option value="video">Video</option><option value="image">Image</option><option value="text">Text</option></select><ChevronDown size={14} /></label>
-          <label className="creator-library-select" data-active={statusFilter !== "all"}><span><SlidersHorizontal size={14} />Status</span><select aria-label="Status" value={statusFilter} onChange={event => setStatusFilter(event.target.value)}>{["all","generating","done","failed","draft","scheduled","published"].map(value => <option key={value} value={value}>{value === "all" ? "All statuses" : value === "done" ? "Ready" : value.charAt(0).toUpperCase() + value.slice(1)}</option>)}</select><ChevronDown size={14} /></label>
-          <label className="creator-library-select" data-active={sort !== "newest"}><span><ArrowDown size={14} />Sort by</span><select aria-label="Sort contents" value={sort} onChange={event => setSort(event.target.value)}><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="title">Title A–Z</option><option value="title-desc">Title Z–A</option></select><ChevronDown size={14} /></label>
+          <CreatorFilterSelect label="Type" accessibleLabel="Media type" value={typeFilter} defaultValue="all" onChange={setTypeFilter} options={[{ value:"all", label:"All media" }, { value:"video", label:"Video" }, { value:"image", label:"Image" }, { value:"text", label:"Text" }]} />
+          <CreatorFilterSelect label="Filter" accessibleLabel="Status" value={statusFilter} defaultValue="all" onChange={setStatusFilter} options={["all","generating","done","failed","draft","scheduled","published"].map(value => ({ value, label:value === "all" ? "All statuses" : value === "done" ? "Ready" : value.charAt(0).toUpperCase() + value.slice(1) }))} />
+          <CreatorFilterSelect label="Sort" accessibleLabel="Sort contents" value={sort} defaultValue="newest" onChange={setSort} options={[{ value:"newest", label:"Newest" }, { value:"oldest", label:"Oldest" }, { value:"title", label:"Title A–Z" }, { value:"title-desc", label:"Title Z–A" }]} />
         </div>
-        <div className="creator-library-summary"><span>Refine your library</span><button type="button" className="linkish" onClick={() => { setSearch(""); setTypeFilter("all"); setStatusFilter("all"); setSort("newest"); }}>Reset</button></div>
+        <div className="creator-library-summary"><span aria-live="polite">{visibleQueue.length} of {queue.length} contents</span><button type="button" className="linkish" onClick={() => { setSearch(""); setTypeFilter("all"); setStatusFilter("all"); setSort("newest"); }}>Reset</button></div>
       </section>}
       <div className="publish-list" hidden={Boolean(composer)}>
         {pendingGeneration && (

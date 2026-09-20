@@ -15,6 +15,7 @@ import {
   Bug,
   CalendarDays,
   Clock3,
+  ChevronDown,
   SlidersHorizontal,
   Cpu,
   ImageIcon,
@@ -1845,7 +1846,7 @@ function CreateContentModule({ initial, persona, personaAssets = [], onSubmit, o
         <div className="clbl"><SlidersHorizontal size={19} />Generation settings</div>
         <div className="generation-choice-grid">
           {kind === "video" && <fieldset className="creation-duration"><legend>Duration</legend>{model === "veo-fast" ? <div className="fixed-duration"><Clock3 size={20} /><b>8 seconds</b><span>Veo Fast</span><input type="hidden" name="duration" value="8" /></div> : <div className="duration-slider"><label htmlFor="creation-duration"><Clock3 size={18} />Video length <output>{duration} seconds</output></label><input id="creation-duration" aria-label="Duration in seconds" type="range" name="duration" min="4" max="15" step="1" value={duration} onChange={event => setDuration(event.target.value)} /><div><span>4 seconds</span><span>15 seconds</span></div></div>}</fieldset>}
-          {kind !== "text" && <ChoiceButtons label="Aspect ratio" name="aspectRatio" value={aspectRatio} options={(kind === "video" ? ["9:16", "16:9"] : ["1:1", "4:5", "16:9", "9:16"]).map(value => ({value,label:value,icon:<AspectRatioIcon value={value} />}))} onChange={setAspectRatio} />}
+          {kind !== "text" && <div className="creation-aspect-ratio"><ChoiceButtons label="Aspect ratio" name="aspectRatio" value={aspectRatio} options={(kind === "video" ? ["9:16", "16:9"] : ["1:1", "4:5", "16:9", "9:16"]).map(value => ({value,label:value,icon:<AspectRatioIcon value={value} />}))} onChange={setAspectRatio} /></div>}
           {kind === "image" && <ChoiceButtons label="Variants" name="variants" value={variants} options={["1","2","3","4"].map(value => ({value,label:value}))} onChange={setVariants} />}
           {kind === "text" && <><ChoiceButtons label="Tone" name="tone" value={tone} options={["Practical founder-led","Educational","Contrarian","Executive concise"].map(value => ({value,label:value}))} onChange={setTone} /><ChoiceButtons label="Length" name="length" value={length} options={["Short","Medium","Long"].map(value => ({value,label:value}))} onChange={setLength} /></>}
         </div>
@@ -2200,10 +2201,13 @@ function PublishPanel({ data, run, pendingGeneration, onCreate, onLibrary, compo
       {generationNotice && <div className="generation-notice">{generationNotice}</div>}
       {composer}
       {!composer && <section className="content-library-filters" aria-label="Filter and sort contents">
-        <div className="library-search-row"><label><Search size={18} /><input type="search" aria-label="Search contents" placeholder="Search title, caption, platform or model" value={search} onChange={event => setSearch(event.target.value)} /></label><span aria-live="polite">{visibleQueue.length} of {queue.length} contents</span><button type="button" onClick={() => { setSearch(""); setTypeFilter("all"); setStatusFilter("all"); setSort("newest"); }}>Reset</button></div>
-        <ChoiceButtons label="Media type" value={typeFilter} options={[{value:"all",label:"All"},{value:"video",label:"Video",icon:<Film size={16} />},{value:"image",label:"Image",icon:<ImageIcon size={16} />},{value:"text",label:"Text",icon:<FileText size={16} />}]} onChange={setTypeFilter} />
-        <ChoiceButtons label="Status" value={statusFilter} options={["all","generating","done","failed","draft","scheduled","published"].map(value => ({value,label:value === "all" ? "All" : value === "done" ? "Ready" : value.charAt(0).toUpperCase() + value.slice(1)}))} onChange={setStatusFilter} />
-        <ChoiceButtons label="Sort contents" value={sort} options={[{value:"newest",label:"Newest",icon:<ArrowDown size={16} />},{value:"oldest",label:"Oldest",icon:<ArrowUp size={16} />},{value:"title",label:"Title A–Z",icon:<ArrowUp size={16} />},{value:"title-desc",label:"Title Z–A",icon:<ArrowDown size={16} />}]} onChange={setSort} />
+        <div className="creator-library-toolbar">
+          <label className="creator-library-search"><Search size={16} /><input type="search" aria-label="Search contents" placeholder="Search contents" value={search} onChange={event => setSearch(event.target.value)} /></label>
+          <label className="creator-library-select"><span>Type</span><select aria-label="Media type" value={typeFilter} onChange={event => setTypeFilter(event.target.value)}><option value="all">All media</option><option value="video">Video</option><option value="image">Image</option><option value="text">Text</option></select><ChevronDown size={14} /></label>
+          <label className="creator-library-select"><span>Filter</span><select aria-label="Status" value={statusFilter} onChange={event => setStatusFilter(event.target.value)}>{["all","generating","done","failed","draft","scheduled","published"].map(value => <option key={value} value={value}>{value === "all" ? "All statuses" : value === "done" ? "Ready" : value.charAt(0).toUpperCase() + value.slice(1)}</option>)}</select><ChevronDown size={14} /></label>
+          <label className="creator-library-select"><span>Sort</span><select aria-label="Sort contents" value={sort} onChange={event => setSort(event.target.value)}><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="title">Title A–Z</option><option value="title-desc">Title Z–A</option></select><ChevronDown size={14} /></label>
+        </div>
+        <div className="creator-library-summary"><span aria-live="polite">{visibleQueue.length} of {queue.length} contents</span><button type="button" className="linkish" onClick={() => { setSearch(""); setTypeFilter("all"); setStatusFilter("all"); setSort("newest"); }}>Reset</button></div>
       </section>}
       <div className="publish-list" hidden={Boolean(composer)}>
         {pendingGeneration && (

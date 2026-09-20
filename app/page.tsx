@@ -32,6 +32,7 @@ import {
   Plus,
   Radar,
   RefreshCcw,
+  RotateCcw,
   Search,
   Settings,
   Sparkles,
@@ -2205,9 +2206,11 @@ function PublishPanel({ data, run, pendingGeneration, onCreate, onLibrary, compo
           <label className="creator-library-search"><Search size={16} /><input type="search" aria-label="Search contents" placeholder="Search contents" value={search} onChange={event => setSearch(event.target.value)} /></label>
           <CreatorFilterSelect label="Type" accessibleLabel="Media type" value={typeFilter} defaultValue="all" onChange={setTypeFilter} options={[{ value:"all", label:"All media" }, { value:"video", label:"Video" }, { value:"image", label:"Image" }, { value:"text", label:"Text" }]} />
           <CreatorFilterSelect label="Filter" accessibleLabel="Status" value={statusFilter} defaultValue="all" onChange={setStatusFilter} options={["all","generating","done","failed","draft","scheduled","published"].map(value => ({ value, label:value === "all" ? "All statuses" : value === "done" ? "Ready" : value.charAt(0).toUpperCase() + value.slice(1) }))} />
-          <CreatorFilterSelect label="Sort" accessibleLabel="Sort contents" value={sort} defaultValue="newest" onChange={setSort} options={[{ value:"newest", label:"Newest" }, { value:"oldest", label:"Oldest" }, { value:"title", label:"Title A–Z" }, { value:"title-desc", label:"Title Z–A" }]} />
+          <div className="creator-library-sort">
+            <CreatorFilterSelect label="Sort" accessibleLabel="Sort contents" value={sort} defaultValue="newest" onChange={setSort} options={[{ value:"newest", label:"Newest" }, { value:"oldest", label:"Oldest" }, { value:"title", label:"Title A–Z" }, { value:"title-desc", label:"Title Z–A" }]} />
+            <button type="button" className="creator-library-reset" aria-label="Reset" title="Reset search and filters" onClick={() => { setSearch(""); setTypeFilter("all"); setStatusFilter("all"); setSort("newest"); }}><RotateCcw size={17} aria-hidden="true" /></button>
+          </div>
         </div>
-        <div className="creator-library-summary"><span aria-live="polite">{visibleQueue.length} of {queue.length} contents</span><button type="button" className="linkish" onClick={() => { setSearch(""); setTypeFilter("all"); setStatusFilter("all"); setSort("newest"); }}>Reset</button></div>
       </section>}
       <div className="publish-list" hidden={Boolean(composer)}>
         {pendingGeneration && (

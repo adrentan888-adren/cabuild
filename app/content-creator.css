@@ -336,9 +336,13 @@
 .creator-filter-menu [role="option"][aria-selected="true"] { background:#e8efdf; color:#354e2f; font-weight:600; }
 .creator-filter-menu [role="option"][data-highlighted="true"] { background:#edf2e7; outline:1px solid #91a47f; outline-offset:-1px; }
 .creator-filter-menu [role="option"] svg { flex-shrink:0; }
-.creator-library-summary { color:#657064; }
+.creator-library-sort { display:flex; align-items:center; gap:10px; margin-left:auto; min-width:0; }
+.normal-workspace-frame .creator-library-reset { display:grid; place-items:center; flex:0 0 44px; width:44px; height:44px; padding:0; border:1px solid #cdd6c7; border-radius:9px; background:#fffefb; color:#526448; }
+.normal-workspace-frame .creator-library-reset:hover { background:#f3f6ed; border-color:#91a47f; }
+.normal-workspace-frame .creator-library-reset:focus-visible { outline:2px solid #526448; outline-offset:3px; }
 @media(max-width:600px) {
  .creator-filter-dropdown { flex:1 1 100%; min-width:0; }
+ .creator-library-sort { flex:1 1 100%; }
  .normal-workspace-frame .creator-filter-trigger { font-size:14px; }
 }
 @media(max-width:760px) {

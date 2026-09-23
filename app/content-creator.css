@@ -352,3 +352,74 @@
  .content-output-actions { gap:4px; }
  .content-output-footer .icon-btn { width:40px; height:40px; }
 }
+/* Automation follows the Creator library and full-page editing patterns. */
+.automation-library-toolbar { display:flex; flex-wrap:wrap; gap:12px; }
+.automation-library .automation-list-card { display:grid; grid-template-columns:52px minmax(0,1fr); gap:20px; }
+.automation-list-icon { display:grid; place-items:center; width:52px; height:52px; border:1px solid #cddcc0; border-radius:14px; color:#526448; background:#edf2e7; }
+.automation-list-main { min-width:0; }
+.automation-row-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
+.normal-workspace-frame .automation-title { min-height:0; padding:0; background:none; border:0; color:#344b2c; text-align:left; font-size:20px; font-weight:650; line-height:1.4; overflow-wrap:anywhere; }
+.automation-row-heading h3 { margin:0; color:#344b2c; overflow-wrap:anywhere; }
+.automation-list-main>p { color:#657064; line-height:1.6; }
+.automation-list-meta { display:grid; gap:8px; color:#657064; font-size:13px; }
+.automation-list-meta span,.automation-review-status { display:flex; align-items:center; gap:7px; }
+.automation-card-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-top:20px; padding-top:16px; border-top:1px solid #d5dfce; }
+.automation-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.normal-workspace-frame .automation-library button:not(.primary,.automation-title,.automation-media),.normal-workspace-frame .automation-editor button:not(.primary,.on) { color:#526448; border-color:#cdd6c7; background:#fffefb; }
+.normal-workspace-frame .automation-library button:focus-visible,.normal-workspace-frame .automation-editor button:focus-visible { outline-color:#526448; }
+.automation-switch>span { position:relative; width:30px; height:18px; border-radius:20px; background:#d7ded1; border:1px solid #afbea3; }
+.automation-switch>span:after { content:""; position:absolute; width:12px; height:12px; border-radius:50%; background:#fffefb; top:2px; left:2px; }
+.automation-switch[aria-checked="true"]>span { background:#526448; border-color:#526448; }
+.automation-switch[aria-checked="true"]>span:after { left:14px; }
+.automation-detail-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+.automation-library h2 { display:flex; align-items:center; gap:10px; }
+.automation-library dl { display:grid; gap:5px; margin:18px 0; font-size:14px; }
+.automation-library dt { color:#657064; font-size:12px; font-weight:650; margin-top:9px; }
+.automation-library dd { margin:0; color:#344b2c; overflow-wrap:anywhere; white-space:pre-wrap; line-height:1.6; }
+.automation-instructions p,.automation-run details p { white-space:pre-wrap; overflow-wrap:anywhere; }
+.automation-instructions a { overflow-wrap:anywhere; }
+.automation-reference-preview { display:flex; flex-wrap:wrap; gap:12px; }
+.automation-reference-preview>div { display:grid; gap:8px; width:170px; padding:10px; background:#f3f6ed; border:1px solid #d5dfce; border-radius:10px; }
+.automation-reference-preview img { width:100%; height:120px; object-fit:contain; }
+.automation-reference-preview audio { max-width:100%; }
+.automation-history { display:grid; gap:14px; }
+.automation-output { display:grid; grid-template-columns:190px minmax(0,1fr); gap:22px; padding:22px; border:1px solid #d5dfce; border-radius:15px; background:#fffefb; }
+.normal-workspace-frame .automation-media { position:relative; height:230px; padding:0; overflow:hidden; border:1px solid #d5dfce; border-radius:12px; background:#edf2e7; color:#526448; display:grid; place-items:center; }
+.automation-media img,.automation-media video { height:100%; width:100%; object-fit:cover; }
+.automation-media span { position:absolute; bottom:0; left:0; right:0; padding:10px; background:#344b2ce8; color:#fff; font-size:12px; }
+.automation-review-status { color:#405f30; font-size:14px; font-weight:600; }
+.automation-output small { display:block; color:#657064; line-height:1.6; }
+.automation-output .automation-actions { margin-top:14px; }
+.automation-download { display:inline-flex; align-items:center; gap:7px; min-height:44px; color:#526448; padding:8px 12px; }
+.automation-output-info { margin-top:18px; padding-top:12px; border-top:1px solid #d5dfce; }
+.automation-output summary,.automation-run summary { color:#526448; cursor:pointer; min-height:36px; }
+.automation-library .content-dialog img,.automation-library .content-dialog video { display:block; max-height:60vh; max-width:100%; margin:auto; }
+.automation-editor .automation-tabs button { display:flex; flex-wrap:wrap; justify-content:flex-start; text-align:left; gap:8px; font-size:16px; }
+.automation-tabs button span { flex-basis:100%; color:#657064; font-size:13px; line-height:1.6; }
+.automation-select { margin-top:6px; }
+.automation-select .creator-filter-dropdown { width:100%; min-width:0; }
+.automation-select .creator-filter-value { white-space:normal; overflow-wrap:anywhere; }
+.automation-select .creator-filter-label:empty { display:none; }
+.normal-workspace-frame .automation-editor .automation-select .creator-filter-trigger { min-height:48px; font-size:14px; }
+.automation-select .creator-filter-menu { min-width:100%; }
+.automation-editor .card { overflow:visible; }
+.automation-editor .automation-builder { border:0; padding:0; }
+.automation-editor .modal-grid { align-items:start; }
+@media(max-width:760px) {
+ .automation-detail-grid { grid-template-columns:minmax(0,1fr); }
+ .automation-library .automation-list-card { grid-template-columns:minmax(0,1fr); padding:20px; }
+ .automation-output { grid-template-columns:110px minmax(0,1fr); gap:14px; padding:16px; }
+ .automation-row-heading { flex-wrap:wrap; gap:8px; }
+ .automation-output .automation-row-heading h3 { font-size:17px; }
+ .automation-card-footer { align-items:flex-start; }
+}
+@media(max-width:420px) {
+ .automation-output { grid-template-columns:minmax(0,1fr); }
+ .normal-workspace-frame .automation-media { height:210px; }
+ .automation-editor .card { padding:18px; }
+}
+
+.automation-field>span { display:block; color:#526448; font-size:13px; }
+.automation-duration { min-width:0; }
+.automation-instructions a { color:#526448; text-underline-offset:3px; }
+.automation-delete { margin-top:12px; }

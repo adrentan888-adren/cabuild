@@ -1,3 +1,5 @@
+import { nextScheduledRun } from "@/lib/automation-schedule";
+import { runScheduledAutomation } from "@/lib/automation-runner";
 import { NextRequest, NextResponse } from "next/server";
 import { id, mutateDb } from "@/lib/store";
 import type { Asset, AutomationSourceRun, AutomationSourceWatcher, CompetitorResult, Database, GenerationAssetReference, Platform, PublishItem } from "@/lib/types";
@@ -53,8 +55,7 @@ function nextAutomationRunAt(frequency: AutomationSourceWatcher["frequency"], po
 
 function closestVideoDuration(value: unknown, model: string, fallback = 8) {
   const requested = Number(value || fallback);
-  const options = model === "seedance-2.0" ? [5, 10, 15] : [8];
-  return options.reduce((best, option) => Math.abs(option - requested) < Math.abs(best - requested) ? option : best, options[0]);
+  return model === "seedance-2.0" ? Math.max(4,Math.min(15,Math.round(Number.isFinite(requested)?requested:fallback))) : 8;
 }
 
 function isKieImageModel(model: string) {
@@ -116,7 +117,6 @@ function sourceWatcherDuplicate(watcher: AutomationSourceWatcher, candidate: Sou
     ...(db.automationSourceRuns || []).filter((item) => item.workspaceId === watcher.workspaceId).map((item) => ({ id: item.id, title: item.selectedTitle || "", text: [item.selectedTitle, item.selectedUrl, item.selectionReason].join("\n"), url: item.selectedUrl || "", createdAt: item.completedAt || item.startedAt })),
     ...(db.publishQueue || []).filter((item) => item.workspaceId === watcher.workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt, item.caption].join("\n"), url: item.sourceUrl || "", createdAt: item.createdAt || item.scheduledAt })),
     ...(db.assets || []).filter((item) => item.workspaceId === watcher.workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt].join("\n"), url: item.sourceUrl || "", createdAt: item.createdAt })),
-    ...(db.competitorResults || []).filter((item) => item.workspaceId === watcher.workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.description].join("\n"), url: item.url, createdAt: item.capturedAt || item.publishedAt }))
   ].filter((item) => !item.createdAt || new Date(item.createdAt).getTime() >= cutoff);
   let best = { score: 0, title: "", id: "", reason: "No duplicate found." };
   for (const item of history) {
@@ -191,7 +191,7 @@ async function sendToUploadPost(item: PublishItem, asset?: Asset) {
   if (asset?.assetUrl && (item.generationType === "image" || asset.type === "image")) {
     return publishPhotoPost({ title: item.title, description, platform: item.platform, photoUrl: asset.assetUrl });
   }
-  if (asset?.assetUrl) return publishVideoPost({ title: item.title, description, platform: item.platform, videoUrl: asset.assetUrl });
+  if (asset?.assetUrl && asset.type!=="text") return publishVideoPost({ title: item.title, description, platform: item.platform, videoUrl: asset.assetUrl });
   return publishTextPost({ title: item.title, description, platform: item.platform });
 }
 
@@ -203,6 +203,9 @@ async function log(workspaceId: string, entry: { action: string; label: string; 
 }
 
 async function autoPublishItem(workspaceId: string, item: PublishItem, asset?: Asset) {
+  const claimed=await mutateDb(db=>{const row=db.publishQueue.find(entry=>entry.id===item.id&&entry.workspaceId===workspaceId);if(!row||row.status==="published"||row.publishingStartedAt||row.approvalStatus==="pending"||row.approvalStatus==="rejected")return false;row.publishingStartedAt=new Date().toISOString();return true;});
+  if(!claimed)return;
+  try {
   await log(workspaceId, { action: "automationRunDue", label: `Automation publishing to Upload-Post: ${item.title}`, status: "started", provider: "upload-post", prompt: publishDescription(item, asset), details: { publishId: item.id, platform: item.platform, generationType: item.generationType } });
   const upload = await sendToUploadPost(item, asset);
   await mutateDb((db) => {
@@ -215,6 +218,10 @@ async function autoPublishItem(workspaceId: string, item: PublishItem, asset?: A
     db.activity.push({ id: id("act"), workspaceId, message: `Automation auto-published "${current.title}" through Upload-Post.`, createdAt: new Date().toISOString() });
   });
   await log(workspaceId, { action: "automationRunDue", label: `Automation Upload-Post accepted: ${item.title}`, status: "success", provider: "upload-post", details: { requestId: upload.request_id, jobId: upload.job_id } });
+  } catch(error) {
+    await mutateDb(db=>{const row=db.publishQueue.find(entry=>entry.id===item.id&&entry.workspaceId===workspaceId);if(row){row.status="failed";row.error=error instanceof Error?error.message:"Publishing failed. Check Logs before retrying.";}});
+    throw error;
+  }
 }
 
 async function pollReadyGenerations(limit = 10) {
@@ -225,9 +232,12 @@ async function pollReadyGenerations(limit = 10) {
         const asset = db.assets.find((asset) => asset.id === item.assetId && asset.workspaceId === item.workspaceId);
         const watcherId = String((item.generationSettings?.sourceWatcherId || asset?.generationSettings?.sourceWatcherId || "") as string);
         const watcher = watcherId ? (db.automationSourceWatchers || []).find((watcher) => watcher.id === watcherId && watcher.workspaceId === item.workspaceId) : undefined;
-        return asset?.providerTaskId && watcher ? { item, asset, watcher } : null;
+        const ruleId=String(item.generationSettings?.automationRuleId || "");
+        const rule=db.automationRules?.find(row=>row.id===ruleId&&row.workspaceId===item.workspaceId);
+        const automation=watcher||rule;
+        return asset?.providerTaskId && automation ? { item, asset, watcher:automation } : null;
       })
-      .filter((entry): entry is { item: PublishItem; asset: Asset; watcher: AutomationSourceWatcher } => Boolean(entry))
+      .filter((entry): entry is { item: PublishItem; asset: Asset; watcher: AutomationSourceWatcher | import("@/lib/types").AutomationRule } => Boolean(entry))
       .slice(0, limit);
   });
   const results = [];
@@ -259,7 +269,7 @@ async function pollReadyGenerations(limit = 10) {
         });
         const current = { ...job.item, status: "done" as const, assetUrl };
         const asset = { ...job.asset, status: "ready" as const, progress: 100, assetUrl };
-        if (job.watcher.approvalMode === "auto-publish") await autoPublishItem(job.item.workspaceId, current, asset);
+        if ((job.item.generationSettings?.approvalMode || job.watcher.approvalMode) === "auto-publish" && job.item.approvalStatus !== "pending") await autoPublishItem(job.item.workspaceId, current, asset);
         results.push({ id: job.item.id, status: "done" });
       } else if (failed) {
         const error = String(done.status.error || "Kie generation failed.");
@@ -286,7 +296,10 @@ async function pollReadyGenerations(limit = 10) {
   return results;
 }
 
-async function runWatcher(watcher: AutomationSourceWatcher) {
+async function runWatcher(candidate: AutomationSourceWatcher) {
+  const watcher=await mutateDb(db=>{const row=db.automationSourceWatchers.find(item=>item.id===candidate.id&&item.workspaceId===candidate.workspaceId);if(!row||row.status!=="active"||(row.nextRunAt&&Date.parse(row.nextRunAt)>Date.now())||(row.runningUntil&&Date.parse(row.runningUntil)>Date.now()))return null;row.runningUntil=new Date(Date.now()+10*60000).toISOString();return structuredClone(row);});
+  if(!watcher)return null;
+  try {
   const startedAt = new Date().toISOString();
   const errors: string[] = [];
   const personaContext = await mutateDb((db) => {
@@ -359,7 +372,7 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
       db.automationSourceRuns.push(run);
       if (watcherRecord) {
         watcherRecord.lastRunAt = run.completedAt;
-        watcherRecord.nextRunAt = nextAutomationRunAt(watcherRecord.frequency, watcherRecord.postingTime);
+        watcherRecord.nextRunAt = nextScheduledRun(watcherRecord);
         watcherRecord.updatedAt = run.completedAt;
       }
       return { run, selected: null, asset: null, publishItem: null };
@@ -374,7 +387,7 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
       : enrichPromptWithAssetReferences(basePrompt, generationType, references);
     const isKieGeneration = generationType === "video" || (generationType === "image" && isKieImageModel(model));
     const now = new Date().toISOString();
-    const generationSettings = { aspectRatio: watcher.aspectRatio, duration, sourceWatcherId: watcher.id };
+    const generationSettings = { approvalMode: watcher.approvalMode, inputPrompt: watcher.instruction, aspectRatio: watcher.aspectRatio, duration, sourceWatcherId: watcher.id };
     const asset: Asset = {
       id: id("ast"),
       workspaceId: watcher.workspaceId,
@@ -404,7 +417,8 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
       title: asset.title,
       platform: selected.platform,
       scheduledAt: now,
-      status: isKieGeneration ? "generating" : watcher.approvalMode === "auto-schedule" ? "scheduled" : "done",
+      status: watcher.approvalMode === "draft-only" ? "draft" : isKieGeneration ? "generating" : watcher.approvalMode === "auto-schedule" ? "scheduled" : "done",
+      approvalStatus: watcher.approvalMode === "draft-only" || watcher.approvalMode === "generate-and-wait" ? "pending" : undefined,
       provider: isKieGeneration ? "kie" : "local",
       caption: selected.description || `Inspired by ${selected.platform}: ${selected.title}`,
       hashtags: ["#ContentAgent", `#${selected.platform.replace(/\s+/g, "")}`],
@@ -435,7 +449,7 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
     db.automationSourceRuns.push(run);
     if (watcherRecord) {
       watcherRecord.lastRunAt = now;
-      watcherRecord.nextRunAt = nextAutomationRunAt(watcherRecord.frequency, watcherRecord.postingTime);
+      watcherRecord.nextRunAt = nextScheduledRun(watcherRecord);
       watcherRecord.updatedAt = now;
       watcherRecord.lastError = "";
     }
@@ -445,6 +459,7 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
   await log(watcher.workspaceId, { action: "automationRunDue", label: `Source Watcher due run completed: ${watcher.name}`, status: "success", provider: "apify", prompt: result.publishItem?.prompt, details: { watcherId: watcher.id, scannedCount: candidates.length, selected: result.selected, errors } });
 
   if (!result.asset || !result.publishItem) return result;
+  if (watcher.approvalMode === "draft-only") return result;
   if (result.asset.provider === "kie") {
     try {
       const settings = result.asset.generationSettings || {};
@@ -486,6 +501,7 @@ async function runWatcher(watcher: AutomationSourceWatcher) {
     await autoPublishItem(watcher.workspaceId, result.publishItem, result.asset);
   }
   return result;
+  } finally {await mutateDb(db=>{const row=db.automationSourceWatchers.find(item=>item.id===watcher.id&&item.workspaceId===watcher.workspaceId);if(row)row.runningUntil=undefined;});}
 }
 
 function platformFromUrl(url: string): Platform {
@@ -509,6 +525,9 @@ export async function POST(req: NextRequest) {
       .filter((watcher) => !watcher.nextRunAt || new Date(watcher.nextRunAt).getTime() <= now)
       .slice(0, 5);
   });
+  const rules=await mutateDb(db=>(db.automationRules||[]).filter(rule=>rule.status==="active"&&(!rule.nextRunAt||Date.parse(rule.nextRunAt)<=now)&&(!rule.runningUntil||Date.parse(rule.runningUntil)<=now)).slice(0,5));
+  const scheduledRuns=[];
+  for(const rule of rules){try{scheduledRuns.push(await runScheduledAutomation(rule.workspaceId,rule.id,true));}catch(error){scheduledRuns.push({id:rule.id,error:error instanceof Error?error.message:"Run failed"});}}
   const runs = [];
   for (const watcher of due) {
     try {
@@ -520,7 +539,7 @@ export async function POST(req: NextRequest) {
         if (current) {
           current.lastRunAt = new Date().toISOString();
           current.lastError = message;
-          current.nextRunAt = nextAutomationRunAt(current.frequency, current.postingTime);
+          current.nextRunAt = nextScheduledRun(current);
           current.updatedAt = new Date().toISOString();
         }
       });
@@ -528,5 +547,7 @@ export async function POST(req: NextRequest) {
       runs.push({ watcherId: watcher.id, error: message });
     }
   }
-  return NextResponse.json({ ok: true, polled, dueWatchers: due.length, runs });
+  const ready=await mutateDb(db=>db.publishQueue.filter(item=>["done","scheduled"].includes(item.status)&&item.provider!=="upload-post"&&item.approvalStatus!=="pending"&&["auto-publish","auto-schedule"].includes(String(item.generationSettings?.approvalMode))&&Date.parse(item.scheduledAt)<=Date.now()).map(item=>({item,asset:db.assets.find(asset=>asset.id===item.assetId&&asset.workspaceId===item.workspaceId)})).filter(row=>row.asset?.status==="ready").slice(0,10));
+  for(const row of ready){try{await autoPublishItem(row.item.workspaceId,row.item,row.asset);}catch(error){await log(row.item.workspaceId,{action:"automationRunDue",label:"Automatic publish failed",status:"failed",provider:"upload-post",error:error instanceof Error?error.message:"Publish failed"});}}
+  return NextResponse.json({ ok: true, polled, dueWatchers: due.length, scheduledRuns, runs });
 }

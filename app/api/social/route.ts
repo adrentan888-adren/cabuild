@@ -1,3 +1,5 @@
+import { nextScheduledRun } from "@/lib/automation-schedule";
+import { runScheduledAutomation, generateAutomationDraft } from "@/lib/automation-runner";
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { hasPermission } from "@/lib/permissions";
@@ -77,7 +79,7 @@ async function sendToUploadPost(item: PublishItem, asset?: Asset) {
   if (asset?.assetUrl && (item.generationType === "image" || asset.type === "image")) {
     return publishPhotoPost({ title: item.title, description, platform: item.platform, photoUrl: asset.assetUrl, scheduledAt: undefined });
   }
-  if (asset?.assetUrl) {
+  if (asset?.assetUrl && asset.type!=="text") {
     return publishVideoPost({ title: item.title, description, platform: item.platform, videoUrl: asset.assetUrl, scheduledAt: undefined });
   }
   return publishTextPost({ title: item.title, description, platform: item.platform, scheduledAt: undefined });
@@ -94,7 +96,9 @@ async function autoPublishReadySourceWatcherItems(workspaceId: string, action: s
         const asset = db.assets.find((asset) => asset.id === item.assetId && asset.workspaceId === workspaceId);
         const watcherId = String((item.generationSettings?.sourceWatcherId || asset?.generationSettings?.sourceWatcherId || "") as string);
         const watcher = watcherId ? (db.automationSourceWatchers || []).find((watcher) => watcher.id === watcherId && watcher.workspaceId === workspaceId) : undefined;
-        if (!watcher || watcher.approvalMode !== "auto-publish") return null;
+        const ruleId=String(item.generationSettings?.automationRuleId || "");
+        const rule=db.automationRules?.find(row=>row.id===ruleId&&row.workspaceId===workspaceId);
+        if (!(watcher || rule) || (item.generationSettings?.approvalMode || watcher?.approvalMode || rule?.approvalMode) !== "auto-publish" || item.approvalStatus === "pending") return null;
         if ((item.generationType === "video" || item.generationType === "image") && !asset?.assetUrl && !item.assetUrl) return null;
         return { item, asset };
       })
@@ -103,6 +107,8 @@ async function autoPublishReadySourceWatcherItems(workspaceId: string, action: s
 
   const results = [];
   for (const candidate of candidates) {
+    const claimed=await mutateDb(db=>{const row=db.publishQueue.find(item=>item.id===candidate.item.id&&item.workspaceId===workspaceId);if(!row||row.publishingStartedAt||row.status==="published"||row.approvalStatus==="pending"||row.approvalStatus==="rejected")return false;row.publishingStartedAt=new Date().toISOString();return true;});
+    if(!claimed)continue;
     await debugLog(workspaceId, {
       action,
       label: `Automation auto-publish sent to Upload-Post: ${candidate.item.title}`,
@@ -476,8 +482,8 @@ function normalizeAutomationModel(contentType: string, value: unknown) {
     : kind === "image"
       ? ["gpt-image-2", "nanobanana-pro"]
       : kind === "text"
-        ? ["gemini-3.5-flash", "claude-opus-4.8"]
-        : ["auto", "veo-fast", "seedance-2.0", "gpt-image-2", "nanobanana-pro", "gemini-3.5-flash", "claude-opus-4.8"];
+        ? ["gemini-3.5-flash"]
+        : ["auto", "veo-fast", "seedance-2.0", "gpt-image-2", "nanobanana-pro", "gemini-3.5-flash"];
   return valid.includes(model) ? model : defaultAutomationModel(contentType);
 }
 
@@ -591,7 +597,6 @@ function sourceWatcherDuplicate(
     ...(db.automationSourceRuns || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.selectedTitle || "", text: [item.selectedTitle, item.selectedUrl, item.selectionReason].join("\n"), url: item.selectedUrl || "", createdAt: item.completedAt || item.startedAt })),
     ...(db.publishQueue || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt, item.caption].join("\n"), url: item.sourceUrl || "", createdAt: item.createdAt || item.scheduledAt })),
     ...(db.assets || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt].join("\n"), url: item.sourceUrl || "", createdAt: item.createdAt })),
-    ...(db.competitorResults || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.description].join("\n"), url: item.url, createdAt: item.capturedAt || item.publishedAt }))
   ].filter((item) => !item.createdAt || new Date(item.createdAt).getTime() >= cutoff);
   let best = { score: 0, title: "", id: "", reason: "No duplicate found." };
   for (const item of history) {
@@ -852,6 +857,7 @@ function closestVideoDuration(value: unknown, model: string, fallback = 8) {
   const options = durationOptionsForGenerationModel(model);
   const numeric = Number(value || fallback);
   const target = Number.isFinite(numeric) ? numeric : fallback;
+  if(model==="seedance-2.0")return Math.max(4,Math.min(15,Math.round(target)));
   return options.reduce((best, option) => Math.abs(option - target) < Math.abs(best - target) ? option : best, options[0]);
 }
 
@@ -1030,6 +1036,32 @@ export async function POST(req: Request) {
     details: summarizePayload(body)
   });
 
+  if (action === "runAutomationNow" || action === "generateAutomationDraft") {
+    try { return NextResponse.json(action === "runAutomationNow" ? await runScheduledAutomation(workspaceId, String(body.id)) : await generateAutomationDraft(workspaceId, String(body.id))); }
+    catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Automation failed" }, { status:400 }); }
+  }
+  if (["createAutomationRule", "updateAutomationRule", "createSourceWatcher", "updateSourceWatcher"].includes(action)) {
+    if (action.startsWith("update")) {
+      const found = await mutateDb(db => (action === "updateAutomationRule" ? db.automationRules : db.automationSourceWatchers).some(item => item.id === body.id && item.workspaceId === workspaceId));
+      if (!found) return NextResponse.json({ error:"Automation not found." }, { status:404 });
+    }
+    try {
+      if (!String(body.name || "").trim()) throw new Error("Give this automation a name.");
+      if (action.endsWith("AutomationRule") && !String(body.instruction || "").trim()) throw new Error("Add a creation instruction.");
+      nextScheduledRun({frequency:String(body.frequency || "daily"),postingDays:normalizeStringList(body.postingDays),postingTime:String(body.postingTime || "10:00"),timezone:String(body.timezone || "Asia/Kuala_Lumpur")});
+      if (action.endsWith("SourceWatcher") && !parseList(body.sourceUrls).some(url => /^https?:\/\/.+\..+/.test(url))) throw new Error("Add at least one valid source URL.");
+    } catch (error) { return NextResponse.json({error:error instanceof Error ? error.message : "Invalid automation"},{status:400}); }
+  }
+  if (action === "approveAutomationContent") {
+    const outcome = await mutateDb(db => {
+      const item=db.publishQueue.find(row=>row.id===body.id&&row.workspaceId===workspaceId);
+      const asset=item && db.assets.find(row=>row.id===item.assetId&&row.workspaceId===workspaceId);
+      if (!item || !(item.generationSettings?.sourceWatcherId || item.generationSettings?.automationRuleId)) return null;
+      if (!asset || asset.status !== "ready" || item.status === "generating" || item.status === "failed") return {error:"Wait for successful generation before approval."};
+      item.approvalStatus="approved";item.approvedAt=new Date().toISOString();return item;
+    });
+    return NextResponse.json(outcome || {error:"Automation content not found."},{status:!outcome?404:"error" in outcome?409:200});
+  }
   if (action === "refreshTrends") {
     try {
       const dbResult = await mutateDb(async (db) => {
@@ -1673,11 +1705,25 @@ export async function POST(req: Request) {
   }
 
   if (action === "publishNow") {
+    const guard=await mutateDb(db=>{
+      const item=db.publishQueue.find(row=>row.id===body.id&&row.workspaceId===workspaceId);if(!item)return {error:"Content not found.",status:404};
+      const asset=db.assets.find(row=>row.id===item.assetId&&row.workspaceId===workspaceId);
+      const watcher=db.automationSourceWatchers?.find(row=>row.id===item.generationSettings?.sourceWatcherId&&row.workspaceId===workspaceId);
+      const policy=item.generationSettings?.approvalMode || watcher?.approvalMode;
+      if(item.status==="published")return {error:"This content is already published.",status:409};
+      if(item.publishingStartedAt)return {error:"Publishing has already been submitted. Check Logs for its result before trying again.",status:409};
+      if(item.approvalStatus==="pending"||item.approvalStatus==="rejected"||(policy==="generate-and-wait"&&item.approvalStatus!=="approved"))return {error:"Approve this content before publishing.",status:409};
+      if(item.status==="generating"||item.status==="failed"||((item.generationType==="video"||item.generationType==="image")&&(!asset?.assetUrl||asset.status!=="ready")))return {error:"Wait for successful generation before publishing.",status:409};
+      item.publishingStartedAt=new Date().toISOString();
+      return null;
+    });
+    if(guard)return NextResponse.json({error:guard.error},{status:guard.status});
     try {
       const snapshot = await mutateDb((db) => {
         const item = db.publishQueue.find((queue) => queue.id === body.id && queue.workspaceId === workspaceId);
         if (!item) throw new Error("Publish queue item not found.");
         if (item.status === "generating") throw new Error("This draft is still generating.");
+        if (item.approvalStatus === "pending" || item.approvalStatus === "rejected") throw new Error("Approve this content before publishing.");
         return { item, asset: db.assets.find((asset) => asset.id === item.assetId && asset.workspaceId === workspaceId) };
       });
       const description = publishDescription(snapshot.item, snapshot.asset);
@@ -2071,8 +2117,15 @@ export async function POST(req: Request) {
   }
 
   if (action === "runSourceWatcherNow") {
-    const watcher = await mutateDb((db) => (db.automationSourceWatchers || []).find((item) => item.id === body.id && item.workspaceId === workspaceId) || null);
-    if (!watcher) return NextResponse.json({ error: "Source watcher not found." }, { status: 404 });
+    const watcher = await mutateDb(db => {
+      const row=(db.automationSourceWatchers||[]).find(item=>item.id===body.id&&item.workspaceId===workspaceId);
+      if(!row)return null;
+      if(row.runningUntil&&Date.parse(row.runningUntil)>Date.now())return "busy" as const;
+      row.runningUntil=new Date(Date.now()+10*60000).toISOString();return structuredClone(row);
+    });
+    if(!watcher)return NextResponse.json({error:"Source watcher not found."},{status:404});
+    if(watcher==="busy")return NextResponse.json({error:"This automation is already running."},{status:409});
+    try {
     const startedAt = new Date().toISOString();
     await debugLog(workspaceId, {
       action,
@@ -2156,7 +2209,7 @@ export async function POST(req: Request) {
         run.selectionReason = filtered.length ? `No suitable non-duplicate source found. Best duplicate score was ${Math.round((duplicate?.best.score || 0) * 100)}%.` : "No source results matched the watcher filters.";
         if (watcherRecord) {
           watcherRecord.lastRunAt = run.completedAt;
-          watcherRecord.nextRunAt = sourceWatcherNextRunAt(watcherRecord.frequency, watcherRecord.postingTime);
+          watcherRecord.nextRunAt = nextScheduledRun(watcherRecord);
           watcherRecord.updatedAt = run.completedAt;
         }
         db.automationSourceRuns.push(run);
@@ -2177,7 +2230,7 @@ export async function POST(req: Request) {
       const isKieImage = generationType === "image" && isKieImageModel(model);
       const isKieGeneration = isKieVideo || isKieImage;
       const now = new Date().toISOString();
-      const generationSettings = { aspectRatio: watcher.aspectRatio, duration: generationType === "video" ? closestVideoDuration(watcher.duration || selected.duration || 8, model) : undefined, sourceWatcherId: watcher.id };
+      const generationSettings = { approvalMode: watcher.approvalMode, inputPrompt: watcher.instruction, aspectRatio: watcher.aspectRatio, duration: generationType === "video" ? closestVideoDuration(watcher.duration || selected.duration || 8, model) : undefined, sourceWatcherId: watcher.id };
       const asset: Asset = {
         id: id("ast"),
         workspaceId,
@@ -2207,13 +2260,14 @@ export async function POST(req: Request) {
         title: asset.title,
         platform: selected.platform,
         scheduledAt: now,
-        status: isKieGeneration ? "generating" : watcher.approvalMode === "auto-schedule" ? "scheduled" : watcher.approvalMode === "auto-publish" && generationType === "text" ? "draft" : "done",
+        status: watcher.approvalMode === "draft-only" ? "draft" : isKieGeneration ? "generating" : watcher.approvalMode === "auto-schedule" ? "scheduled" : "done",
         provider: isKieGeneration ? "kie" : "local",
         caption,
         hashtags,
         generationModel: model,
         generationType,
         generationSettings,
+        approvalStatus: ["draft-only", "generate-and-wait"].includes(watcher.approvalMode) ? "pending" : undefined,
         duration: generationType === "video" ? Number(generationSettings.duration || 8) : undefined,
         prompt,
         assetReferences: references,
@@ -2238,7 +2292,7 @@ export async function POST(req: Request) {
       db.automationSourceRuns.push(run);
       if (watcherRecord) {
         watcherRecord.lastRunAt = now;
-        watcherRecord.nextRunAt = sourceWatcherNextRunAt(watcherRecord.frequency, watcherRecord.postingTime);
+        watcherRecord.nextRunAt = nextScheduledRun(watcherRecord);
         watcherRecord.updatedAt = now;
         watcherRecord.lastError = "";
       }
@@ -2253,7 +2307,7 @@ export async function POST(req: Request) {
       prompt: result.publishItem?.prompt,
       details: { watcherId: watcher.id, scannedCount: candidates.length, selected: result.selected, errors }
     });
-    if (result.asset?.provider === "kie" && result.publishItem) {
+    if (watcher.approvalMode !== "draft-only" && result.asset?.provider === "kie" && result.publishItem) {
       try {
         const model = result.asset.generationModel || watcher.model;
         const refs = result.asset.assetReferences || [];
@@ -2310,30 +2364,18 @@ export async function POST(req: Request) {
       }
     }
     if (watcher.approvalMode === "auto-publish" && result.publishItem && result.publishItem.generationType === "text") {
-      try {
-        const upload = await sendToUploadPost(result.publishItem, result.asset || undefined);
-        const updated = await mutateDb((db) => {
-          const item = db.publishQueue.find((queue) => queue.id === result.publishItem?.id && queue.workspaceId === workspaceId);
-          if (item) {
-            item.status = "published";
-            item.provider = "upload-post";
-            item.providerRequestId = upload.request_id || upload.job_id;
-          }
-          return item;
-        });
-        return NextResponse.json({ ...result, publishItem: updated || result.publishItem });
-      } catch (error) {
-        await debugLog(workspaceId, { action, label: "Source Watcher Upload-Post publish failed", status: "failed", provider: "upload-post", error: error instanceof Error ? error.message : "Upload-Post publish failed" });
-        return NextResponse.json(result);
-      }
+      await autoPublishReadySourceWatcherItems(workspaceId,action,result.asset?.id);
+      const updated=await mutateDb(db=>db.publishQueue.find(item=>item.id===result.publishItem?.id&&item.workspaceId===workspaceId));
+      return NextResponse.json({...result,publishItem:updated||result.publishItem},{status:updated?.status==="failed"?502:200});
     }
     return NextResponse.json(result);
+    } finally { await mutateDb(db=>{const row=db.automationSourceWatchers.find(item=>item.id===watcher.id&&item.workspaceId===workspaceId);if(row)row.runningUntil=undefined;}); }
   }
 
   const data = await mutateDb((db) => {
     const activity = (message: string) => db.activity.push({ id: id("act"), workspaceId, message, createdAt: new Date().toISOString() });
 
-    if (action === "createAutomationRule") {
+    if (action === "createAutomationRule" || action === "updateAutomationRule") {
       db.automationRules ||= [];
       db.automationJobs ||= [];
       const now = new Date().toISOString();
@@ -2378,12 +2420,19 @@ export async function POST(req: Request) {
         updatedAt: now
       };
       if (!rule.instruction) throw new Error("Automation instruction is required.");
+      rule.duration = contentType.includes("video") ? closestVideoDuration(body.duration || 8, model) : undefined;
+      rule.nextRunAt = nextScheduledRun(rule);
+      if (action === "updateAutomationRule") {
+        const existing=db.automationRules.find(item=>item.id===body.id&&item.workspaceId===workspaceId)!;
+        Object.assign(existing,rule,{id:existing.id,createdAt:existing.createdAt,status:existing.status,lastRunAt:existing.lastRunAt,lastError:existing.lastError,runningUntil:existing.runningUntil});
+        activity(`Automation updated: ${existing.name}`);return existing;
+      }
       db.automationRules.push(rule);
       activity(`Automation rule saved: ${rule.name}`);
       return rule;
     }
 
-    if (action === "createSourceWatcher") {
+    if (action === "createSourceWatcher" || action === "updateSourceWatcher") {
       db.automationSourceWatchers ||= [];
       db.automationSourceRuns ||= [];
       const now = new Date().toISOString();
@@ -2428,6 +2477,12 @@ export async function POST(req: Request) {
         createdAt: now,
         updatedAt: now
       };
+      watcher.nextRunAt = nextScheduledRun(watcher);
+      if (action === "updateSourceWatcher") {
+        const existing=db.automationSourceWatchers.find(item=>item.id===body.id&&item.workspaceId===workspaceId)!;
+        Object.assign(existing,watcher,{id:existing.id,createdAt:existing.createdAt,status:existing.status,lastRunAt:existing.lastRunAt,lastError:existing.lastError,runningUntil:existing.runningUntil,referenceUrls:existing.referenceUrls});
+        activity(`Source Watcher updated: ${existing.name}`);return existing;
+      }
       db.automationSourceWatchers.push(watcher);
       activity(`Source Watcher saved: ${watcher.name}`);
       return watcher;
@@ -2443,6 +2498,7 @@ export async function POST(req: Request) {
         return { id: watcher.id, deleted: true };
       }
       watcher.status = action === "pauseSourceWatcher" ? "paused" : "active";
+      if(action==="resumeSourceWatcher")watcher.nextRunAt=nextScheduledRun(watcher);
       watcher.updatedAt = new Date().toISOString();
       activity(`Source Watcher ${watcher.status}: ${watcher.name}`);
       return watcher;
@@ -2458,83 +2514,10 @@ export async function POST(req: Request) {
         return { id: rule.id, deleted: true };
       }
       rule.status = action === "pauseAutomationRule" ? "paused" : "active";
+      if(action==="resumeAutomationRule")rule.nextRunAt=nextScheduledRun(rule);
       rule.updatedAt = new Date().toISOString();
       activity(`Automation ${rule.status}: ${rule.name}`);
       return rule;
-    }
-
-    if (action === "runAutomationNow") {
-      db.automationRules ||= [];
-      db.automationJobs ||= [];
-      const rule = db.automationRules.find((item) => item.id === body.id && item.workspaceId === workspaceId);
-      if (!rule) throw new Error("Automation rule not found.");
-      const now = new Date().toISOString();
-      const title = automationTitle(rule);
-      const prompt = automationPrompt(rule);
-      const candidateText = [title, prompt, rule.instruction, rule.keywords.join(" "), rule.sourceUrls.join(" ")].join("\n");
-      const threshold = rule.duplicateProtection.similarityThreshold / 100;
-      const cutoff = Date.now() - rule.duplicateProtection.topicWindowDays * 24 * 60 * 60 * 1000;
-      const history = [
-        ...(db.automationJobs || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt, item.caption].join("\n"), url: "", createdAt: item.createdAt })),
-        ...(db.publishQueue || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt, item.caption, (item.hashtags || []).join(" ")].join("\n"), url: item.sourceUrl || "", createdAt: item.createdAt })),
-        ...(db.assets || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.prompt].join("\n"), url: item.sourceUrl || "", createdAt: item.createdAt })),
-        ...(db.competitorResults || []).filter((item) => item.workspaceId === workspaceId).map((item) => ({ id: item.id, title: item.title, text: [item.title, item.description].join("\n"), url: item.url, createdAt: item.capturedAt || item.publishedAt }))
-      ].filter((item) => !item.createdAt || new Date(item.createdAt).getTime() >= cutoff);
-      let best = { id: "", title: "", score: 0, reason: "No close duplicate found in recent history." };
-      if (rule.duplicateProtection.mode !== "off") {
-        for (const item of history) {
-          const score = Math.max(sourceOverlapScore(rule.sourceUrls, item.url), ideaSimilarity(candidateText, item.text));
-          if (score > best.score) best = { id: item.id, title: item.title, score, reason: score >= 1 ? "Exact source URL already exists in recent history." : "Most similar recent topic found." };
-        }
-      }
-      const duplicate = rule.duplicateProtection.mode !== "off" && best.score >= threshold;
-      const job: AutomationJob = {
-        id: id("job"),
-        workspaceId,
-        automationRuleId: rule.id,
-        scheduledFor: now,
-        status: duplicate ? "skipped-duplicate" : "ready-for-generation",
-        title,
-        prompt,
-        caption: `Draft created from automation rule "${rule.name}". Review the prompt, attach assets if needed, then generate from Create Content.`,
-        hashtags: rule.keywords.map(automationHashtag).filter(Boolean).slice(0, 8),
-        duplicateCheck: {
-          mode: rule.duplicateProtection.mode,
-          checkedAt: now,
-          matchedItemId: best.id || undefined,
-          matchedTitle: best.title || undefined,
-          similarityScore: best.score,
-          reason: duplicate ? `${best.reason} Skipped because score ${Math.round(best.score * 100)}% is above ${rule.duplicateProtection.similarityThreshold}%.` : best.reason,
-          attempts: 1
-        },
-        createdAt: now,
-        updatedAt: now
-      };
-      db.automationJobs.push(job);
-      rule.lastRunAt = now;
-      rule.nextRunAt = nextAutomationRunAt(rule.frequency, rule.postingTime);
-      rule.updatedAt = now;
-      db.debugLogs ||= [];
-      db.debugLogs.push({
-        id: id("log"),
-        workspaceId,
-        action,
-        label: "Automation duplicate check",
-        status: duplicate ? "info" : "success",
-        provider: "system",
-        prompt,
-        details: {
-          ruleId: rule.id,
-          ruleName: rule.name,
-          duplicateMode: rule.duplicateProtection.mode,
-          threshold: rule.duplicateProtection.similarityThreshold,
-          bestMatch: best,
-          jobStatus: job.status
-        },
-        createdAt: now
-      });
-      activity(duplicate ? `Automation skipped duplicate idea for "${rule.name}".` : `Automation draft job ready for "${rule.name}".`);
-      return job;
     }
 
     if (action === "clearWorkspaceHistory") {

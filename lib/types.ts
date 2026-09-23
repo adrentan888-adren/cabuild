@@ -266,6 +266,9 @@ export type PublishItem = {
   assetReferences?: GenerationAssetReference[];
   createdAt?: string;
   error?: string;
+  approvalStatus?: "pending" | "approved" | "rejected";
+  approvedAt?: string;
+  publishingStartedAt?: string;
 };
 
 export type AutomationRule = {
@@ -278,6 +281,8 @@ export type AutomationRule = {
   contentType: "image" | "short-video" | "long-video" | "text";
   aspectRatio: "1:1" | "4:5" | "9:16" | "16:9";
   model: string;
+  duration?: number;
+  runningUntil?: string;
   frequency: "daily" | "weekly" | "custom";
   postingDays: string[];
   postingTime: string;
@@ -326,6 +331,10 @@ export type AutomationJob = {
   createdAt: string;
   updatedAt: string;
   error?: string;
+  assetId?: string;
+  publishItemIds?: string[];
+  ruleSnapshot?: AutomationRule;
+  briefPrepared?: boolean;
 };
 
 export type AutomationSourceWatcher = {
@@ -338,6 +347,7 @@ export type AutomationSourceWatcher = {
   model: string;
   aspectRatio: "1:1" | "4:5" | "9:16" | "16:9";
   duration?: number;
+  runningUntil?: string;
   minViews: number;
   rankingMode: "balanced" | "views" | "engagement" | "recent";
   frequency: "daily" | "weekly" | "custom";

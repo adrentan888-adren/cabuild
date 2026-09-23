@@ -4,7 +4,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
  const db={workspaces:[{id:'owner-a',niche:'Owner A niche'},{id:'owner-b',niche:'Owner B niche'}],personaProfiles:[{workspaceId:'owner-a',voice:'A voice'},{workspaceId:'owner-b',voice:'B voice'}],debugLogs:[]};
  class KieBriefError extends Error {constructor(){super('Fixture raw HTTP 500 diagnostic');this.userMessage='Temporary brief outage. Your idea is still here.';this.retryable=true}}
  const deps={
-  'next/server':{NextResponse:Response},'@/lib/session':{currentUser:async()=>signedIn?{id:'user-a',workspaceId:'owner-a'}:null},
+  'next/server':{NextResponse:Response},'@/lib/automation-schedule':{},'@/lib/automation-runner':{},'@/lib/session':{currentUser:async()=>signedIn?{id:'user-a',workspaceId:'owner-a'}:null},
   '@/lib/store':{mutateDb:async callback=>callback(db),id:()=>String(db.debugLogs.length)},
   '@/lib/persona':{buildPersonaContext:profile=>profile.voice},
   '@/lib/providers/kie':{KieBriefError,buildAiBriefPrompt:input=>JSON.stringify(input),generateContentPlanWithGpt55:async input=>{calls++;captured=input;if(mode==='error')throw new KieBriefError();if(mode==='unknown')throw new Error('Internal diagnostic only');return{topic:'Fixture',format:'Short video 9:16',videoPrompt:'Create a fixture video',duration:8,hooks:['Hook']}}}

@@ -49,6 +49,8 @@ import ContentOutputCard from "@/components/content-output-card";
 import AutomationLibrary from "@/components/automation-library";
 import AutomationFormatControls from "@/components/automation-format-controls";
 import AutomationTypeTabs from "@/components/automation-type-tabs";
+import AutomationScheduleEditor from "@/components/automation-schedule-editor";
+import AutomationResearchEditor from "@/components/automation-research-editor";
 import AutomationSelect from "@/components/automation-select";
 import CreationAssets from "@/components/creation-assets";
 import PersonaPreview from "@/components/persona-preview";
@@ -2458,6 +2460,7 @@ function AutomationPanel({ data, run, refresh }: { data: AppData; run: (a: strin
   };
   const toggleScheduledPlatform = (platform: Platform, checked: boolean) => {
     const next = checked ? Array.from(new Set([...scheduledPlatforms, platform])) : scheduledPlatforms.filter((item) => item !== platform);
+    if (!next.length) return;
     setScheduledPlatforms(next);
     const allowed = automationDimensionOptions(scheduledContentType, next);
     if (allowed.length && !allowed.some((item) => item.value === scheduledAspectRatio)) setScheduledAspectRatio(allowed[0].value);
@@ -2536,24 +2539,10 @@ function AutomationPanel({ data, run, refresh }: { data: AppData; run: (a: strin
             </section>
             <section className="create-card"><div className="optional-brief-heading"><Film size={22}/><h2>Choose format, model, and references</h2></div>
             <AutomationFormatControls contentType={sourceContentType} formats={sourceContentTypes} onTypeChange={value=>changeSourceContentType(value as AutomationSourceWatcher["contentType"])} model={sourceModel} models={sourceModelOptions} onModelChange={setSourceModel} aspectRatio={sourceAspectRatio} ratios={sourceDimensionOptions} onRatioChange={setSourceAspectRatio} duration={sourceEditing?.duration}/>
-            <div className="creation-option-group"><div className="clbl"><ImageIcon size={19}/>Assets</div>{savedReferences.length>0&&<section className="automation-saved-assets"><h2>Saved reference assets</h2><div className="automation-reference-preview">{savedReferences.map((asset,index)=><div key={index}>{asset.role==="audio"?<audio src={asset.url} controls/>:<img src={asset.url} alt={asset.role}/>}<span>{asset.role}</span><button type="button" disabled={busy} onClick={()=>setSavedReferences(items=>items.filter((_,i)=>i!==index))}>Remove</button></div>)}</div></section>}<ReferenceAssetPicker personaAssets={data.personaProfile.mediaAssets || []} selectedIds={sourceSelectedPersonaAssetIds} onTogglePersona={toggleSourcePersonaAsset} uploadRefs={sourceUploadRefs} onUploadChange={updateSourceUploadRef} video={automationKindFromContentType(sourceContentType) !== "image" && automationKindFromContentType(sourceContentType) !== "text"} /></div>
+            <div className="creation-option-group"><div className="clbl"><ImageIcon size={20}/>Assets</div><CreationAssets personaAssets={data.personaProfile.mediaAssets || []} selectedIds={sourceSelectedPersonaAssetIds} uploads={sourceUploadRefs} retainedAssets={savedReferences} usePersona video={automationKindFromContentType(sourceContentType) === "video" || sourceContentType === "auto"} inlinePicker onClear={role=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setSourceSelectedPersonaAssetIds(current=>current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)));updateSourceUploadRef(role,null);}} onSelect={(role,ids)=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setSourceSelectedPersonaAssetIds(current=>[...current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)),...ids]);updateSourceUploadRef(role,null);}} onUpload={(role,file)=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setSourceSelectedPersonaAssetIds(current=>current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)));updateSourceUploadRef(role,file);}}/></div>
             </section>
-            <section className="create-card"><div className="optional-brief-heading"><CalendarDays size={22}/><h2>Schedule and publishing</h2></div><p className="step-helper">Set when it runs and whether you review content before publishing.</p>
-            <div className="modal-grid">
-              <div className="automation-field"><span>Frequency</span><AutomationSelect label="Frequency" name="frequency" defaultValue={sourceEditing?.frequency || "daily"}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="custom">Custom days</option></AutomationSelect></div>
-              <label>Run time<input name="postingTime" type="time" defaultValue={sourceEditing?.postingTime ?? "10:00"} /></label>
-              <label>Timezone<input name="timezone" defaultValue={sourceEditing?.timezone ?? "Asia/Kuala_Lumpur"} /></label>
-              <div className="automation-field"><span>Approval mode</span><AutomationSelect label="Approval mode" name="approvalMode" defaultValue={sourceEditing?.approvalMode || "draft-only"}>
-                <option value="draft-only">Create draft only</option>
-                <option value="generate-and-wait">Generate asset, wait for approval</option>
-                <option value="auto-schedule">Generate and schedule</option>
-                <option value="auto-publish">Auto publish through Upload-Post</option>
-              </AutomationSelect></div>
-            </div>
-            <div className="automation-choice-row">
-              {weekdayOptions.map((day) => <label className="check-card compact" key={day}><input name="postingDays" type="checkbox" value={day} defaultChecked={(sourceEditing?.postingDays || ["Mon", "Wed", "Fri"]).includes(day)} />{day}</label>)}
-            </div>
-            </section><section className="create-card"><div className="optional-brief-heading"><RefreshCcw size={22}/><h2>Duplicate protection</h2></div>
+            <AutomationScheduleEditor initial={sourceEditing}/>
+            <section className="create-card"><div className="optional-brief-heading"><RefreshCcw size={22}/><h2>Duplicate protection</h2></div>
             <div className="modal-grid">
               <label>Source window days<input name="sourceWindowDays" type="number" min="1" defaultValue={sourceEditing?.duplicateProtection.sourceWindowDays ?? "90"} /></label>
               <label>Topic window days<input name="topicWindowDays" type="number" min="1" defaultValue={sourceEditing?.duplicateProtection.topicWindowDays ?? "45"} /></label>
@@ -2574,6 +2563,7 @@ function AutomationPanel({ data, run, refresh }: { data: AppData; run: (a: strin
             setFormError("");
             const payload: Record<string, unknown> = Object.fromEntries(form.entries());
             payload.platforms = form.getAll("platforms").map((item) => String(item));
+            if (!(payload.platforms as string[]).length) { setFormError("Choose at least one publishing platform."); return; }
             payload.postingDays = form.getAll("postingDays").map((item) => String(item));
             payload.referenceAssets = await buildReferenceAssets(scheduledSelectedPersonaAssetIds, scheduledUploadRefs);
             const result=await execute(ruleEditing?"updateAutomationRule":"createAutomationRule",{...payload,...(ruleEditing?{id:ruleEditing.id}:{})});
@@ -2593,37 +2583,13 @@ function AutomationPanel({ data, run, refresh }: { data: AppData; run: (a: strin
             </div>
             <label>Main instruction<textarea name="instruction" required placeholder="Create Malay FB ads for loan enquiries with a strong hook, compliance-safe USP, and clear CTA." defaultValue={ruleEditing?.instruction || ""} /></label>
             </section><section className="create-card"><div className="optional-brief-heading"><Film size={22}/><h2>Choose format, model, and references</h2></div>
-            <fieldset className="automation-platforms choice-buttons"><legend>Platforms</legend><p className="step-helper">Choose one or more destinations.</p><div>{platforms.map(platform=><label className={scheduledPlatforms.includes(platform)?"on":""} key={platform}><input name="platforms" type="checkbox" value={platform} checked={scheduledPlatforms.includes(platform)} onChange={event=>toggleScheduledPlatform(platform,event.target.checked)}/><PlatformIcon platform={platform}/><span>{platform}</span></label>)}</div></fieldset>
+            <div className="creation-platform-row automation-platform-row"><fieldset className="choice-buttons"><legend>Publishing platforms</legend><p className="step-helper">Choose one or more destinations for each run.</p><div>{platforms.map(platform=><button type="button" aria-pressed={scheduledPlatforms.includes(platform)} className={scheduledPlatforms.includes(platform)?"on":""} key={platform} onClick={()=>toggleScheduledPlatform(platform,!scheduledPlatforms.includes(platform))}><span className="choice-icon" aria-hidden="true"><PlatformIcon platform={platform}/></span>{platform}</button>)}</div>{scheduledPlatforms.map(platform=><input key={platform} type="hidden" name="platforms" value={platform}/>)}</fieldset></div>
             <AutomationFormatControls contentType={scheduledContentType} formats={contentTypes} onTypeChange={value=>changeScheduledContentType(value as AutomationRule["contentType"])} model={scheduledModel} models={scheduledModelOptions} onModelChange={setScheduledModel} aspectRatio={scheduledAspectRatio} ratios={scheduledDimensionOptions} onRatioChange={setScheduledAspectRatio} duration={ruleEditing?.duration}/>
-            <div className="creation-option-group"><div className="clbl"><ImageIcon size={19}/>Assets</div>{savedReferences.length>0&&<section className="automation-saved-assets"><h2>Saved reference assets</h2><div className="automation-reference-preview">{savedReferences.map((asset,index)=><div key={index}>{asset.role==="audio"?<audio src={asset.url} controls/>:<img src={asset.url} alt={asset.role}/>}<span>{asset.role}</span><button type="button" disabled={busy} onClick={()=>setSavedReferences(items=>items.filter((_,i)=>i!==index))}>Remove</button></div>)}</div></section>}<ReferenceAssetPicker personaAssets={data.personaProfile.mediaAssets || []} selectedIds={scheduledSelectedPersonaAssetIds} onTogglePersona={toggleScheduledPersonaAsset} uploadRefs={scheduledUploadRefs} onUploadChange={updateScheduledUploadRef} video={automationKindFromContentType(scheduledContentType) === "video"} /></div>
+            <div className="creation-option-group"><div className="clbl"><ImageIcon size={20}/>Assets</div><CreationAssets personaAssets={data.personaProfile.mediaAssets || []} selectedIds={scheduledSelectedPersonaAssetIds} uploads={scheduledUploadRefs} retainedAssets={savedReferences} usePersona video={automationKindFromContentType(scheduledContentType) === "video"} inlinePicker onClear={role=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setScheduledSelectedPersonaAssetIds(current=>current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)));updateScheduledUploadRef(role,null);}} onSelect={(role,ids)=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setScheduledSelectedPersonaAssetIds(current=>[...current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)),...ids]);updateScheduledUploadRef(role,null);}} onUpload={(role,file)=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setScheduledSelectedPersonaAssetIds(current=>current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)));updateScheduledUploadRef(role,file);}}/></div>
             </section>
-            <section className="create-card"><div className="optional-brief-heading"><CalendarDays size={22}/><h2>Schedule and publishing</h2></div><p className="step-helper">Choose the cadence, quantity and review preference for each run.</p>
-            <div className="modal-grid">
-              <div className="automation-field"><span>Frequency</span><AutomationSelect label="Frequency" name="frequency" defaultValue={ruleEditing?.frequency || "weekly"}>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="custom">Custom days</option>
-              </AutomationSelect></div>
-              <label>Posting time<input name="postingTime" type="time" defaultValue={ruleEditing?.postingTime ?? "10:00"} /></label>
-              <label>Timezone<input name="timezone" defaultValue={ruleEditing?.timezone ?? "Asia/Kuala_Lumpur"} /></label>
-              <div className="automation-field"><span>Approval mode</span><AutomationSelect label="Approval mode" name="approvalMode" defaultValue={ruleEditing?.approvalMode || "draft-only"}><option value="draft-only">Draft only</option><option value="generate-and-wait">Generate asset, wait for approval</option><option value="auto-schedule">Generate and schedule</option><option value="auto-publish">Auto publish</option></AutomationSelect></div>
-              <label>Quantity per run<input name="quantityPerRun" type="number" min="1" max="5" defaultValue={ruleEditing?.quantityPerRun ?? "1"} /></label>
-            </div>
-            <div className="automation-choice-row">
-              {weekdayOptions.map((day) => <label className="check-card compact" key={day}><input name="postingDays" type="checkbox" value={day} defaultChecked={(ruleEditing?.postingDays || ["Mon", "Wed", "Fri"]).includes(day)} />{day}</label>)}
-            </div>
-            </section><section className="create-card"><div className="optional-brief-heading"><Radar size={22}/><h2>Research and guidance</h2></div><div className="modal-grid">
-              <div className="automation-field"><span>Research mode</span><AutomationSelect label="Research mode" name="researchMode" defaultValue={ruleEditing?.researchMode || "keywords"}>
-                <option value="keywords">Use keywords</option>
-                <option value="latest-research">Use latest Research results</option>
-                <option value="none">No research input</option>
-              </AutomationSelect></div>
-              <label>Keywords<textarea name="keywords" placeholder="personal loan, SME loan, fast approval" defaultValue={ruleEditing?.keywords?.join("\n") || ""} /></label>
-              <label>Source URLs<textarea name="sourceUrls" placeholder="Optional competitor or reference URLs, one per line" defaultValue={ruleEditing?.sourceUrls?.join("\n") || ""} /></label>
-              <label>Restrictions<textarea name="restrictions" placeholder="Avoid guaranteed approval, cash piles, misleading claims..." defaultValue={ruleEditing?.restrictions || ""} /></label>
-            </div>
-
-            </section><section className="create-card"><div className="optional-brief-heading"><RefreshCcw size={22}/><h2>Duplicate protection</h2></div>
+            <AutomationScheduleEditor initial={ruleEditing} scheduled/>
+            <AutomationResearchEditor initial={ruleEditing}/>
+            <section className="create-card"><div className="optional-brief-heading"><RefreshCcw size={22}/><h2>Duplicate protection</h2></div>
             <div className="modal-grid">
               <div className="automation-field"><span>Protection level</span><AutomationSelect label="Protection level" name="duplicateMode" value={dedupeMode} onValueChange={value => setDedupeMode(value as AutomationRule["duplicateProtection"]["mode"])}>
                 <option value="off">Off</option>

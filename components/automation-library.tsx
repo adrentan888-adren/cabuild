@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ArrowLeft, CalendarDays, Check, Clock3, Eye, FileText, Film, ImageIcon, Pencil, Play, Plus, Radar, Settings, Download, RefreshCcw } from "lucide-react";
+import AutomationTypeTabs, { type AutomationKind } from "./automation-type-tabs";
 import PageIntro from "./page-intro";
 import ContentDialog from "./content-dialog";
 import CreatorFilterSelect from "./creator-filter-select";
@@ -11,8 +12,8 @@ type Data = { automationRules:AutomationRule[]; automationJobs:AutomationJob[]; 
 export const approvalLabels:Record<string,string> = {"draft-only":"Review draft before generating","generate-and-wait":"Approve before publishing","auto-schedule":"Generate and schedule","auto-publish":"Publish automatically"};
 const date=(value?:string)=>value?new Date(value).toLocaleString():"Not yet";
 const title=(value:string)=>value.replaceAll("-"," ").replace(/^./,s=>s.toUpperCase());
-export default function AutomationLibrary({ data, selected, busy, onCreate, onView, onEdit, onBack, onAction }: {
- data:Data; selected?:Entry; busy:boolean; onCreate:()=>void; onView:(entry:Entry)=>void; onEdit:(entry:Entry)=>void; onBack:()=>void; onAction:(action:string,payload:Record<string,unknown>)=>Promise<unknown>;
+export default function AutomationLibrary({ data, selected, busy, kind, onKindChange, onCreate, onView, onEdit, onBack, onAction }: {
+ data:Data; selected?:Entry; busy:boolean; kind:AutomationKind; onKindChange:(kind:AutomationKind)=>void; onCreate:()=>void; onView:(entry:Entry)=>void; onEdit:(entry:Entry)=>void; onBack:()=>void; onAction:(action:string,payload:Record<string,unknown>)=>Promise<unknown>;
 }) {
  const [filter,setFilter]=useState("all"),[search,setSearch]=useState("");
  const [preview,setPreview]=useState<Asset|null>(null);
@@ -65,10 +66,13 @@ export default function AutomationLibrary({ data, selected, busy, onCreate, onVi
    {preview&&<ContentDialog title={`Preview ${preview.title}`} onClose={()=>setPreview(null)} compact>{preview.type==="video"||preview.type==="ugc"?<video controls autoPlay src={preview.assetUrl}/>:preview.type==="text"?<p>{items.find(item=>item.assetId===preview.id)?.caption||preview.prompt}</p>:<img src={preview.assetUrl} alt={preview.title}/>}</ContentDialog>}
   </div>;
  }
- const visible=entries.filter(entry=>(filter==="all"||(filter==="failed"?Boolean(entry.record.lastError||entry.record.status==="failed"||outputs(entry).some(item=>item.status==="failed")):entry.record.status===filter))&&[entry.record.name,entry.record.instruction].join(" ").toLowerCase().includes(search.toLowerCase()));
+ const typedEntries=entries.filter(entry=>entry.kind===kind);
+ const visible=typedEntries.filter(entry=>(filter==="all"||(filter==="failed"?Boolean(entry.record.lastError||entry.record.status==="failed"||outputs(entry).some(item=>item.status==="failed")):entry.record.status===filter))&&[entry.record.name,entry.record.instruction].join(" ").toLowerCase().includes(search.toLowerCase()));
  return <div className="automation-page automation-library"><PageIntro title="Automation" description="Manage your recurring content, review results and decide what runs next." art="operations"><button type="button" className="primary" onClick={onCreate}><Plus size={17}/>Create automation</button></PageIntro>
+  <AutomationTypeTabs value={kind} onChange={onKindChange} counts={{sources:data.automationSourceWatchers.length,scheduled:data.automationRules.length}}/>
+  <h2 className="automation-list-heading">{kind==="sources"?"Source monitors":"Scheduled automations"}</h2>
   <div className="automation-library-toolbar"><label className="creator-library-search"><input aria-label="Search automations" type="search" placeholder="Search automations" value={search} onChange={e=>setSearch(e.target.value)}/></label><CreatorFilterSelect label="Show" accessibleLabel="Automation status" value={filter} defaultValue="all" onChange={setFilter} options={[{value:"all",label:"All automations"},{value:"active",label:"On"},{value:"paused",label:"Off"},{value:"failed",label:"Needs attention"}]}/></div>
   {visible.map(entry=>{const r=entry.record,items=outputs(entry),pending=items.filter(item=>approval(item,entry)==="Awaiting approval").length;return <article className="card automation-list-card" key={entry.kind+r.id}><div className="automation-list-icon">{entry.kind==="sources"?<Radar size={25}/>:<CalendarDays size={25}/>}</div><div className="automation-list-main"><div className="automation-row-heading"><button className="automation-title" onClick={()=>onView(entry)}>{r.name}</button><span className={`status ${r.status==="active"?"scheduled":r.status==="failed"?"failed":"draft"}`}>{r.status==="active"?"On":r.status==="paused"?"Off":"Needs attention"}</span></div><p>{r.instruction||"Recreate selected source content with your saved Persona."}</p><div className="automation-list-meta"><span><Clock3 size={15}/>{schedule(entry)}</span><span>{title(r.contentType)} · {approvalLabels[r.approvalMode]}</span><span>{r.status==="active"?`Next run: ${date(r.nextRunAt)}`:"Automatic runs paused"}</span></div>{pending>0&&<p className="automation-review-status"><Check size={16}/>{pending} {pending===1?"output":"outputs"} awaiting approval</p>}{r.lastError&&<p className="provider-error">{r.lastError}</p>}<div className="automation-card-footer"><button type="button" onClick={()=>onView(entry)}><Eye size={16}/>View details</button>{actions(entry)}</div></div></article>})}
-  {!visible.length&&<div className="empty-state"><h2>{entries.length?"No matching automations":"Your automations will appear here"}</h2><p>{entries.length?"Try a different search or status.":"Create an automation to schedule content or monitor your sources."}</p>{!entries.length&&<button className="primary" onClick={onCreate}><Plus size={16}/>Create automation</button>}</div>}
+  {!visible.length&&<div className="empty-state"><h2>{typedEntries.length?"No matching automations":kind==="sources"?"No source monitors yet":"No scheduled automations yet"}</h2><p>{typedEntries.length?"Try a different search or status.":kind==="sources"?"Monitor your chosen accounts to discover content automatically.":"Create a recurring content plan from your instructions."}</p>{!typedEntries.length&&<button className="primary" onClick={onCreate}><Plus size={16}/>Create automation</button>}</div>}
  </div>;
 }

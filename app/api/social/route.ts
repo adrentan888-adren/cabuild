@@ -1,4 +1,4 @@
-import { nextScheduledRun } from "@/lib/automation-schedule";
+import { nextScheduledRun, normalizeAutomationSchedule } from "@/lib/automation-schedule";
 import { runScheduledAutomation, generateAutomationDraft } from "@/lib/automation-runner";
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
@@ -1048,7 +1048,8 @@ export async function POST(req: Request) {
     try {
       if (!String(body.name || "").trim()) throw new Error("Give this automation a name.");
       if (action.endsWith("AutomationRule") && !String(body.instruction || "").trim()) throw new Error("Add a creation instruction.");
-      nextScheduledRun({frequency:String(body.frequency || "daily"),postingDays:normalizeStringList(body.postingDays),postingTime:String(body.postingTime || "10:00"),timezone:String(body.timezone || "Asia/Kuala_Lumpur")});
+      Object.assign(body, normalizeAutomationSchedule({...body, postingDays:normalizeStringList(body.postingDays)}));
+      nextScheduledRun(body as unknown as AutomationRule);
       if (action.endsWith("SourceWatcher") && !parseList(body.sourceUrls).some(url => /^https?:\/\/.+\..+/.test(url))) throw new Error("Add at least one valid source URL.");
     } catch (error) { return NextResponse.json({error:error instanceof Error ? error.message : "Invalid automation"},{status:400}); }
   }
@@ -2379,7 +2380,7 @@ export async function POST(req: Request) {
       db.automationRules ||= [];
       db.automationJobs ||= [];
       const now = new Date().toISOString();
-      const frequency = (["daily", "weekly", "custom"].includes(String(body.frequency)) ? String(body.frequency) : "weekly") as AutomationRule["frequency"];
+      const frequency = (["daily", "weekly", "custom", "interval"].includes(String(body.frequency)) ? String(body.frequency) : "weekly") as AutomationRule["frequency"];
       const duplicateMode = (["off", "light", "standard", "strict"].includes(String(body.duplicateMode)) ? String(body.duplicateMode) : "standard") as AutomationRule["duplicateProtection"]["mode"];
       const contentType = (["image", "short-video", "long-video", "text"].includes(String(body.contentType)) ? String(body.contentType) : "image") as AutomationRule["contentType"];
       const aspectRatio = normalizeAutomationAspectRatio(contentType, body.aspectRatio) as AutomationRule["aspectRatio"];
@@ -2399,6 +2400,9 @@ export async function POST(req: Request) {
         frequency,
         postingDays: normalizeStringList(body.postingDays).length ? normalizeStringList(body.postingDays) : ["Mon", "Wed", "Fri"],
         postingTime: String(body.postingTime || "10:00"),
+        postingTimes: body.postingTimes as string[],
+        intervalDays: body.intervalDays as number | undefined,
+        scheduleStartDate: body.scheduleStartDate as string | undefined,
         timezone: String(body.timezone || "Asia/Kuala_Lumpur"),
         quantityPerRun: clampNumber(body.quantityPerRun, 1, 1, 5),
         approvalMode: (["draft-only", "generate-and-wait", "auto-schedule", "auto-publish"].includes(String(body.approvalMode)) ? String(body.approvalMode) : "draft-only") as AutomationRule["approvalMode"],
@@ -2438,7 +2442,7 @@ export async function POST(req: Request) {
       const now = new Date().toISOString();
       const sourceUrls = parseList(body.sourceUrls).filter((url) => /^https?:\/\/.+\..+/.test(url)).slice(0, 20);
       if (sourceUrls.length === 0) throw new Error("Add at least one valid social media source URL.");
-      const frequency = (["daily", "weekly", "custom"].includes(String(body.frequency)) ? String(body.frequency) : "daily") as AutomationSourceWatcher["frequency"];
+      const frequency = (["daily", "weekly", "custom", "interval"].includes(String(body.frequency)) ? String(body.frequency) : "daily") as AutomationSourceWatcher["frequency"];
       const contentType = (["auto", "video", "image", "text"].includes(String(body.contentType)) ? String(body.contentType) : "auto") as AutomationSourceWatcher["contentType"];
       const aspectRatio = normalizeAutomationAspectRatio(contentType, body.aspectRatio) as AutomationSourceWatcher["aspectRatio"];
       const model = normalizeAutomationModel(contentType, body.model);
@@ -2458,6 +2462,9 @@ export async function POST(req: Request) {
         frequency,
         postingDays: normalizeStringList(body.postingDays).length ? normalizeStringList(body.postingDays) : ["Mon", "Wed", "Fri"],
         postingTime: String(body.postingTime || "10:00"),
+        postingTimes: body.postingTimes as string[],
+        intervalDays: body.intervalDays as number | undefined,
+        scheduleStartDate: body.scheduleStartDate as string | undefined,
         timezone: String(body.timezone || "Asia/Kuala_Lumpur"),
         approvalMode: (["draft-only", "generate-and-wait", "auto-schedule", "auto-publish"].includes(String(body.approvalMode)) ? String(body.approvalMode) : "draft-only") as AutomationSourceWatcher["approvalMode"],
         referenceUrls: {

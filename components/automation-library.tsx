@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ArrowLeft, CalendarDays, Check, Clock3, Eye, FileText, Film, ImageIcon, Pencil, Play, Plus, Radar, Settings, Download, RefreshCcw } from "lucide-react";
+import { describeSchedule } from "@/lib/automation-schedule";
 import AutomationTypeTabs, { type AutomationKind } from "./automation-type-tabs";
 import PageIntro from "./page-intro";
 import ContentDialog from "./content-dialog";
@@ -33,7 +34,7 @@ export default function AutomationLibrary({ data, selected, busy, kind, onKindCh
   <button type="button" disabled={busy || Boolean(entry.record.runningUntil&&Date.parse(entry.record.runningUntil)>Date.now())} onClick={()=>void onAction(entry.kind==="sources"?"runSourceWatcherNow":"runAutomationNow",{id:entry.record.id})}><Play size={16}/>Run now</button>
   <button type="button" role="switch" aria-label={`Automation ${entry.record.name}`} aria-checked={entry.record.status==="active"} className="automation-switch" disabled={busy} onClick={()=>void onAction(entry.kind==="sources"?(entry.record.status==="active"?"pauseSourceWatcher":"resumeSourceWatcher"):(entry.record.status==="active"?"pauseAutomationRule":"resumeAutomationRule"),{id:entry.record.id})}><span aria-hidden="true"/>{entry.record.status==="active"?"On":"Off"}</button>
  </div>;
- const schedule=(entry:Entry)=>`${title(entry.record.frequency)}${entry.record.frequency!=="daily"?` · ${entry.record.postingDays.join(", ")}`:""} · ${entry.record.postingTime} (${entry.record.timezone})`;
+ const schedule=(entry:Entry)=>describeSchedule(entry.record);
  const renderOutput=(item:PublishItem,entry:Entry)=>{
   const asset=data.assets.find(asset=>asset.id===item.assetId),url=asset?.assetUrl||item.assetUrl;
   const kind=item.generationType||asset?.type||"text";

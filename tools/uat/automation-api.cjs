@@ -5,6 +5,16 @@ function load(path,deps={}) {const m={exports:{}};vm.runInNewContext(ts.transpil
  assert.equal(schedule.nextScheduledRun({frequency:'daily',postingDays:[],postingTime:'10:00',timezone:'Asia/Singapore'},Date.parse('2026-09-23T01:59:00Z')),'2026-09-23T02:00:00.000Z');
  assert.equal(schedule.nextScheduledRun({frequency:'weekly',postingDays:['Mon'],postingTime:'10:00',timezone:'America/New_York'},Date.parse('2026-10-31T00:00:00Z')),'2026-11-02T15:00:00.000Z');
  assert.throws(()=>schedule.nextScheduledRun({frequency:'weekly',postingDays:[],postingTime:'25:00',timezone:'Invalid'}));
+
+ const interval={frequency:'interval',intervalDays:3,scheduleStartDate:'2026-09-20',postingTimes:['09:00','17:30'],postingTime:'09:00',postingDays:[],timezone:'Asia/Singapore'};
+ assert.equal(schedule.nextScheduledRun(interval,Date.parse('2026-09-23T01:00:00Z')),'2026-09-23T09:30:00.000Z');
+ assert.equal(schedule.nextScheduledRun(interval,Date.parse('2026-09-23T09:30:00Z')),'2026-09-26T01:00:00.000Z');
+ assert.equal(schedule.nextScheduledRun({...interval,scheduleStartDate:'2026-09-30'},Date.parse('2026-09-23T01:00:00Z')),'2026-09-30T01:00:00.000Z');
+ const dst={...interval,intervalDays:1,timezone:'America/New_York',scheduleStartDate:'2026-03-07',postingTimes:['02:30','09:00']};
+ assert.equal(schedule.nextScheduledRun(dst,Date.parse('2026-03-08T06:00:00Z')),'2026-03-08T13:00:00.000Z','Missing spring slot skips, later time survives');
+ assert.equal(schedule.nextScheduledRun({...dst,postingTimes:['01:30']},Date.parse('2026-11-01T05:30:00Z')),'2026-11-02T06:30:00.000Z','Repeated autumn slot runs once');
+ assert.equal(schedule.nextScheduledRun({...interval,intervalDays:365,scheduleStartDate:'2025-01-01',postingTimes:['10:00']},Date.parse('2026-01-01T03:00:00Z')),'2027-01-01T02:00:00.000Z');
+ for(const invalid of [{postingTimes:[]},{postingTimes:['10:00','10:00']},{postingTimes:['25:00']},{intervalDays:0},{intervalDays:1.5},{scheduleStartDate:'2026-02-30'}])assert.throws(()=>schedule.nextScheduledRun({...interval,...invalid}));
  let user={id:'owner-a',workspaceId:'a'},counter=0,calls=0,published=0,failProvider=false,briefOverrides=null,briefCalls=0,seedanceDuration;
  const db={workspaces:[{id:'a',credits:100}],personaProfiles:[],automationRules:[],automationJobs:[],automationSourceWatchers:[],automationSourceRuns:[],competitorResults:[],assets:[],publishQueue:[],activity:[],debugLogs:[]};
  const store={mutateDb:async fn=>fn(db),id:prefix=>prefix+(++counter)};
@@ -54,6 +64,12 @@ function load(path,deps={}) {const m={exports:{}};vm.runInNewContext(ts.transpil
  r=await send({action:'runAutomationNow',id:quantityId});assert.equal(r.status,200);assert.deepEqual(r.body.map(job=>job.status),['ready-for-generation','ready-for-generation','ready-for-generation']);
  briefOverrides=[{topic:'Composting gardens worms seedlings',videoPrompt:'Composting gardens worms seedlings',caption:'Composting gardens worms seedlings',hashtags:[]}];db.automationRules.find(row=>row.id===quantityId).quantityPerRun=1;
  r=await send({action:'runAutomationNow',id:quantityId});assert.equal(r.body[0].status,'skipped-duplicate','actual duplicate content still gets rejected');
+
+ for(const action of ['createAutomationRule','createSourceWatcher']) {
+  const extra=action==='createSourceWatcher'?{sourceUrls:'https://www.instagram.com/fixture'}:{};
+  const created=await send({...base,...extra,action,frequency:'interval',intervalDays:3,scheduleStartDate:'2026-09-20',postingTimes:['17:30','09:00']});assert.equal(created.status,200);assert.deepEqual(created.body.postingTimes,['09:00','17:30']);assert.equal(created.body.intervalDays,3);assert.equal(created.body.scheduleStartDate,'2026-09-20');assert.equal(created.body.postingTime,'09:00');
+  for(const invalid of [{postingTimes:[]},{postingTimes:['09:00','09:00']},{intervalDays:0},{scheduleStartDate:'2026-02-30'}])assert.equal((await send({...base,...extra,action,frequency:'interval',intervalDays:3,scheduleStartDate:'2026-09-20',postingTimes:['09:00'],...invalid})).status,400);
+ }
  user=null;assert.equal((await send({action:'runAutomationNow',id:ruleId})).status,401);
  console.log('PASS schedule timezone/DST/day selection; owner-scoped CRUD and history; paused manual runs, due/overlap guards; draft policy snapshots, idempotent generation, approval/publish gates, failure recovery and cron authentication. Providers mocked; no external writes.');
 })().catch(e=>{console.error(e);process.exit(1)});

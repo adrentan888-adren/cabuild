@@ -49,7 +49,8 @@ import ContentOutputCard from "@/components/content-output-card";
 import AutomationLibrary from "@/components/automation-library";
 import AutomationFormatControls from "@/components/automation-format-controls";
 import AutomationTypeTabs from "@/components/automation-type-tabs";
-import AutomationScheduleEditor from "@/components/automation-schedule-editor";
+import AutomationScheduleEditor, { AutomationScheduleProvider, AutomationScheduleSummary } from "@/components/automation-schedule-editor";
+import { normalizeAutomationSchedule } from "@/lib/automation-schedule";
 import AutomationResearchEditor from "@/components/automation-research-editor";
 import AutomationSelect from "@/components/automation-select";
 import CreationAssets from "@/components/creation-assets";
@@ -2518,11 +2519,14 @@ function AutomationPanel({ data, run, refresh }: { data: AppData; run: (a: strin
             setFormError("");
             const payload: Record<string, unknown> = Object.fromEntries(form.entries());
             payload.postingDays = form.getAll("postingDays").map((item) => String(item));
+            payload.postingTimes = form.getAll("postingTimes").map(String);
+            Object.assign(payload, normalizeAutomationSchedule(payload));
             payload.referenceAssets = await buildReferenceAssets(sourceSelectedPersonaAssetIds, sourceUploadRefs);
             const result=await execute(sourceEditing?"updateSourceWatcher":"createSourceWatcher",{...payload,...(sourceEditing?{id:sourceEditing.id}:{})});
             if(result?.id)changePage("detail","sources",result.id);else setFormError("Could not save. Your edits are still here; please try again.");
             } catch(error) { setFormError(error instanceof Error ? error.message : "Could not save. Your edits are still here."); } finally {submitting.current=false;setBusy(false);}
           }}>
+            <AutomationScheduleProvider initial={sourceEditing}>
             <section className="create-card"><div className="optional-brief-heading"><Radar size={22}/><h2>Sources to monitor</h2></div><p className="step-helper">Choose the accounts and instructions this automation should follow.</p>
             <div className="modal-grid">
               <label>Automation name<input name="name" placeholder="Competitor best-post monitor" required defaultValue={sourceEditing?.name || ""} /></label>
@@ -2539,9 +2543,9 @@ function AutomationPanel({ data, run, refresh }: { data: AppData; run: (a: strin
             </section>
             <section className="create-card"><div className="optional-brief-heading"><Film size={22}/><h2>Choose format, model, and references</h2></div>
             <AutomationFormatControls contentType={sourceContentType} formats={sourceContentTypes} onTypeChange={value=>changeSourceContentType(value as AutomationSourceWatcher["contentType"])} model={sourceModel} models={sourceModelOptions} onModelChange={setSourceModel} aspectRatio={sourceAspectRatio} ratios={sourceDimensionOptions} onRatioChange={setSourceAspectRatio} duration={sourceEditing?.duration}/>
-            <div className="creation-option-group"><div className="clbl"><ImageIcon size={20}/>Assets</div><CreationAssets personaAssets={data.personaProfile.mediaAssets || []} selectedIds={sourceSelectedPersonaAssetIds} uploads={sourceUploadRefs} retainedAssets={savedReferences} usePersona video={automationKindFromContentType(sourceContentType) === "video" || sourceContentType === "auto"} inlinePicker onClear={role=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setSourceSelectedPersonaAssetIds(current=>current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)));updateSourceUploadRef(role,null);}} onSelect={(role,ids)=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setSourceSelectedPersonaAssetIds(current=>[...current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)),...ids]);updateSourceUploadRef(role,null);}} onUpload={(role,file)=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setSourceSelectedPersonaAssetIds(current=>current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)));updateSourceUploadRef(role,file);}}/></div>
+            <div className="creation-option-group"><div className="clbl"><ImageIcon size={20}/>Assets</div><CreationAssets personaAssets={data.personaProfile.mediaAssets || []} selectedIds={sourceSelectedPersonaAssetIds} uploads={sourceUploadRefs} retainedAssets={savedReferences} usePersona video={automationKindFromContentType(sourceContentType) === "video" || sourceContentType === "auto"} onClear={role=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setSourceSelectedPersonaAssetIds(current=>current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)));updateSourceUploadRef(role,null);}} onSelect={(role,ids)=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setSourceSelectedPersonaAssetIds(current=>[...current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)),...ids]);updateSourceUploadRef(role,null);}} onUpload={(role,file)=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setSourceSelectedPersonaAssetIds(current=>current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)));updateSourceUploadRef(role,file);}}/></div>
             </section>
-            <AutomationScheduleEditor initial={sourceEditing}/>
+            <AutomationScheduleEditor/>
             <section className="create-card"><div className="optional-brief-heading"><RefreshCcw size={22}/><h2>Duplicate protection</h2></div>
             <div className="modal-grid">
               <label>Source window days<input name="sourceWindowDays" type="number" min="1" defaultValue={sourceEditing?.duplicateProtection.sourceWindowDays ?? "90"} /></label>
@@ -2549,7 +2553,8 @@ function AutomationPanel({ data, run, refresh }: { data: AppData; run: (a: strin
               <label>Similarity threshold<input name="similarityThreshold" type="number" min="50" max="98" defaultValue={sourceEditing?.duplicateProtection.similarityThreshold ?? "82"} /></label>
             </div>
             <p className="muted">Each run crawls the URLs, stores source results, skips duplicate sources/topics, creates content in My Contents, and uses Upload-Post only when the selected approval mode allows publishing.</p>
-            </section><div className="automation-actions automation-save-actions"><button type="button" disabled={busy} onClick={()=>changePage(selectedId?"detail":"list",automationMode,selectedId)}>Cancel</button><button className="primary" disabled={busy}><Radar size={15} />{busy?"Saving…":"Save automation"}</button></div>
+            </section><AutomationScheduleSummary format={sourceContentTypes.find(option=>option.value===sourceContentType)?.label || sourceContentType} model={sourceModelOptions.find(option=>option.value===sourceModel)?.label || sourceModel} aspectRatio={sourceAspectRatio} assetCount={savedReferences.length+sourceSelectedPersonaAssetIds.length+sourceUploadRefs.length}/><div className="automation-actions automation-save-actions"><button type="button" disabled={busy} onClick={()=>changePage(selectedId?"detail":"list",automationMode,selectedId)}>Cancel</button><button className="primary" disabled={busy}><Radar size={15} />{busy?"Saving…":sourceEditing?"Save automation":"Create automation"}</button></div>
+          </AutomationScheduleProvider>
           </form>
         </div>
       )}
@@ -2565,11 +2570,14 @@ function AutomationPanel({ data, run, refresh }: { data: AppData; run: (a: strin
             payload.platforms = form.getAll("platforms").map((item) => String(item));
             if (!(payload.platforms as string[]).length) { setFormError("Choose at least one publishing platform."); return; }
             payload.postingDays = form.getAll("postingDays").map((item) => String(item));
+            payload.postingTimes = form.getAll("postingTimes").map(String);
+            Object.assign(payload, normalizeAutomationSchedule(payload));
             payload.referenceAssets = await buildReferenceAssets(scheduledSelectedPersonaAssetIds, scheduledUploadRefs);
             const result=await execute(ruleEditing?"updateAutomationRule":"createAutomationRule",{...payload,...(ruleEditing?{id:ruleEditing.id}:{})});
             if(result?.id)changePage("detail","scheduled",result.id);else setFormError("Could not save. Your edits are still here; please try again.");
             } catch(error) { setFormError(error instanceof Error ? error.message : "Could not save. Your edits are still here."); } finally {submitting.current=false;setBusy(false);}
           }}>
+            <AutomationScheduleProvider initial={ruleEditing}>
             <section className="create-card"><div className="optional-brief-heading"><Sparkles size={22}/><h2>What should the agent create?</h2></div><p className="step-helper">Give your recurring content a clear purpose and instruction.</p>
             <div className="modal-grid">
               <label>Automation name<input name="name" placeholder="Daily Malay loan ads" required defaultValue={ruleEditing?.name || ""} /></label>
@@ -2585,10 +2593,10 @@ function AutomationPanel({ data, run, refresh }: { data: AppData; run: (a: strin
             </section><section className="create-card"><div className="optional-brief-heading"><Film size={22}/><h2>Choose format, model, and references</h2></div>
             <div className="creation-platform-row automation-platform-row"><fieldset className="choice-buttons"><legend>Publishing platforms</legend><p className="step-helper">Choose one or more destinations for each run.</p><div>{platforms.map(platform=><button type="button" aria-pressed={scheduledPlatforms.includes(platform)} className={scheduledPlatforms.includes(platform)?"on":""} key={platform} onClick={()=>toggleScheduledPlatform(platform,!scheduledPlatforms.includes(platform))}><span className="choice-icon" aria-hidden="true"><PlatformIcon platform={platform}/></span>{platform}</button>)}</div>{scheduledPlatforms.map(platform=><input key={platform} type="hidden" name="platforms" value={platform}/>)}</fieldset></div>
             <AutomationFormatControls contentType={scheduledContentType} formats={contentTypes} onTypeChange={value=>changeScheduledContentType(value as AutomationRule["contentType"])} model={scheduledModel} models={scheduledModelOptions} onModelChange={setScheduledModel} aspectRatio={scheduledAspectRatio} ratios={scheduledDimensionOptions} onRatioChange={setScheduledAspectRatio} duration={ruleEditing?.duration}/>
-            <div className="creation-option-group"><div className="clbl"><ImageIcon size={20}/>Assets</div><CreationAssets personaAssets={data.personaProfile.mediaAssets || []} selectedIds={scheduledSelectedPersonaAssetIds} uploads={scheduledUploadRefs} retainedAssets={savedReferences} usePersona video={automationKindFromContentType(scheduledContentType) === "video"} inlinePicker onClear={role=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setScheduledSelectedPersonaAssetIds(current=>current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)));updateScheduledUploadRef(role,null);}} onSelect={(role,ids)=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setScheduledSelectedPersonaAssetIds(current=>[...current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)),...ids]);updateScheduledUploadRef(role,null);}} onUpload={(role,file)=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setScheduledSelectedPersonaAssetIds(current=>current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)));updateScheduledUploadRef(role,file);}}/></div>
+            <div className="creation-option-group"><div className="clbl"><ImageIcon size={20}/>Assets</div><CreationAssets personaAssets={data.personaProfile.mediaAssets || []} selectedIds={scheduledSelectedPersonaAssetIds} uploads={scheduledUploadRefs} retainedAssets={savedReferences} usePersona video={automationKindFromContentType(scheduledContentType) === "video"} onClear={role=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setScheduledSelectedPersonaAssetIds(current=>current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)));updateScheduledUploadRef(role,null);}} onSelect={(role,ids)=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setScheduledSelectedPersonaAssetIds(current=>[...current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)),...ids]);updateScheduledUploadRef(role,null);}} onUpload={(role,file)=>{setSavedReferences(current=>current.filter(asset=>asset.role!==role));setScheduledSelectedPersonaAssetIds(current=>current.filter(id=>!(data.personaProfile.mediaAssets||[]).some(asset=>asset.id===id&&asset.role===role)));updateScheduledUploadRef(role,file);}}/></div>
             </section>
-            <AutomationScheduleEditor initial={ruleEditing} scheduled/>
             <AutomationResearchEditor initial={ruleEditing}/>
+            <AutomationScheduleEditor scheduled/>
             <section className="create-card"><div className="optional-brief-heading"><RefreshCcw size={22}/><h2>Duplicate protection</h2></div>
             <div className="modal-grid">
               <div className="automation-field"><span>Protection level</span><AutomationSelect label="Protection level" name="duplicateMode" value={dedupeMode} onValueChange={value => setDedupeMode(value as AutomationRule["duplicateProtection"]["mode"])}>
@@ -2603,7 +2611,8 @@ function AutomationPanel({ data, run, refresh }: { data: AppData; run: (a: strin
               <label>Retry new idea attempts<input name="maxRetries" type="number" min="0" max="5" defaultValue={ruleEditing?.duplicateProtection.maxRetries ?? (dedupeMode === "off" ? 0 : 2)} /></label>
             </div>
             <p className="muted">Duplicate checks compare source URLs, recent generated assets, publish queue entries, research titles, captions, and previous automation jobs before allowing a new draft job.</p>
-            </section><div className="automation-actions automation-save-actions"><button type="button" disabled={busy} onClick={()=>changePage(selectedId?"detail":"list",automationMode,selectedId)}>Cancel</button><button className="primary" disabled={busy}><Sparkles size={15} />{busy?"Saving…":"Save automation"}</button></div>
+            </section><AutomationScheduleSummary scheduled platforms={scheduledPlatforms} format={contentTypes.find(option=>option.value===scheduledContentType)?.label || scheduledContentType} model={scheduledModelOptions.find(option=>option.value===scheduledModel)?.label || scheduledModel} aspectRatio={scheduledAspectRatio} assetCount={savedReferences.length+scheduledSelectedPersonaAssetIds.length+scheduledUploadRefs.length}/><div className="automation-actions automation-save-actions"><button type="button" disabled={busy} onClick={()=>changePage(selectedId?"detail":"list",automationMode,selectedId)}>Cancel</button><button className="primary" disabled={busy}><Sparkles size={15} />{busy?"Saving…":ruleEditing?"Save automation":"Create automation"}</button></div>
+          </AutomationScheduleProvider>
           </form>
         </div>
       )}

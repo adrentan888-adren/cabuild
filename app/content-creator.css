@@ -559,3 +559,50 @@
 }
 @media(max-width:600px) { .normal-workspace-frame .automation-platform-row .choice-buttons>div { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:380px) { .automation-frequency>div { grid-template-columns:minmax(0,1fr); } }
+/* Two clear schedule modes, full weekday names and an editable list of times. */
+.automation-frequency>div { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.normal-workspace-frame .automation-days button { display:flex; align-items:center; justify-content:center; gap:8px; min-height:56px; padding:12px 8px; font-size:14px; font-weight:650; }
+.normal-workspace-frame .automation-days button.on { background:#526f3f; border-color:#405c30; color:#fff; box-shadow:inset 0 0 0 1px #405c30; }
+.automation-days button>svg { flex-shrink:0; }
+.automation-interval-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; padding:20px; background:#f2f6ec; border:1px solid #d3dfca; border-radius:14px; }
+.automation-interval-fields label { display:grid; gap:10px; color:#405637; font-size:15px; font-weight:650; }
+.automation-interval-fields p { grid-column:1/-1; margin:0; color:#65745c; font-size:13px; }
+.automation-interval-input { display:flex; align-items:center; gap:12px; }
+.automation-interval-input input { width:100%; min-width:0; }
+.automation-times-section { display:grid; gap:14px; }
+.automation-times-section>p { margin:0; color:#65745c; font-size:13px; line-height:1.7; }
+.automation-times-list { display:grid; gap:10px; }
+.automation-time-item { display:grid; grid-template-columns:100px minmax(0,1fr) 44px; align-items:center; gap:16px; padding:12px 16px; border:1px solid #d3dfca; border-radius:12px; background:#f2f6ec; }
+.automation-time-item label { margin:0; color:#405637; font-size:14px; font-weight:650; }
+.normal-workspace-frame .automation-time-item input { font-size:18px; min-height:46px; }
+.normal-workspace-frame .automation-time-item button { width:44px; height:44px; padding:0; justify-content:center; }
+.normal-workspace-frame .automation-add-time { justify-self:start; min-height:44px; padding:10px 18px; border-style:dashed; }
+.automation-schedule-editor>.automation-timezone,.automation-schedule-block>.automation-timezone { display:grid; gap:10px; }
+.automation-schedule-block>.automation-timezone>span { display:flex; align-items:center; gap:9px; font-weight:650; color:#405637; }
+.automation-schedule-block>.automation-timezone small { color:#65745c; font-size:12px; }
+.automation-final-summary>div { flex:1; }
+.automation-final-summary h2 { margin:0; color:#36512c; font-size:23px; }
+.automation-final-summary dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; margin:18px 0 0; }
+.automation-final-summary dl>div { min-width:0; }
+.automation-final-summary dt { font-size:12px; font-weight:650; color:#526448; margin-bottom:7px; }
+.automation-final-summary dd { margin:0; font-size:14px; line-height:1.7; overflow-wrap:anywhere; }
+.automation-final-summary dl>div:nth-last-child(-n+2) { grid-column:1/-1; }
+.automation-final-summary>div>small { line-height:1.6; font-weight:400; }
+/* Compact shared Seedance/Veo settings keep the ratio choices aligned. */
+.generation-choice-grid[data-video="true"] { --video-control-height:88px; }
+.generation-choice-grid[data-video="true"] .duration-slider { grid-template-rows:24px 26px 14px; gap:2px; padding:8px 12px; }
+.generation-choice-grid[data-video="true"] .duration-slider input[type="range"] { height:26px; min-height:26px; }
+.generation-choice-grid[data-video="true"] .duration-slider label { font-size:13px; line-height:22px; }
+.generation-choice-grid[data-video="true"] .duration-slider output { font-size:20px; line-height:24px; }
+.generation-choice-grid[data-video="true"] .duration-slider>div { font-size:10px; line-height:14px; }
+@media(max-width:1100px) { .automation-days>div { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+@media(max-width:760px) {
+ .automation-days>div { grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+ .automation-interval-fields { grid-template-columns:minmax(0,1fr); }
+ .automation-time-item { grid-template-columns:minmax(0,1fr) 40px; gap:10px; padding:12px; }
+ .automation-time-item label { grid-column:1/-1; }
+ .normal-workspace-frame .automation-time-item button { width:40px; }
+ .normal-workspace-frame .automation-time-item input { padding-inline:6px; font-size:16px; }
+ .automation-final-summary dl { grid-template-columns:minmax(0,1fr); gap:16px; }
+ .automation-final-summary h2 { font-size:20px; }
+}

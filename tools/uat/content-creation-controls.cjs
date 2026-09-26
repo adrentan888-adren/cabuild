@@ -32,6 +32,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs');
  fs.mkdirSync('.playwright-mcp',{recursive:true});
  const matchedSettings=async()=>{
   const boxes=await page.locator('.generation-choice-grid[data-video=true]').evaluate(grid=>{const duration=grid.querySelector('.fixed-duration,.duration-slider').getBoundingClientRect();return {duration:{x:duration.x,y:duration.y,height:duration.height,bottom:duration.bottom},ratios:[...grid.querySelectorAll('.creation-aspect-ratio button')].map(button=>{const r=button.getBoundingClientRect();return{x:r.x,y:r.y,height:r.height,bottom:r.bottom}})}});
+  assert(boxes.duration.height<=96,'Video controls use compact height');
   for(const ratio of boxes.ratios){assert(Math.abs(boxes.duration.height-ratio.height)<2,'Duration and ratio choices have equal height');if(Math.abs(boxes.duration.y-ratio.y)<100)assert(Math.abs(boxes.duration.y-ratio.y)<2&&Math.abs(boxes.duration.bottom-ratio.bottom)<2,'Side-by-side settings align at top and bottom');}
   return boxes.duration.height;
  };

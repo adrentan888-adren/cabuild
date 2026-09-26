@@ -283,9 +283,12 @@ export type AutomationRule = {
   model: string;
   duration?: number;
   runningUntil?: string;
-  frequency: "daily" | "weekly" | "custom";
+  frequency: "daily" | "weekly" | "custom" | "interval";
   postingDays: string[];
   postingTime: string;
+  postingTimes?: string[];
+  intervalDays?: number;
+  scheduleStartDate?: string;
   timezone: string;
   quantityPerRun: number;
   approvalMode: "draft-only" | "generate-and-wait" | "auto-schedule" | "auto-publish";
@@ -350,9 +353,12 @@ export type AutomationSourceWatcher = {
   runningUntil?: string;
   minViews: number;
   rankingMode: "balanced" | "views" | "engagement" | "recent";
-  frequency: "daily" | "weekly" | "custom";
+  frequency: "daily" | "weekly" | "custom" | "interval";
   postingDays: string[];
   postingTime: string;
+  postingTimes?: string[];
+  intervalDays?: number;
+  scheduleStartDate?: string;
   timezone: string;
   approvalMode: "draft-only" | "generate-and-wait" | "auto-schedule" | "auto-publish";
   referenceUrls: {

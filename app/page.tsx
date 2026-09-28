@@ -40,6 +40,8 @@ import {
   Wand2
 } from "lucide-react";
 import PageIntro from "@/components/page-intro";
+import SocialAuditPanel from "@/components/social-audit-panel";
+import AnalyticsPanel from "@/components/analytics-panel";
 import ContentDialog from "@/components/content-dialog";
 import ChoiceButtons, { AspectRatioIcon } from "@/components/choice-buttons";
 import PlatformIcon from "@/components/platform-icon";
@@ -443,14 +445,14 @@ export default function Home() {
           <div className="workspace-content-frame normal-workspace-frame">
             {screen !== "account" && screen !== "settings" && <WorkspaceRail mode="normal" activePage={screen === "create" ? "publish" : screen} onNormalNavigate={navigateScreen} />}
             <section className="panel active">
-              {screen === "audit" && <SocialAuditPanel data={data} run={run} />}
+              {screen === "audit" && <SocialAuditPanel data={data} run={run} onNavigate={navigateScreen} />}
               {screen === "persona" && <PersonaPanel data={data} run={run} onEditingChange={setPersonaEditing} />}
               {screen === "research" && <IntelligencePanel data={data} run={run} refresh={refresh} setDirectCreateInitial={(initial) => { void navigateScreen("create", initial.sourceResultId); }} />}
               {(screen === "create" || screen === "publish") && <PublishPanel data={data} run={run} pendingGeneration={pendingGeneration} onCreate={() => navigateScreen("create")} onLibrary={() => navigateScreen("publish")} composer={screen === "create" ? <CreateContentPanel key={createSourceId || "direct"} sourceId={createSourceId} data={data} run={run} setScreen={navigateScreen} setPendingGeneration={setPendingGeneration} /> : undefined} />}
               {screen === "drama" && <DramaWorkspacePanel src="/drama-studio" title="Drama Studio" refresh={refresh} />}
               {screen === "asset-library" && <DramaWorkspacePanel src="/drama-studio/assets" title="Asset Library" refresh={refresh} />}
               {screen === "automation" && <AutomationPanel data={data} run={run} refresh={refresh} />}
-              {screen === "analyse" && <AnalyticsPanel data={data} />}
+              {screen === "analyse" && <AnalyticsPanel data={data} onNavigate={navigateScreen} />}
               {screen === "logs" && <LogPanel data={data} />}
               {screen === "account" && <AccountPanel data={data} />}
               {screen === "settings" && <SettingsPanel data={data} run={run} integrations={integrations} />}
@@ -486,145 +488,6 @@ function HealthMetric({ tone, value, label, sub }: { tone: "blue" | "green" | "a
       <strong>{value}</strong>
       <span>{label}</span>
       <small>{sub}</small>
-    </div>
-  );
-}
-
-function SocialAuditPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
-  const [auditing, setAuditing] = useState(false);
-  const [auditElapsed, setAuditElapsed] = useState(0);
-  const [connectError, setConnectError] = useState("");
-  const autoAuditRef = useRef(false);
-  const connectedAccounts = data.connectedSocialAccounts || [];
-  const connectedAudits = connectedAccounts
-    .map((account) => data.socialAudits.find((audit) => audit.platform === account.platform && audit.handle === account.handle))
-    .filter((audit): audit is SocialAudit => Boolean(audit));
-  const latestAudit = connectedAudits[0];
-  const auditResultIds = new Set(connectedAudits.flatMap((audit) => audit.topResultIds));
-  const auditResults = data.competitorResults.filter((item) => auditResultIds.has(item.id));
-  const allAuditResults = data.competitorResults.filter((item) => connectedAudits.some((audit) => audit.id === item.competitorId));
-  const totalReach = allAuditResults.reduce((sum, item) => sum + item.views, 0);
-  const totalLikes = allAuditResults.reduce((sum, item) => sum + item.likes, 0);
-  const engagementRate = totalReach > 0 ? (totalLikes / totalReach) * 100 : 0;
-  const postsThisWeek = allAuditResults.filter((item) => Date.now() - new Date(item.publishedAt).getTime() <= 1000 * 60 * 60 * 24 * 7).length;
-  const followerEstimate = connectedAudits.length ? Math.max(120, Math.round(connectedAudits.reduce((sum, audit) => sum + audit.avgLikes, 0) * 9 + connectedAudits.reduce((sum, audit) => sum + audit.postsAnalysed, 0) * 82)) : 0;
-  const averageAuthority = connectedAudits.length ? Math.round(connectedAudits.reduce((sum, audit) => sum + audit.authorityScore, 0) / connectedAudits.length) : 0;
-  const accountRows = connectedAccounts.map((account) => {
-    const audit = connectedAudits.find((item) => item.platform === account.platform && item.handle === account.handle);
-    return { account, audit, score: audit?.authorityScore || 0 };
-  });
-  const pillarRows = [
-    { name: "AI automation writes", score: Math.min(96, averageAuthority + 18), badge: "Strong" },
-    { name: "Founder story", score: Math.min(88, averageAuthority + 4), badge: "Avg" },
-    { name: "SME productivity tips", score: Math.max(36, averageAuthority - 6), badge: "Avg" },
-    { name: "Industry news shares", score: Math.max(22, averageAuthority - 34), badge: "Drop this" }
-  ];
-  const needsAudit = connectedAccounts.length > 0 && connectedAudits.length < connectedAccounts.filter((account) => !account.reauthRequired).length;
-
-  useEffect(() => {
-    if (!auditing) {
-      setAuditElapsed(0);
-      return;
-    }
-    const timer = window.setInterval(() => setAuditElapsed((value) => value + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [auditing]);
-
-  useEffect(() => {
-    if (autoAuditRef.current || !needsAudit || auditing) return;
-    autoAuditRef.current = true;
-    setAuditing(true);
-    run("auditConnectedSocials", {}, "Connected social audits completed").finally(() => setAuditing(false));
-  }, [auditing, needsAudit, run]);
-
-  async function connectSocialMedia() {
-    setConnectError("");
-    const res = await fetch("/api/integrations/upload-post/connect", { method: "POST" });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok || !json.access_url) {
-      setConnectError(json.error || "Unable to create Upload-Post connection link.");
-      return;
-    }
-    window.open(json.access_url, "_blank", "noopener,noreferrer");
-  }
-
-  return (
-    <div className="audit-page">
-      <PageIntro title="Social Audit" description={connectedAccounts.length ? `Understand performance across your ${connectedAccounts.length} connected social accounts.` : "Connect your social accounts to explore performance and content opportunities."} art="research"><button className="primary" onClick={connectSocialMedia}><Megaphone size={14} />Connect social media</button></PageIntro>
-
-      {connectError && <p className="provider-error">{connectError}</p>}
-      {auditing && <div className="scan-progress"><span />Analysing all connected social accounts with Apify<b>{auditElapsed}s</b></div>}
-
-      <section className="card">
-        <div className="audit-hero">
-          <div className="score-ring"><div><strong>{averageAuthority}</strong><span>Authority</span></div></div>
-          <div className="audit-mets">
-            <div><b>{compact(totalReach)}</b><span>Total reach</span><small className="good">Connected accounts only</small></div>
-            <div><b>{engagementRate.toFixed(1)}%</b><span>Engagement rate</span><small className="good">{connectedAudits.length} audited</small></div>
-            <div><b>{postsThisWeek}</b><span>Posts this week</span><small className="warn">Target: 10</small></div>
-            <div><b>+{compact(followerEstimate)}</b><span>Follower signal</span><small className="good">Estimated from engagement</small></div>
-          </div>
-        </div>
-      </section>
-
-      <section className="card">
-        <div className="clbl">Connected account breakdown</div>
-        {accountRows.length === 0 && <div className="empty-state">No social media accounts connected yet.</div>}
-        {accountRows.map(({ account, audit, score }) => (
-          <div className="pb-row audit-pb account-row" key={`${account.platform}-${account.handle}`}>
-            {account.imageUrl ? <img src={account.imageUrl} alt="" /> : <span className="account-avatar">{account.platform.slice(0, 1)}</span>}
-            <span className="pb-nm">{account.platform}<small>{account.displayName} @{account.handle}</small></span>
-            <div className="pb-tr"><span style={{ width: `${score}%`, background: score < 40 ? "#E24B4A" : score < 55 ? "#EF9F27" : "#378ADD" }} /></div>
-            <span className="pb-sc">{audit ? `${score} / 100` : account.reauthRequired ? "Reconnect" : "Pending"}</span>
-          </div>
-        ))}
-      </section>
-
-      <section className="card">
-        <div className="clbl">Engagement trend - connected accounts</div>
-        <svg className="audit-trend" width="100%" height="72" viewBox="0 0 640 72" preserveAspectRatio="none">
-          <path d="M0 60 L46 55 L91 50 L137 53 L183 45 L229 40 L274 37 L320 33 L366 30 L411 23 L457 17 L503 13 L549 10 L594 7 L640 4" fill="none" stroke="#378ADD" strokeWidth="2" strokeLinecap="round" />
-          <path d="M0 60 L46 55 L91 50 L137 53 L183 45 L229 40 L274 37 L320 33 L366 30 L411 23 L457 17 L503 13 L549 10 L594 7 L640 4 L640 72 L0 72Z" fill="rgba(55,138,221,.12)" />
-        </svg>
-        <div className="trend-axis"><span>Day 1</span><span>Day 4</span><span>Day 7</span><span>Day 10</span><span>Day 14</span></div>
-      </section>
-
-      <section className="card">
-        <div className="clbl">Content pillar ratings</div>
-        {pillarRows.map((item) => (
-          <div className="pr-row" key={item.name}>
-            <span className="pr-nm">{item.name}</span>
-            <div className="pr-tr"><span style={{ width: `${item.score}%` }} /></div>
-            <span className={`pr-b ${item.badge === "Strong" ? "bs" : item.badge === "Drop this" ? "bd" : "ba"}`}>{item.badge}</span>
-          </div>
-        ))}
-      </section>
-
-      {auditResults.length > 0 && (
-        <section className="card">
-          <div className="clbl">Top posts from connected accounts</div>
-          <div className="top-posts">
-            {auditResults.slice(0, 8).map((item, index) => (
-              <a className="tp-row" key={item.id} href={item.url} target="_blank">
-                <span className="tp-rank">{index + 1}</span>
-                <div className="tp-text">{item.title}<small>{item.platform} - {new Date(item.publishedAt).toLocaleString()}</small></div>
-                <span className="tp-er">{item.views > 0 ? `${((item.likes / item.views) * 100).toFixed(1)}%` : "0%"}</span>
-              </a>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="card">
-        <div className="clbl">AI diagnostic</div>
-        <div className="diag">
-          {connectedAudits.length ? (
-            <>Your connected channels average <b>{averageAuthority}/100 authority</b> across {connectedAudits.length} audited account{connectedAudits.length === 1 ? "" : "s"}. TikTok, Facebook, and X results are scraped from the connected handles returned by Upload-Post, then scored from views, likes, posting recency, and top-post engagement.</>
-          ) : (
-            <>Connect social media first. Once Upload-Post returns connected accounts, this page automatically scans those social pages and shows only their audit results.</>
-          )}
-        </div>
-      </section>
     </div>
   );
 }
@@ -2315,10 +2178,6 @@ function AssetPreviewPanel({ asset, onClose }: { asset: Asset; onClose: () => vo
     </section>
   </ContentDialog>;
 }
-function AnalyticsPanel({ data }: { data: AppData }) {
-  return <div className="insights-page"><PageIntro title="Analyze" description="Explore your workspace counts and opportunity scores. The forecast below is a demonstration value." art="research" /><div className="grid three"><Metric label="Example engagement forecast" value="4.8%" /><Metric label="Published posts" value={data.publishQueue.filter((p) => p.status === "published").length} /><Metric label="Avg gap score" value={Math.round(data.opportunities.reduce((sum, item) => sum + item.gapScore, 0) / Math.max(1, data.opportunities.length))} /><PanelCard title="Feedback loop"><p>Published assets retain their originating brief, template, platform, and score so future recommendations can learn from performance results.</p></PanelCard></div></div>;
-}
-
 function LogPanel({ data }: { data: AppData }) {
   const [provider, setProvider] = useState("all");
   const [status, setStatus] = useState("all");

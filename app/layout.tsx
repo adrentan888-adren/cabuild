@@ -3,6 +3,7 @@ import HistoryGuard from "@/components/history-guard";
 import "./globals.css";
 import "./workspace-theme.css";
 import "./content-creator.css";
+import "./insights.css";
 
 export const metadata: Metadata = {
   title: "ContentAgent Social",

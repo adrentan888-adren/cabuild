@@ -1,8 +1,9 @@
 "use client";
-import PageIntro from "@/components/page-intro";
+import ContentDialog from "./content-dialog";
+import AutomationSelect from "./automation-select";
 
-import { ArrowUpDown, KeyRound, Save, Server, Settings, ShieldCheck, Trash2, UserPlus, Users, WandSparkles, X } from "lucide-react";
-import { Fragment, useState } from "react";
+import { ArrowUpDown, KeyRound, Save, Server, Settings, ShieldCheck, Trash2, UserPlus, Users, WandSparkles } from "lucide-react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { Asset, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 
 export type AdminAppData = {
@@ -68,15 +69,15 @@ export type AdminUserData = {
 
 type RunAction = (a: string, p?: Record<string, unknown>, m?: string) => Promise<unknown>;
 type RunAdminAction = (method: "POST" | "PATCH", payload: Record<string, unknown>, message?: string) => Promise<unknown>;
-type AdminTab = "users" | "permissions" | "prompts" | "keys" | "system";
 type AdminUser = AdminUserData["users"][number];
 type UserSortKey = "name" | "username" | "email" | "role" | "status" | "createdAt";
 
 function PanelCard({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+  const Icon=title.includes("User")?Users:title.includes("Permission")?ShieldCheck:title.includes("Prompt")?WandSparkles:title.includes("API")?KeyRound:Server;
   return (
     <article className="card admin-card">
       <div className="admin-card-head">
-        <h3>{title}</h3>
+        <h3><Icon size={22}/>{title}</h3>
         {action}
       </div>
       {children}
@@ -84,15 +85,15 @@ function PanelCard({ title, children, action }: { title: string; children: React
   );
 }
 
-function PromptAdminCard({ data, run }: { data: AdminAppData; run: RunAction }) {
+export function PromptAdminCard({ data, run, canEdit }: { data: AdminAppData; run: RunAction; canEdit:boolean }) {
   return (
     <PanelCard title="Prompt management">
       <form className="brand-form prompt-admin-form" action={async (form) => { await run("updatePromptTemplates", Object.fromEntries(form.entries()), "Prompt templates saved"); }}>
-        <div className="modal-grid">
+        <fieldset disabled={!canEdit} className="settings-form-fields"><div className="modal-grid">
           <label>Username<input name="adminUsername" defaultValue="admin" autoComplete="username" /></label>
           <label>Password<input name="adminPassword" type="password" defaultValue="admin" autoComplete="current-password" /></label>
         </div>
-        <p className="muted">These templates power Research result to Generate Content. Video stays two-stage internally because Step 2 runs after the user edits modal fields and uploads logo/person/audio references.</p>
+        <p className="muted">These templates turn research sources into editable content prompts. Video refinement also uses the creator’s selected duration and reference assets.</p>
         <section className="prompt-module">
           <div className="prompt-module-head">
             <div>
@@ -125,20 +126,25 @@ function PromptAdminCard({ data, run }: { data: AdminAppData; run: RunAction }) 
           <label><span className="prompt-step">Step 1 - Source to editable text prompt</span><textarea name="researchTextRecreate" defaultValue={data.promptTemplates.researchTextRecreate} /></label>
           <p className="muted compact">Variables: <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>, <code>{"{{personaContext}}"}</code>.</p>
         </section>
-        <button className="primary"><Settings size={14} />Save prompt templates</button>
+        <button className="primary"><Settings size={14} />Save prompt templates</button></fieldset>
       </form>
     </PanelCard>
   );
 }
 
-function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData | null; runAdmin: RunAdminAction }) {
-  const roles = adminData?.roles || ["super_admin", "admin", "support_admin", "owner", "manager", "creator", "client", "user"];
+export function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData | null; runAdmin: RunAdminAction }) {
+  const roles = adminData?.roles || [];
   const canCreate = Boolean(adminData?.actorPermissions.includes("users.create"));
   const canEdit = Boolean(adminData?.actorPermissions.includes("users.edit"));
   const canDelete = Boolean(adminData?.actorPermissions.includes("users.delete"));
   const canReset = Boolean(adminData?.actorPermissions.includes("users.resetPassword"));
   const [sort, setSort] = useState<{ key: UserSortKey; direction: "asc" | "desc" }>({ key: "createdAt", direction: "desc" });
   const [editing, setEditing] = useState<AdminUser | null>(null);
+  const [deleting,setDeleting]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const lock=useRef(false);
+  const canAssign=Boolean(adminData?.actorPermissions.includes("users.assignRole"));
+  const canDisable=Boolean(adminData?.actorPermissions.includes("users.disable"));
   const username = (user: AdminUser) => user.email.split("@")[0] || user.name;
   const status = (user: AdminUser) => user.disabled ? "Disabled" : "Active";
   const sortableUsers = [...(adminData?.users || [])].sort((a, b) => {
@@ -157,46 +163,35 @@ function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData 
   function toggleSort(key: UserSortKey) {
     setSort((current) => current.key === key ? { key, direction: current.direction === "asc" ? "desc" : "asc" } : { key, direction: key === "createdAt" ? "desc" : "asc" });
   }
-  async function saveUser(form: FormData) {
-    if (!editing) return;
-    const password = String(form.get("password") || "");
-    if (canEdit) {
-      await runAdmin("PATCH", {
-        operation: "update",
-        userId: editing.id,
-        name: form.get("name"),
-        role: form.get("role"),
-        disabled: form.get("disabled") === "true",
-        emailVerified: true
-      }, "User updated");
-    }
-    if (password) await runAdmin("PATCH", { operation: "resetPassword", userId: editing.id, password }, "Password reset");
-    setEditing(null);
+  async function saveUser(form:FormData) {
+    if(!editing||lock.current)return;lock.current=true;setBusy(true);
+    try {
+      if(canEdit){const result=await runAdmin('PATCH',{operation:'update',userId:editing.id,name:form.get('name'),...(canAssign?{role:form.get('role')}:{ }),...(canDisable?{disabled:form.get('disabled')==='true'}:{ })},'User updated');if(!result)return;}
+      const password=String(form.get('password')||'');
+      if(password&&canReset){const result=await runAdmin('PATCH',{operation:'resetPassword',userId:editing.id,password},'Password reset');if(!result)return;}
+      setEditing(null);
+    }finally{lock.current=false;setBusy(false);}
   }
   async function deleteUser() {
-    if (!editing) return;
-    const confirmed = window.confirm(`Delete ${editing.email}? This removes the user account but keeps shared workspace history.`);
-    if (!confirmed) return;
-    await runAdmin("PATCH", { operation: "delete", userId: editing.id }, "User deleted");
-    setEditing(null);
+    if(!editing||lock.current)return;lock.current=true;setBusy(true);
+    try{const result=await runAdmin('PATCH',{operation:'delete',userId:editing.id},'User deleted');if(result){setEditing(null);setDeleting(false);}}finally{lock.current=false;setBusy(false);}
   }
   return (
     <PanelCard title="User management" action={<span className="admin-pill">{adminData?.users.length || 0} users</span>}>
       {canCreate && <form className="admin-create-user" action={async (form) => {
-        await runAdmin("POST", { ...Object.fromEntries(form.entries()), emailVerified: false }, "User created");
-        (document.activeElement as HTMLElement | null)?.blur();
+        if(lock.current)return;lock.current=true;setBusy(true);try{await runAdmin("POST", { ...Object.fromEntries(form.entries()), emailVerified: false }, "User created");}finally{lock.current=false;setBusy(false);}
       }}>
         <div className="admin-section-title">
           <b>Create user</b>
-          <span>New users are added to the hidden default workspace. Workspace support remains internal for future expansion.</span>
+          <span>Invite a person to the application. New accounts must verify their email before signing in.</span>
         </div>
         <div className="modal-grid">
           <label>Email<input name="email" type="email" required autoComplete="off" /></label>
           <label>Temporary password<input name="password" type="password" required minLength={8} autoComplete="new-password" /></label>
           <label>Name<input name="name" placeholder="Optional display name" /></label>
-          <label>Role<select name="role" defaultValue="user">{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
+          <div className="settings-field"><span>Role</span><AutomationSelect label="New user role" name="role" defaultValue="user">{roles.map((role) => <option key={role} value={role}>{role}</option>)}</AutomationSelect></div>
         </div>
-        <button className="primary"><UserPlus size={14} />Create user</button>
+        <button className="primary" disabled={busy}><UserPlus size={14} />{busy?"Creating…":"Create user"}</button>
       </form>}
 
       <div className="admin-user-table-wrap">
@@ -229,49 +224,33 @@ function UserManagementCard({ adminData, runAdmin }: { adminData: AdminUserData 
                 <td data-label="Role"><span className="admin-role-pill">{user.role}</span></td>
                 <td data-label="Status"><span className={`status ${user.disabled ? "failed" : "done"}`}>{status(user)}</span></td>
                 <td data-label="Created">{user.createdAt ? new Date(user.createdAt).toLocaleString() : "Unknown"}</td>
-                <td data-label="Actions"><button type="button" onClick={() => setEditing(user)}>Edit</button></td>
+                <td data-label="Actions"><button type="button" onClick={() => {setEditing(user);setDeleting(false);}}>{canEdit||canReset||canDelete?"Edit":"View"}</button></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {editing && (
-        <div className="modal-backdrop">
-          <section className="generation-modal admin-user-modal">
-            <div className="modal-head">
-              <div>
-                <h3>Edit user</h3>
-                <p>{editing.email}</p>
-              </div>
-              <button className="icon-btn" type="button" onClick={() => setEditing(null)}><X size={15} /></button>
-            </div>
-            <form className="generation-form" action={saveUser}>
-              <div className="modal-grid">
-                <label>Name<input name="name" defaultValue={editing.name} readOnly={!canEdit} /></label>
-                <label>Username<input value={username(editing)} readOnly /></label>
-                <label>Email address<input value={editing.email} readOnly /></label>
-                <label>Role<select name="role" defaultValue={editing.role} disabled={!canEdit}>{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
-                <label>Status<select name="disabled" defaultValue={String(editing.disabled)} disabled={!canEdit}><option value="false">Active</option><option value="true">Disabled</option></select></label>
-                <label>Created date<input value={editing.createdAt ? new Date(editing.createdAt).toLocaleString() : "Unknown"} readOnly /></label>
-              </div>
-              {canReset && <label>Reset password<input name="password" type="password" minLength={8} placeholder="Leave blank to keep current password" /></label>}
-              <div className="modal-actions split-actions">
-                <div>{canDelete && <button className="danger-btn" type="button" onClick={deleteUser}><Trash2 size={14} />Delete</button>}</div>
-                <div className="row-actions">
-                  <button type="button" onClick={() => setEditing(null)}>Cancel</button>
-                  <button className="primary" disabled={!canEdit && !canReset}><Save size={14} />Save</button>
-                </div>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
+      {editing && <ContentDialog title={canEdit||canReset||canDelete?'Edit user':'User details'} description={editing.email} busy={busy} onClose={()=>setEditing(null)}>
+        <form className="generation-form settings-user-editor" action={saveUser}>
+         <div className="modal-grid">
+          <label>Name<input name="name" defaultValue={editing.name} readOnly={!canEdit} disabled={busy}/></label>
+          <label>Username<input value={username(editing)} readOnly/></label>
+          <label>Email address<input value={editing.email} readOnly/></label>
+          <fieldset disabled={!canEdit||!canAssign||busy} className="settings-field"><legend>Role</legend><AutomationSelect label="User role" name="role" defaultValue={editing.role}>{Array.from(new Set([...roles,editing.role])).map(role=><option key={role} value={role}>{role}</option>)}</AutomationSelect></fieldset>
+          <fieldset disabled={!canEdit||!canDisable||busy} className="settings-field"><legend>Status</legend><AutomationSelect label="User status" name="disabled" defaultValue={String(editing.disabled)}><option value="false">Active</option><option value="true">Disabled</option></AutomationSelect></fieldset>
+          <label>Created date<input value={editing.createdAt?new Date(editing.createdAt).toLocaleString():'Not recorded'} readOnly/></label>
+         </div>
+         {canReset&&<label>Reset password<input name="password" type="password" minLength={8} disabled={busy} placeholder="Leave blank to keep current password"/></label>}
+         {deleting&&<div className="settings-delete-confirm" role="alert"><b>Delete this account?</b><p>This removes {editing.email}. Shared content history is kept.</p><div className="row-actions"><button type="button" disabled={busy} onClick={()=>setDeleting(false)}>Keep user</button><button type="button" className="danger-btn" disabled={busy} onClick={deleteUser}>Confirm delete</button></div></div>}
+         <div className="modal-actions split-actions"><div>{canDelete&&!deleting&&<button className="danger-btn" type="button" disabled={busy} onClick={()=>setDeleting(true)}><Trash2 size={14}/>Delete user</button>}</div><div className="row-actions"><button type="button" disabled={busy} onClick={()=>setEditing(null)}>Cancel</button>{(canEdit||canReset)&&<button className="primary" disabled={busy||deleting}><Save size={14}/>{busy?'Saving…':'Save user'}</button>}</div></div>
+        </form>
+      </ContentDialog>}
     </PanelCard>
   );
 }
 
-function PermissionCard({ adminData, runAdmin }: { adminData: AdminUserData | null; runAdmin: RunAdminAction }) {
+export function PermissionCard({ adminData, runAdmin }: { adminData: AdminUserData | null; runAdmin: RunAdminAction }) {
   const roles = (adminData?.roles || []).filter((role) => role !== "super_admin" && role !== "owner");
   const catalog = adminData?.permissionCatalog || [];
   const grouped = catalog.reduce((acc, permission) => {
@@ -330,10 +309,14 @@ function PermissionCard({ adminData, runAdmin }: { adminData: AdminUserData | nu
   );
 }
 
-function ApiKeyManagementCard({ integrations, adminData, currentRole }: { integrations: IntegrationData | null; adminData: AdminUserData | null; currentRole: string }) {
+export function ApiKeyManagementCard({ integrations, adminData, currentRole }: { integrations: IntegrationData | null; adminData: AdminUserData | null; currentRole: string }) {
   const [status, setStatus] = useState(integrations?.apiKeyOverrides || {});
   const [saving, setSaving] = useState("");
   const [message, setMessage] = useState("");
+  const [failed,setFailed]=useState(false);
+  const [loaded,setLoaded]=useState(false);
+  const keyLock=useRef(false);
+  useEffect(()=>{let live=true;fetch("/api/admin/api-keys",{cache:"no-store"}).then(async res=>{if(!res.ok)throw Error("Provider status could not be loaded.");return res.json();}).then(json=>{if(live){setStatus(json.providers||{});setLoaded(true);}}).catch(error=>{if(live){setFailed(true);setMessage(error.message);}});return ()=>{live=false};},[]);
   const canEdit = currentRole === "owner" || currentRole === "super_admin" || Boolean(adminData?.actorPermissions.includes("apiKeys.edit"));
   const providers = [
     { id: "kie", label: "Kie.ai", hint: "Used for Gemini/GPT prompt generation, Seedance, VEO, and image generation." },
@@ -342,7 +325,8 @@ function ApiKeyManagementCard({ integrations, adminData, currentRole }: { integr
     { id: "uploadPost", label: "Upload-Post", hint: "Used to connect social accounts and publish approved content." }
   ];
   async function saveKey(provider: string, form: FormData) {
-    setMessage("");
+    if(keyLock.current)return false;keyLock.current=true;
+    setMessage("");setFailed(false);
     setSaving(provider);
     try {
       const value = String(form.get("value") || "").trim();
@@ -355,30 +339,30 @@ function ApiKeyManagementCard({ integrations, adminData, currentRole }: { integr
       if (!res.ok) throw new Error(json.error || "Could not update API key.");
       setStatus(json.providers || {});
       setMessage(`${provider} key updated. Future provider calls will use the saved override.`);
-      form.set("value", "");
+      setLoaded(true);return true;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not update API key.");
+      setFailed(true);setMessage(error instanceof Error ? error.message : "Could not update API key.");return false;
     } finally {
-      setSaving("");
+      keyLock.current=false;setSaving("");
     }
   }
   return (
     <div className="admin-tab-grid">
       <PanelCard title="API key management">
         <p className="muted">Paste a new key to replace a provider at runtime. Stored overrides are encrypted in the app database and raw keys are never displayed after saving.</p>
-        {message && <div className="provider-error inline">{message}</div>}
+        {message && <div role={failed?"alert":"status"} className={failed?"provider-error inline":"settings-success"}>{message}</div>}
         <div className="api-key-editor-list">
           {providers.map((provider) => {
             const item = status?.[provider.id] || {};
             return (
-              <form className="api-key-editor" key={provider.id} action={(form) => saveKey(provider.id, form)}>
+              <form className="api-key-editor" key={provider.id} onSubmit={async event=>{event.preventDefault();const form=event.currentTarget;if(await saveKey(provider.id,new FormData(form)))form.reset();}}>
                 <div>
                   <b>{provider.label}</b>
                   <span>{provider.hint}</span>
-                  <small>Env: {item.envConfigured ? "configured" : "missing"} · Backend override: {item.overrideConfigured ? `saved ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : ""}` : "not set"}</small>
+                  <small>Env: {!loaded?"Not loaded":item.envConfigured ? "configured" : "missing"} · Saved replacement: {item.overrideConfigured ? `saved ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : ""}` : "not set"}</small>
                 </div>
-                <input name="value" type="password" placeholder="Paste new API key" disabled={!canEdit || saving === provider.id} />
-                <button className="primary" disabled={!canEdit || saving === provider.id}>{saving === provider.id ? "Saving..." : "Save key"}</button>
+                <input name="value" type="password" aria-label={provider.label+" replacement key"} autoComplete="new-password" required placeholder="Paste new API key" disabled={!canEdit || Boolean(saving)} />
+                <button className="primary" disabled={!canEdit || Boolean(saving)}>{saving === provider.id ? "Saving..." : "Save key"}</button>
               </form>
             );
           })}
@@ -396,58 +380,6 @@ function ApiKeyManagementCard({ integrations, adminData, currentRole }: { integr
   );
 }
 
-function SystemCard() {
-  return (
-    <div className="admin-tab-grid">
-      <PanelCard title="Cloud backend">
-        <p>Production and staging currently serve frontend and backend API routes from the same Next.js Cloud Run service. Admin UI is split by route first; service split comes later.</p>
-        <code>/api</code>
-      </PanelCard>
-      <PanelCard title="Backend credentials">
-        <p className="muted">Phase 2 adds user lifecycle controls here. Keep default demo credentials only for testing, then create named admin users and rotate passwords.</p>
-        <code>username: admin</code>
-        <code>password: admin</code>
-      </PanelCard>
-    </div>
-  );
-}
-
-export default function AdminPanel({ data, run, runAdmin, integrations, adminData }: { data: AdminAppData; run: RunAction; runAdmin: RunAdminAction; integrations: IntegrationData | null; adminData: AdminUserData | null }) {
-  const [activeTab, setActiveTab] = useState<AdminTab>("users");
-  const tabs = [
-    { id: "users", label: "User Management", icon: Users },
-    { id: "permissions", label: "Permission", icon: ShieldCheck },
-    { id: "prompts", label: "Prompt Management", icon: WandSparkles },
-    { id: "keys", label: "API Key Management", icon: KeyRound },
-    { id: "system", label: "System", icon: Server }
-  ] as const;
-  const totalUsers = adminData?.users.length || 0;
-  const activeUsers = adminData?.users.filter((user) => !user.disabled).length || 0;
-  const configuredProviders = Object.values(integrations || {}).filter((value) => value.ok || value.configured).length;
-
-  return (
-    <div className="admin-page">
-      <PageIntro title={tabs.find(tab => tab.id === activeTab)?.label || "Administration"} description="Manage access, creative prompts and provider settings from your protected workspace." eyebrow="Administration" tone="slate" art="admin"><div className="admin-hero-stats">
-          <div><strong>{totalUsers}</strong><span>Users</span></div>
-          <div><strong>{activeUsers}</strong><span>Active</span></div>
-          <div><strong>{configuredProviders}</strong><span>Providers</span></div>
-        </div>
-      </PageIntro>
-
-      <nav className="admin-tabs" aria-label="Admin modules">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          return <button key={tab.id} className={activeTab === tab.id ? "on" : ""} onClick={() => setActiveTab(tab.id)}><Icon size={15} />{tab.label}</button>;
-        })}
-      </nav>
-
-      <section className="admin-tab-panel">
-        {activeTab === "users" && <UserManagementCard adminData={adminData} runAdmin={runAdmin} />}
-        {activeTab === "permissions" && <PermissionCard adminData={adminData} runAdmin={runAdmin} />}
-        {activeTab === "prompts" && <PromptAdminCard data={data} run={run} />}
-        {activeTab === "keys" && <ApiKeyManagementCard integrations={integrations} adminData={adminData} currentRole={data.user.role} />}
-        {activeTab === "system" && <SystemCard />}
-      </section>
-    </div>
-  );
+export function SystemCard() {
+ return <div className="settings-system-grid"><PanelCard title="Application settings"><p>Workspace context shapes future content briefs. Prompt templates and provider keys apply to future requests; existing content and history stay available.</p><div className="admin-info-list"><div><b>One place to manage the application</b><span>Workspace, connections and authorized management tools now live in Settings.</span></div><div><b>Access follows your permissions</b><span>Each privileged action is checked by the server. Owners and super admins retain full access.</span></div></div></PanelCard><PanelCard title="Credentials and privacy"><p>Current API keys are never shown. Authorized users can replace a provider key from API keys; saved replacements are encrypted.</p><p>Changes to users, permissions and provider configuration use the existing protected services.</p></PanelCard></div>;
 }

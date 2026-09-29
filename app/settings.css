@@ -1,0 +1,69 @@
+.unified-settings { color:#405538; }
+.settings-sections { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:10px; padding:8px; border:1px solid #d4dfcb; border-radius:16px; background:#f1f5ea; }
+.normal-workspace-frame .settings-sections button { display:flex; align-items:center; justify-content:flex-start; gap:11px; padding:15px 13px; border:1px solid transparent; background:transparent; color:#5e7153; text-align:left; min-width:0; }
+.normal-workspace-frame .settings-sections button.on { background:#fffefb; border-color:#bacda9; color:#36532c; box-shadow:0 2px 6px #31452208; }
+.settings-sections svg { flex-shrink:0; }
+.settings-sections b { display:block; font-size:14px; }
+.settings-sections small { display:block; font-size:11px; line-height:1.5; margin-top:5px; }
+.settings-section-content { min-width:0; display:grid; gap:22px; }
+.settings-card-title { display:flex; gap:12px; align-items:flex-start; margin-bottom:25px; color:#526f3f; }
+.settings-card-title>svg { flex-shrink:0; margin-top:3px; }
+.settings-card-title h2 { font-size:24px; color:#354c2e; margin:0; }
+.settings-card-title p { font-size:14px; line-height:1.7; color:#66765d; margin:9px 0 0; }
+.unified-settings .brand-form { gap:22px; }
+.settings-form-actions { display:flex; justify-content:flex-end; }
+.settings-connected-list { display:grid; gap:14px; margin-bottom:24px; }
+.settings-connected-list article { display:flex; align-items:center; gap:15px; border:1px solid #d4dfca; background:#f6f9f0; border-radius:13px; padding:20px; }
+.settings-connection-icon { display:grid; place-items:center; width:42px; height:42px; border:1px solid #c5d5b7; border-radius:12px; background:#eaf1e1; color:#526f3f; flex-shrink:0; }
+.settings-connection-icon svg { width:21px; height:21px; }
+.settings-connected-list article>div { min-width:0; flex:1; }
+.settings-connected-list h3 { margin:0; font-size:17px; color:#354c2e; overflow-wrap:anywhere; }
+.settings-connected-list p { margin:6px 0 0; color:#617254; font-size:13px; overflow-wrap:anywhere; }
+.settings-access-note { color:#64755a; font-size:13px; margin:0; }
+.settings-load-error,.settings-delete-confirm { border:1px solid #dabf9d; border-radius:12px; padding:18px; background:#fff5e7; color:#80532c; font-size:14px; line-height:1.7; }
+.settings-success { padding:15px; border:1px solid #c7d8b9; background:#edf4e4; border-radius:10px; color:#3e602f; font-size:14px; line-height:1.7; }
+.settings-form-fields { border:0; padding:0; margin:0; display:grid; gap:22px; min-width:0; }
+.settings-field { border:0; padding:0; margin:0; display:grid; gap:8px; min-width:0; color:#526448; font-size:14px; }
+.settings-field legend { padding:0; margin-bottom:8px; }
+.settings-field:disabled .creator-filter-trigger { opacity:.65; }
+.unified-settings .admin-card-head { margin-bottom:22px; }
+.unified-settings .admin-card-head h3 { display:flex; align-items:center; gap:10px; font-size:24px; color:#354c2e; }
+.unified-settings .admin-card-head h3 svg { flex-shrink:0; }
+.unified-settings .admin-pill,.unified-settings .admin-role-pill { background:#e8f0df; color:#48623b; border-radius:8px; padding:6px 10px; }
+.unified-settings .admin-create-user { border-color:#d4dfca; padding:22px; gap:20px; border-radius:14px; background:#f7faf2; margin-bottom:25px; }
+.unified-settings .admin-section-title { display:grid; gap:8px; }
+.unified-settings .admin-section-title b { font-size:18px; color:#405b33; }
+.unified-settings .admin-section-title span { font-size:13px; line-height:1.7; max-width:none; }
+.unified-settings :is(.admin-user-table,.permission-table) { min-width:0; width:100%; table-layout:fixed; }
+.unified-settings :is(.admin-user-table-wrap,.permission-table-wrap) { border-color:#d3dfc9; border-radius:13px; }
+.unified-settings :is(.admin-user-table th,.permission-table th) { background:#edf3e5; color:#526448; white-space:normal; overflow-wrap:anywhere; }
+.unified-settings :is(.admin-user-table td,.permission-table td) { padding:14px 10px; border-color:#dce5d3; overflow-wrap:anywhere; }
+.unified-settings .admin-user-table th button { font-size:12px; white-space:normal; min-height:44px; }
+.unified-settings .permission-table th:first-child { width:30%; }
+.unified-settings .permission-table input { min-height:20px; width:20px; height:20px; accent-color:#526f3f; }
+.unified-settings .permission-table .permission-group td { background:#f5f8ee; color:#435e35; font-weight:700; }
+.unified-settings .permission-table td b { font-size:13px; }
+.unified-settings .permission-table td span { font-size:12px; line-height:1.6; }
+.unified-settings .prompt-module { padding:22px; border-color:#d2dfc5; border-radius:14px; background:#f7faf1; gap:18px; }
+.unified-settings .prompt-module-head b { font-size:18px; color:#3f5833; }
+.unified-settings .prompt-module-head span { font-size:13px; line-height:1.7; margin-top:6px; }
+.unified-settings .prompt-step { font-size:14px; margin-bottom:10px; }
+.unified-settings .prompt-module .muted.compact { font-size:12px; line-height:1.8; overflow-wrap:anywhere; }
+.unified-settings .prompt-admin-form textarea { min-height:175px; }
+.unified-settings .api-key-editor { grid-template-columns:minmax(0,1fr) auto; border-radius:13px; padding:22px; border-color:#d2dfc5; background:#f6f9ef; gap:14px; }
+.unified-settings .api-key-editor>div { grid-column:1/-1; }
+.unified-settings .api-key-editor b { font-size:18px; color:#405a34; }
+.unified-settings .api-key-editor span { font-size:13px; margin:7px 0; line-height:1.7; }
+.unified-settings .api-key-editor small { line-height:1.65; }
+.unified-settings .admin-tab-grid,.settings-system-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:22px; }
+.unified-settings .admin-info-list>div { border-color:#d2dfc5; background:#f5f8ee; padding:18px; border-radius:12px; }
+.unified-settings .admin-info-list b { color:#405a34; font-size:15px; }
+.unified-settings .admin-info-list span { color:#617254; font-size:13px; line-height:1.7; }
+.unified-settings .admin-card>p { font-size:14px; line-height:1.8; color:#63735a; }
+.settings-user-editor .settings-field { gap:6px; }
+.settings-user-editor .modal-grid { gap:18px; }
+.settings-user-editor .settings-delete-confirm p { overflow-wrap:anywhere; }
+@media(max-width:1000px) { .unified-settings :is(.admin-user-table,.permission-table,.admin-user-table tbody,.permission-table tbody) { display:block; } .unified-settings .admin-user-table thead { display:block; } .unified-settings .admin-user-table thead tr { display:flex; flex-wrap:wrap; gap:10px; padding:12px; } .unified-settings .admin-user-table th { display:block; border:0; padding:0; } .unified-settings :is(.admin-user-table tbody tr,.permission-table tbody tr) { display:grid; grid-template-columns:minmax(0,1fr); padding:12px; border-bottom:1px solid #dce5d3; } .unified-settings :is(.admin-user-table td,.permission-table td) { display:block; border:0; padding:7px; text-align:left; } .unified-settings .admin-user-table td:before,.unified-settings .permission-table td[data-label]:before { content:attr(data-label); display:block; font-size:12px; font-weight:650; color:#647559; margin-bottom:5px; } .unified-settings .permission-table thead { display:none; } .unified-settings .permission-table td[data-label] { display:flex; align-items:center; justify-content:space-between; text-align:left!important; } .unified-settings :is(.admin-user-table-wrap,.permission-table-wrap) { overflow:visible; } }
+@media(max-width:600px) { .settings-sections { grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; } .normal-workspace-frame .settings-sections button { flex-direction:column; align-items:flex-start; padding:12px; } .settings-card-title h2,.unified-settings .admin-card-head h3 { font-size:21px; } .settings-connected-list article { flex-wrap:wrap; padding:16px; } .settings-connected-list .admin-role-pill { margin-left:57px; } .unified-settings :is(.admin-create-user,.prompt-module,.api-key-editor) { padding:16px; } .unified-settings .api-key-editor { grid-template-columns:minmax(0,1fr); } .settings-form-actions { justify-content:stretch; } .settings-form-actions button { width:100%; } }
+
+@media (min-width:601px) and (max-width:1100px) { .settings-sections { grid-template-columns:repeat(4,minmax(0,1fr)); } }

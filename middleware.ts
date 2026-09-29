@@ -14,7 +14,10 @@ export function middleware(req: NextRequest) {
   const mode = surface();
   const { pathname } = req.nextUrl;
 
-  if (mode === "combined") return NextResponse.next();
+  if (mode === "combined") {
+    if (pathname === '/admin' || pathname.startsWith('/admin/')) return NextResponse.redirect(new URL('/?view=settings',req.url));
+    return NextResponse.next();
+  }
 
   if (mode === "api") {
     if (pathname.startsWith("/api")) {
@@ -34,23 +37,14 @@ export function middleware(req: NextRequest) {
   }
 
   if (mode === "frontend") {
-    if (pathname.startsWith("/admin")) {
-      const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL;
-      if (adminUrl) return NextResponse.redirect(new URL(pathname.replace(/^\/admin/, "/admin") || "/admin", adminUrl));
-      return NextResponse.redirect(new URL("/", req.url));
+    if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+      return NextResponse.redirect(new URL('/?view=settings',req.url));
     }
     return NextResponse.next();
   }
 
   if (mode === "admin") {
-    if (pathname === "/" || pathname === "/login" || pathname === "/register" || pathname === "/verify-email") {
-      if (pathname === "/") return NextResponse.redirect(new URL("/admin", req.url));
-      return NextResponse.next();
-    }
-    if (pathname.startsWith("/admin") || pathname.startsWith("/api") || pathname.startsWith("/_next") || PUBLIC_FILE.test(pathname)) {
-      return NextResponse.next();
-    }
-    if (isPagePath(pathname)) return NextResponse.redirect(new URL("/admin", req.url));
+    if (isPagePath(pathname)) return NextResponse.redirect(new URL('/?view=settings',process.env.FRONTEND_SERVICE_URL || 'https://contentagent-social-mkhae4sjlq-as.a.run.app'));
   }
 
   return NextResponse.next();

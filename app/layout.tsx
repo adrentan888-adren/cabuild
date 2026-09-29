@@ -4,6 +4,7 @@ import "./globals.css";
 import "./workspace-theme.css";
 import "./content-creator.css";
 import "./insights.css";
+import "./settings.css";
 
 export const metadata: Metadata = {
   title: "ContentAgent Social",

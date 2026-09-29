@@ -2,7 +2,7 @@ import { allRoles, defaultRolePermissions } from "./store";
 import type { Database, PermissionKey, RolePermissions, User, UserRole } from "./types";
 
 export const permissionCatalog: { key: PermissionKey; label: string; group: string; description: string }[] = [
-  { key: "admin.access", label: "Open admin", group: "Admin", description: "Access the backend admin surface." },
+  { key: "admin.access", label: "Manage application settings", group: "Settings access", description: "Access privileged sections in Settings; each section also requires its own permission." },
   { key: "users.view", label: "View users", group: "Users", description: "See the user table and user details." },
   { key: "users.create", label: "Create users", group: "Users", description: "Create new user accounts." },
   { key: "users.edit", label: "Edit users", group: "Users", description: "Edit names, roles, and account status." },

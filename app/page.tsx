@@ -40,6 +40,7 @@ import {
   Wand2
 } from "lucide-react";
 import PageIntro from "@/components/page-intro";
+import SettingsPanel from "@/components/settings-panel";
 import SocialAuditPanel from "@/components/social-audit-panel";
 import AnalyticsPanel from "@/components/analytics-panel";
 import ContentDialog from "@/components/content-dialog";
@@ -2484,83 +2485,6 @@ function BrandPanel({ data, run }: { data: AppData; run: (a: string, p?: Record<
   return <PanelCard title="Brand kit"><form className="brand-form" action={(form) => run("updateBrandKit", { brandKit: Object.fromEntries(form.entries()) }, "Brand kit saved")}><label>Primary<input name="primary" type="color" defaultValue={data.brandKit.primary} /></label><label>Secondary<input name="secondary" type="color" defaultValue={data.brandKit.secondary} /></label><label>Accent<input name="accent" type="color" defaultValue={data.brandKit.accent} /></label><label>Voice<textarea name="voice" defaultValue={data.brandKit.voice} /></label><button className="primary">Save brand kit</button></form></PanelCard>;
 }
 
-function PromptAdminCard({ data, run }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void> }) {
-  return (
-    <PanelCard title="Prompt admin">
-      <form className="brand-form prompt-admin-form" action={(form) => run("updatePromptTemplates", Object.fromEntries(form.entries()), "Prompt templates saved")}>
-        <div className="modal-grid">
-          <label>Username<input name="adminUsername" defaultValue="admin" autoComplete="username" /></label>
-          <label>Password<input name="adminPassword" type="password" defaultValue="admin" autoComplete="current-password" /></label>
-        </div>
-        <p className="muted">These templates power Research result to Generate Content. The video flow stays two-stage internally because Step 2 runs after the user edits the Create Content fields and uploads logo/person/audio references.</p>
-        <section className="prompt-module">
-          <div className="prompt-module-head">
-            <div>
-              <b>Research Video Prompt</b>
-              <span>One video prompt configuration, executed in two steps.</span>
-            </div>
-          </div>
-          <label><span className="prompt-step">Step 1 - Source to editable prompt</span><textarea name="researchVideoRecreate" defaultValue={data.promptTemplates.researchVideoRecreate} /></label>
-          <p className="muted compact">Variables: <code>{"{{sourceMediaUrl}}"}</code>, <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>, <code>{"{{durationLine}}"}</code>, <code>{"{{assetInstruction}}"}</code>, <code>{"{{personaContext}}"}</code>.</p>
-          <label><span className="prompt-step">Step 2 - Edited prompt to final G01 JSON</span><textarea name="researchVideoPromptRefine" defaultValue={data.promptTemplates.researchVideoPromptRefine} /></label>
-          <p className="muted compact">Variable: <code>{"{{prompt}}"}</code>. Persona context is attached to the source prompt before this step runs.</p>
-        </section>
-        <section className="prompt-module">
-          <div className="prompt-module-head">
-            <div>
-              <b>Research Image Prompt</b>
-              <span>Source image or carousel result to editable image-generation prompt.</span>
-            </div>
-          </div>
-          <label><span className="prompt-step">Step 1 - Source to editable image prompt</span><textarea name="researchImageRecreate" defaultValue={data.promptTemplates.researchImageRecreate} /></label>
-          <p className="muted compact">Variables: <code>{"{{sourceMediaUrl}}"}</code>, <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>, <code>{"{{assetInstruction}}"}</code>, <code>{"{{personaContext}}"}</code>. Uploaded logo/person/product reference instructions are added later by the shared Create Content module.</p>
-        </section>
-        <section className="prompt-module">
-          <div className="prompt-module-head">
-            <div>
-              <b>Research Text Prompt</b>
-              <span>Source text/link result to editable text-post prompt.</span>
-            </div>
-          </div>
-          <label><span className="prompt-step">Step 1 - Source to editable text prompt</span><textarea name="researchTextRecreate" defaultValue={data.promptTemplates.researchTextRecreate} /></label>
-          <p className="muted compact">Variables: <code>{"{{sourceUrl}}"}</code>, <code>{"{{sourceTitle}}"}</code>, <code>{"{{sourceDescription}}"}</code>, <code>{"{{personaContext}}"}</code>. Text generation does not use logo/person/audio attachments.</p>
-        </section>
-        <button className="primary"><Settings size={14} />Save prompt templates</button>
-      </form>
-    </PanelCard>
-  );
-}
-
-function AdminPanel({ data, run, integrations }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; integrations: IntegrationData | null }) {
-  return (
-    <div className="admin-page">
-      <section className="plan-hero">
-        <div>
-          <div className="clbl">Backend</div>
-          <h2>Backend controls</h2>
-          <p>Edit generation prompt templates and inspect runtime provider status. Admin template changes are saved to the same cloud data store used by the app.</p>
-        </div>
-        <div className="plan-count-pill"><strong>admin</strong><span>Default login</span></div>
-      </section>
-      <div className="grid two">
-        <PromptAdminCard data={data} run={run} />
-        <PanelCard title="Provider status">
-          <div className="provider-list">{Object.entries(integrations || {}).map(([name, value]) => <div className="provider-row" key={name}><b>{name}</b><span className={value.ok || value.configured ? "good" : "bad"}>{value.ok ? "verified" : value.configured ? "configured" : "missing"}</span>{value.status && <small>HTTP {value.status}</small>}{value.error && <small>{value.error}</small>}</div>)}</div>
-        </PanelCard>
-        <PanelCard title="Backend credentials">
-          <p className="muted">Prompt admin uses the requested default credentials. Change these before production.</p>
-          <code>username: admin</code>
-          <code>password: admin</code>
-        </PanelCard>
-        <PanelCard title="Cloud backend">
-          <p>Current production backend is served by the same Cloud Run service as the frontend.</p>
-          <code>https://contentagent-social-mkhae4sjlq-as.a.run.app/api</code>
-        </PanelCard>
-      </div>
-    </div>
-  );
-}
-
 function AccountPanel({ data }: { data: AppData }) {
   return <div className="account-page"><PageIntro title="Account" eyebrow="Your workspace" description="Your signed-in identity and workspace membership." art="identity" />
     <section className="card"><h2>Account details</h2><dl className="account-details">
@@ -2571,49 +2495,6 @@ function AccountPanel({ data }: { data: AppData }) {
       <div><dt>Plan</dt><dd>{data.workspace.plan}</dd></div>
     </dl></section>
   </div>;
-}
-
-function SettingsPanel({ data, run, integrations }: { data: AppData; run: (a: string, p?: Record<string, unknown>, m?: string) => Promise<void>; integrations: IntegrationData | null }) {
-  const [connectUrl, setConnectUrl] = useState("");
-  const [connectError, setConnectError] = useState("");
-  const canOpenAdmin = ["owner", "admin", "super_admin"].includes(data.user.role);
-  async function createConnectUrl() {
-    setConnectError("");
-    const res = await fetch("/api/integrations/upload-post/connect", { method: "POST" });
-    const json = await res.json();
-    if (!res.ok) {
-      setConnectError(json.error || "Could not create Upload-Post link");
-      return;
-    }
-    const url = json.access_url || "";
-    setConnectUrl(url);
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
-  }
-  return (
-    <div className="settings-page"><PageIntro title="Settings" eyebrow="Account" description="Keep your workspace context and account connections in one place." art="operations" /><div className="grid two">
-      <PanelCard title="Workspace context">
-        <form className="brand-form" action={(form) => run("updateWorkspace", Object.fromEntries(form.entries()), "Workspace context saved")}>
-          <label>Workspace name<input name="name" defaultValue={data.workspace.name} /></label>
-          <label>Brand / niche<textarea name="niche" defaultValue={data.workspace.niche} /></label>
-          <p className="muted">This Brand / niche value is passed into AI content-plan generation as context.</p>
-          <button className="primary">Save workspace context</button>
-        </form>
-      </PanelCard>
-      <PanelCard title="Connect social accounts">
-        <p className="muted">Demo is configured to Upload-Post profile Mariana and publishes to TikTok, Facebook, and X. Use this only if you need to re-open the connection page.</p>
-        <button className="primary" onClick={createConnectUrl}><Megaphone size={14} />Open Mariana connect link</button>
-        {connectUrl && <p className="muted">Connection page opened in a new tab.</p>}
-        {connectError && <p className="provider-error">{connectError}</p>}
-      </PanelCard>
-      {canOpenAdmin && (
-        <PanelCard title="Admin controls moved">
-          <p className="muted">Prompt templates, provider status, logs, and backend credentials are now managed from the separate admin surface.</p>
-          <a className="asset-link" href="/admin">Open admin</a>
-        </PanelCard>
-      )}
-    </div>
-    </div>
-  );
 }
 
 function PanelCard({ title, children }: { title: string; children: React.ReactNode }) {

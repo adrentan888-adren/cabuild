@@ -163,7 +163,7 @@ jobs:
           --no-invoker-iam-check
           --quiet
 
-      - name: Restrict API CORS to staging surfaces
+      - name: Configure staging routing and API CORS
         run: |
           FRONTEND_URL=$(gcloud run services describe $FRONTEND_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
           ADMIN_URL=$(gcloud run services describe $ADMIN_SERVICE --project=$PROJECT_ID --region=$REGION --format='value(status.url)')
@@ -171,4 +171,9 @@ jobs:
             --project=$PROJECT_ID \
             --region=$REGION \
             --update-env-vars="^|^CORS_ALLOWED_ORIGINS=$FRONTEND_URL,$ADMIN_URL" \
+            --quiet
+          gcloud run services update $ADMIN_SERVICE \
+            --project=$PROJECT_ID \
+            --region=$REGION \
+            --update-env-vars="FRONTEND_SERVICE_URL=$FRONTEND_URL" \
             --quiet

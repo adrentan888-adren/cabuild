@@ -2,7 +2,7 @@
 import ContentDialog from "./content-dialog";
 import AutomationSelect from "./automation-select";
 
-import { ArrowUpDown, KeyRound, Save, Server, Settings, ShieldCheck, Trash2, UserPlus, Users, WandSparkles } from "lucide-react";
+import { ArrowUpDown, CheckCircle2, CircleAlert, CircleDashed, Info, KeyRound, Link2Off, Save, Server, Settings, ShieldCheck, Trash2, UserPlus, Users, WandSparkles } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { Asset, BrandKit, Brief, Competitor, CompetitorResult, Opportunity, PersonaProfile, Platform, PromptTemplates, PublishItem, SocialAudit, Workspace } from "@/lib/types";
 
@@ -309,14 +309,24 @@ export function PermissionCard({ adminData, runAdmin }: { adminData: AdminUserDa
   );
 }
 
+function ProviderHelp({ id, label, hint }: { id:string; label:string; hint:string }) {
+  const [open,setOpen]=useState(false);
+  return <div className="settings-provider-help" onMouseEnter={()=>setOpen(true)} onMouseLeave={()=>setOpen(false)}>
+    <button type="button" className="settings-provider-info" aria-label={label+' usage information'} aria-describedby={open?id+'-help':undefined} onFocus={()=>setOpen(true)} onBlur={()=>setOpen(false)} onClick={()=>setOpen(true)} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();setOpen(false);}}}><Info size={17}/></button>
+    {open&&<div id={id+'-help'} role="tooltip" className="settings-provider-tooltip">{hint}</div>}
+  </div>;
+}
+
 export function ApiKeyManagementCard({ integrations, adminData, currentRole }: { integrations: IntegrationData | null; adminData: AdminUserData | null; currentRole: string }) {
   const [status, setStatus] = useState(integrations?.apiKeyOverrides || {});
   const [saving, setSaving] = useState("");
   const [message, setMessage] = useState("");
   const [failed,setFailed]=useState(false);
   const [loaded,setLoaded]=useState(false);
+  const [statusFailed,setStatusFailed]=useState(false);
+  const [replaced,setReplaced]=useState<string[]>([]);
   const keyLock=useRef(false);
-  useEffect(()=>{let live=true;fetch("/api/admin/api-keys",{cache:"no-store"}).then(async res=>{if(!res.ok)throw Error("Provider status could not be loaded.");return res.json();}).then(json=>{if(live){setStatus(json.providers||{});setLoaded(true);}}).catch(error=>{if(live){setFailed(true);setMessage(error.message);}});return ()=>{live=false};},[]);
+  useEffect(()=>{let live=true;fetch("/api/admin/api-keys",{cache:"no-store"}).then(async res=>{if(!res.ok)throw Error("Provider status could not be loaded.");return res.json();}).then(json=>{if(live){setStatus(json.providers||{});setLoaded(true);}}).catch(error=>{if(live){setFailed(true);setStatusFailed(true);setMessage(error.message);}});return ()=>{live=false};},[]);
   const canEdit = currentRole === "owner" || currentRole === "super_admin" || Boolean(adminData?.actorPermissions.includes("apiKeys.edit"));
   const providers = [
     { id: "kie", label: "Kie.ai", hint: "Used for Gemini/GPT prompt generation, Seedance, VEO, and image generation." },
@@ -339,7 +349,7 @@ export function ApiKeyManagementCard({ integrations, adminData, currentRole }: {
       if (!res.ok) throw new Error(json.error || "Could not update API key.");
       setStatus(json.providers || {});
       setMessage(`${provider} key updated. Future provider calls will use the saved override.`);
-      setLoaded(true);return true;
+      setLoaded(true);setStatusFailed(false);setReplaced(current=>[...current,provider]);return true;
     } catch (error) {
       setFailed(true);setMessage(error instanceof Error ? error.message : "Could not update API key.");return false;
     } finally {
@@ -354,12 +364,17 @@ export function ApiKeyManagementCard({ integrations, adminData, currentRole }: {
         <div className="api-key-editor-list">
           {providers.map((provider) => {
             const item = status?.[provider.id] || {};
+            const health=replaced.includes(provider.id)?undefined:integrations?.[provider.id];
+            const connected=health?.ok===true;
+            const hasKey=Boolean(item.envConfigured||item.overrideConfigured);
+            const state=statusFailed?'unavailable':!loaded?'loading':!hasKey?'missing':connected?'connected':health?.ok===false||health?.error?'attention':'saved';
+            const label={unavailable:'Status unavailable',loading:'Loading',missing:'Not connected',connected:'Connected',attention:'Needs attention',saved:'Key saved'}[state];
+            const Icon=state==='connected'?CheckCircle2:state==='saved'?KeyRound:state==='missing'?Link2Off:state==='loading'?CircleDashed:CircleAlert;
             return (
               <form className="api-key-editor" key={provider.id} onSubmit={async event=>{event.preventDefault();const form=event.currentTarget;if(await saveKey(provider.id,new FormData(form)))form.reset();}}>
-                <div>
-                  <b>{provider.label}</b>
-                  <span>{provider.hint}</span>
-                  <small>Env: {!loaded?"Not loaded":item.envConfigured ? "configured" : "missing"} · Saved replacement: {item.overrideConfigured ? `saved ${item.updatedAt ? new Date(item.updatedAt).toLocaleString() : ""}` : "not set"}</small>
+                <div className="settings-provider-header">
+                  <div className="settings-provider-name"><b>{provider.label}</b><ProviderHelp id={provider.id} label={provider.label} hint={provider.hint}/></div>
+                  <div className={'settings-provider-status '+state} role="status" aria-label={provider.label+': '+label}><Icon size={17} aria-hidden="true"/>{label}</div>
                 </div>
                 <input name="value" type="password" aria-label={provider.label+" replacement key"} autoComplete="new-password" required placeholder="Paste new API key" disabled={!canEdit || Boolean(saving)} />
                 <button className="primary" disabled={!canEdit || Boolean(saving)}>{saving === provider.id ? "Saving..." : "Save key"}</button>
@@ -368,14 +383,7 @@ export function ApiKeyManagementCard({ integrations, adminData, currentRole }: {
           })}
         </div>
       </PanelCard>
-      <PanelCard title="Secret handling">
-        <div className="admin-info-list">
-          <div><b>Kie</b><span>{integrations?.kie?.configured ? "configured" : "missing"} {integrations?.kie?.baseUrl || "https://api.kie.ai"}</span></div>
-          <div><b>Apify</b><span>{integrations?.apify?.configured ? "configured" : "missing"} {integrations?.apify?.actor || "apify/google-search-scraper"}</span></div>
-          <div><b>Upload-Post</b><span>{integrations?.uploadPost?.ok ? "verified" : integrations?.uploadPost?.configured ? "configured" : "missing"}</span></div>
-          <div><b>Display policy</b><span>Raw API keys are accepted for replacement only and are never returned to the browser.</span></div>
-        </div>
-      </PanelCard>
+
     </div>
   );
 }

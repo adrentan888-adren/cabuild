@@ -4,7 +4,7 @@
 .normal-workspace-frame .settings-sections button.on { background:#fffefb; border-color:#bacda9; color:#36532c; box-shadow:0 2px 6px #31452208; }
 .settings-sections svg { flex-shrink:0; }
 .settings-sections b { display:block; font-size:14px; }
-.settings-sections small { display:block; font-size:11px; line-height:1.5; margin-top:5px; }
+
 .settings-section-content { min-width:0; display:grid; gap:22px; }
 .settings-card-title { display:flex; gap:12px; align-items:flex-start; margin-bottom:25px; color:#526f3f; }
 .settings-card-title>svg { flex-shrink:0; margin-top:3px; }
@@ -67,3 +67,16 @@
 @media(max-width:600px) { .settings-sections { grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; } .normal-workspace-frame .settings-sections button { flex-direction:column; align-items:flex-start; padding:12px; } .settings-card-title h2,.unified-settings .admin-card-head h3 { font-size:21px; } .settings-connected-list article { flex-wrap:wrap; padding:16px; } .settings-connected-list .admin-role-pill { margin-left:57px; } .unified-settings :is(.admin-create-user,.prompt-module,.api-key-editor) { padding:16px; } .unified-settings .api-key-editor { grid-template-columns:minmax(0,1fr); } .settings-form-actions { justify-content:stretch; } .settings-form-actions button { width:100%; } }
 
 @media (min-width:601px) and (max-width:1100px) { .settings-sections { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+
+.unified-settings .settings-provider-header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.settings-provider-name { display:flex; align-items:center; gap:8px; }
+.settings-provider-help { position:relative; display:flex; }
+.normal-workspace-frame .settings-provider-info { display:grid; place-items:center; width:36px; height:36px; min-height:36px; padding:0; background:transparent; border:1px solid transparent; color:#637b51; box-shadow:none; border-radius:9px; }
+.normal-workspace-frame .settings-provider-info:is(:hover,:focus-visible) { background:#e8f0de; border-color:#aabd99; outline:2px solid #70875e; outline-offset:2px; }
+.settings-provider-tooltip { position:absolute; z-index:20; left:0; top:calc(100% + 8px); width:250px; max-width:calc(100vw - 90px); padding:13px 15px; border:1px solid #bcccae; background:#fffef9; box-shadow:0 8px 24px #35472b20; border-radius:12px; color:#425a34; font-size:13px; line-height:1.65; }
+.settings-provider-help:has(.settings-provider-tooltip)::after { content:''; position:absolute; left:0; right:0; height:10px; top:100%; }
+.settings-provider-status { display:flex; align-items:center; gap:7px; padding:7px 10px; border:1px solid #c7d7bb; border-radius:20px; font-size:12px; font-weight:600; color:#4a643b; background:#eaf2e2; }
+.settings-provider-status svg { flex-shrink:0; }
+.settings-provider-status:is(.missing,.loading) { color:#72766c; background:#eff1eb; border-color:#d4d8cd; }
+.settings-provider-status:is(.attention,.unavailable) { color:#8a5e28; background:#fff3dc; border-color:#e5cfaa; }
+@media(max-width:600px) { .settings-provider-help { position:static; } .settings-provider-header { position:relative; } .settings-provider-tooltip { left:0; width:100%; max-width:100%; top:100%; } }

@@ -105,7 +105,7 @@ export async function POST(req: Request) {
     try {
       await sendVerificationEmail({ email: result.email, code });
     } catch (error) {
-      return NextResponse.json({ error: error instanceof Error ? error.message : "User created, but verification email could not be sent." }, { status: 502 });
+      return NextResponse.json({ userCreated:true, user:result.user, error:"Account created, but the verification email could not be sent. Resend it from Manage person." }, { status: 502 });
     }
   }
   return NextResponse.json({ ok: true, user: result.user });
@@ -117,6 +117,7 @@ export async function PATCH(req: Request) {
   const body = await req.json() as Record<string, unknown>;
   const operation = String(body.operation || "update");
   const userId = String(body.userId || "");
+  if (!["update", "resetPassword", "resendVerification", "delete", "updateRolePermissions"].includes(operation)) return NextResponse.json({error:"Unknown operation."},{status:400});
   if (operation !== "updateRolePermissions" && !userId) return NextResponse.json({ error: "User is required." }, { status: 400 });
 
   const code = createVerificationCode();
@@ -126,13 +127,21 @@ export async function PATCH(req: Request) {
       const submitted = body.permissions as Partial<RolePermissions> | undefined;
       if (!submitted || typeof submitted !== "object") return { error: "Permissions payload is required.", status: 400 as const };
       const valid = new Set(permissionCatalog.map((item) => item.key));
+      if (Array.isArray(submitted) || Object.keys(submitted).some(role=>!roles.includes(role as UserRole))) return {error:"Unknown role.",status:400 as const};
+      const expected=body.expectedPermissions as Partial<RolePermissions>|undefined;
+      const same=(a:unknown,b:unknown)=>JSON.stringify(Array.isArray(a)?[...a].sort():[])===JSON.stringify(Array.isArray(b)?[...b].sort():[]);
+      for (const [role,selected] of Object.entries(submitted)) {
+        if (!Array.isArray(selected)||selected.some(key=>!valid.has(key as PermissionKey))) return {error:"Invalid role permissions.",status:400 as const};
+        if (role!=="owner"&&role!=="super_admin"&&expected&&Object.prototype.hasOwnProperty.call(expected,role)&&!same(expected[role as UserRole],db.rolePermissions[role as UserRole])) return {error:"This role changed since you opened it. Refresh before saving again.",status:409 as const};
+      }
       const next = { ...db.rolePermissions };
       for (const role of roles) {
         if (role === "super_admin" || role === "owner") {
           next[role] = permissionCatalog.map((item) => item.key);
           continue;
         }
-        const selected = Array.isArray(submitted[role]) ? submitted[role] : [];
+        if (!Object.prototype.hasOwnProperty.call(submitted,role)) continue;
+        const selected = submitted[role] || [];
         next[role] = Array.from(new Set(selected)).filter((item): item is PermissionKey => valid.has(item as PermissionKey));
       }
       db.rolePermissions = next;
@@ -140,6 +149,7 @@ export async function PATCH(req: Request) {
     }
     const target = db.users.find((user) => user.id === userId);
     if (!target) return { error: "User not found.", status: 404 as const };
+    if ((target.role === "owner" || target.role === "super_admin") && auth.user.role !== "owner" && auth.user.role !== "super_admin") return { error: "Only owners and super admins can change this account.", status: 403 as const };
     if (target.id === auth.user.id && (operation === "disable" || operation === "update")) {
       const nextRole = typeof body.role === "string" ? body.role : target.role;
       const disablingSelf = operation === "disable" || body.disabled === true;
@@ -181,6 +191,7 @@ export async function PATCH(req: Request) {
     const role = typeof body.role === "string" ? body.role : target.role;
     if (role !== target.role && !hasPermission(db, auth.user, "users.assignRole")) return { error: "Permission denied.", status: 403 as const };
     if (!canAssignRole(auth.user, role)) return { error: "You cannot assign that role.", status: 403 as const };
+    if (typeof body.disabled === "boolean" && body.disabled !== Boolean(target.disabledAt) && !hasPermission(db,auth.user,"users.disable")) return {error:"Permission denied.",status:403 as const};
     if (typeof body.name === "string") target.name = body.name.trim() || target.name;
     target.role = role as User["role"];
     if (typeof body.emailVerified === "boolean") {

@@ -1,6 +1,6 @@
 export type Platform = "TikTok" | "Instagram" | "YouTube" | "LinkedIn" | "Facebook" | "X";
 
-export type UserRole = "super_admin" | "admin" | "support_admin" | "owner" | "manager" | "creator" | "client" | "user";
+export type UserRole = "super_admin" | "admin" | "support_admin" | "owner" | "manager" | "creator" | "client" | "user" | "developer" | `custom_${string}`;
 
 export type PermissionKey =
   | "admin.access"
@@ -22,7 +22,8 @@ export type PermissionKey =
   | "settings.view"
   | "settings.edit";
 
-export type RolePermissions = Record<UserRole, PermissionKey[]>;
+export type RolePermissions = Record<string, PermissionKey[]>;
+export type ApplicationRole = { id: string; name: string; description: string; updatedAt: string };
 
 export type User = {
   id: string;
@@ -466,4 +467,5 @@ export type Database = {
   debugLogs: DebugLog[];
   promptTemplates: PromptTemplates;
   rolePermissions: RolePermissions;
+  applicationRoles?: ApplicationRole[];
 };

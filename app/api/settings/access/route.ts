@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { currentUser } from '@/lib/session';
-import { allRoles, readDb } from '@/lib/store';
+import { readDb } from '@/lib/store';
+import { applicationRoles, assignableRoles, canManageRole, roleIds } from '@/lib/role-catalog';
 import { hasPermission, permissionCatalog } from '@/lib/permissions';
 
 // Settings discovers capabilities independently of the user-list permission.
@@ -12,5 +13,6 @@ export async function GET() {
  const actorPermissions=permissionCatalog.filter(item=>hasPermission(db,user,item.key)).map(item=>item.key);
  const privileged=actorPermissions.includes('admin.access');
  const viewPermissions=privileged&&actorPermissions.includes('permissions.view');
- return NextResponse.json({actorPermissions,roles:privileged?allRoles:[],permissions:viewPermissions?db.rolePermissions:{},permissionCatalog:viewPermissions?permissionCatalog:[],users:[]});
+ return NextResponse.json({actorPermissions,roles:privileged?roleIds(db):[],roleDefinitions:privileged?applicationRoles(db):[],assignableRoles:privileged?assignableRoles(db,user):[],
+    manageableRoles:privileged?roleIds(db).filter(role=>canManageRole(db,user,role)):[],permissions:viewPermissions?db.rolePermissions:{},permissionCatalog:viewPermissions?permissionCatalog:[],users:[]});
 }

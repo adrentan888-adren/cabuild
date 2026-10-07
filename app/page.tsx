@@ -316,7 +316,8 @@ export default function Home() {
   const [createSourceId, setCreateSourceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [personaEditing, setPersonaEditing] = useState(false);
-  const { confirmLeave, shouldWarn, open: leaveDialogOpen, answerLeave } = useLeaveWarning(personaEditing);
+  const [settingsEditing, setSettingsEditing] = useState(false);
+  const { confirmLeave, shouldWarn, open: leaveDialogOpen, answerLeave } = useLeaveWarning(personaEditing || settingsEditing);
   const historyIndex = useRef(0);
   const restoringHistory = useRef(false);
   const pendingHistoryTarget = useRef<number | null>(null);
@@ -421,7 +422,7 @@ export default function Home() {
   return (
     <div className={`app-shell ${screen === "home" ? "home-shell" : "workspace-shell"}`}>
       <StatusToast toast={toast} onDismiss={() => setToast(null)} />
-      {leaveDialogOpen && <ContentDialog title="Leave without saving?" description="Your unsaved edits will be discarded. Your saved persona will stay unchanged." onClose={() => answerLeave(false)}>
+      {leaveDialogOpen && <ContentDialog title="Leave without saving?" description="Your unsaved edits will be discarded. Your saved information will stay unchanged." onClose={() => answerLeave(false)}>
         <div className="dialog-actions"><button type="button" autoFocus onClick={() => answerLeave(false)}>Keep editing</button><button type="button" className="primary" onClick={() => answerLeave(true)}>Discard changes and leave</button></div>
       </ContentDialog>}
       <main className="main">
@@ -456,7 +457,7 @@ export default function Home() {
               {screen === "analyse" && <AnalyticsPanel data={data} onNavigate={navigateScreen} />}
               {screen === "logs" && <LogPanel data={data} />}
               {screen === "account" && <AccountPanel data={data} />}
-              {screen === "settings" && <SettingsPanel data={data} run={run} integrations={integrations} />}
+              {screen === "settings" && <SettingsPanel data={data} run={run} integrations={integrations} confirmLeave={confirmLeave} onDirtyChange={setSettingsEditing} />}
             </section>
             <span className="workspace-rail-balance" aria-hidden="true" />
           </div>

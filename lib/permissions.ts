@@ -1,4 +1,4 @@
-import { allRoles, defaultRolePermissions } from "./store";
+import { allRoles, defaultRolePermissions } from "./role-catalog";
 import type { Database, PermissionKey, RolePermissions, User, UserRole } from "./types";
 
 export const permissionCatalog: { key: PermissionKey; label: string; group: string; description: string }[] = [
@@ -24,7 +24,7 @@ export const permissionCatalog: { key: PermissionKey; label: string; group: stri
 
 export function normalizedRolePermissions(input?: Partial<RolePermissions>): RolePermissions {
   const valid = new Set(permissionCatalog.map((item) => item.key));
-  return allRoles.reduce((acc, role) => {
+  return Array.from(new Set([...allRoles,...Object.keys(input||{}).filter(key=>/^custom_[a-zA-Z0-9_]+$/.test(key))])).reduce((acc, role) => {
     const base = defaultRolePermissions[role] || [];
     const source = Array.isArray(input?.[role]) ? input?.[role] || [] : base;
     acc[role] = Array.from(new Set(source)).filter((item): item is PermissionKey => valid.has(item as PermissionKey));

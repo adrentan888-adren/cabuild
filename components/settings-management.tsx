@@ -45,6 +45,8 @@ export type IntegrationData = Record<string, { configured?: boolean; ok?: boolea
 };
 
 export type AdminUserData = {
+  roleDefinitions?: {id:string;name:string;description:string;updatedAt:string}[];
+  assignableRoles?: string[]; manageableRoles?: string[];
   users: {
     id: string;
     email: string;

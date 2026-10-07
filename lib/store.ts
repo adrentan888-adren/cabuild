@@ -1,3 +1,5 @@
+import { allPermissionKeys, defaultRolePermissions, applicationRoles, roleIds } from "./role-catalog";
+export { allRoles, defaultRolePermissions } from "./role-catalog";
 import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -51,66 +53,6 @@ Rules:
 
 User instruction to transform:
 {{prompt}}`
-};
-
-export const allRoles: UserRole[] = ["super_admin", "admin", "support_admin", "owner", "manager", "creator", "client", "user"];
-
-const allPermissionKeys: PermissionKey[] = [
-  "admin.access",
-  "users.view",
-  "users.create",
-  "users.edit",
-  "users.delete",
-  "users.disable",
-  "users.resetPassword",
-  "users.assignRole",
-  "permissions.view",
-  "permissions.manage",
-  "prompts.view",
-  "prompts.edit",
-  "apiKeys.view",
-  "apiKeys.edit",
-  "system.view",
-  "logs.view",
-  "settings.view",
-  "settings.edit"
-];
-
-export const defaultRolePermissions: RolePermissions = {
-  super_admin: allPermissionKeys,
-  owner: allPermissionKeys,
-  admin: [
-    "admin.access",
-    "users.view",
-    "users.create",
-    "users.edit",
-    "users.disable",
-    "users.resetPassword",
-    "users.assignRole",
-    "permissions.view",
-    "prompts.view",
-    "prompts.edit",
-    "apiKeys.view",
-    "apiKeys.edit",
-    "system.view",
-    "logs.view",
-    "settings.view",
-    "settings.edit"
-  ],
-  support_admin: [
-    "admin.access",
-    "users.view",
-    "permissions.view",
-    "prompts.view",
-    "apiKeys.view",
-    "system.view",
-    "logs.view",
-    "settings.view"
-  ],
-  manager: ["settings.view", "logs.view"],
-  creator: [],
-  client: [],
-  user: []
 };
 
 export function seeded(): Database {
@@ -226,7 +168,8 @@ export function seeded(): Database {
     ],
     debugLogs: [],
     promptTemplates: defaultPromptTemplates,
-    rolePermissions: defaultRolePermissions
+    applicationRoles: applicationRoles({}),
+    rolePermissions: { ...defaultRolePermissions }
   };
 }
 
@@ -249,7 +192,8 @@ export function normalizeDb(db: Database): Database {
   db.apiKeyOverrides ||= [];
   db.promptTemplates = { ...defaultPromptTemplates, ...(db.promptTemplates || {}) };
   const existingPermissions = (db as Database & { rolePermissions?: Partial<RolePermissions> }).rolePermissions || {};
-  db.rolePermissions = allRoles.reduce((acc, role) => {
+  db.applicationRoles = applicationRoles(db);
+  db.rolePermissions = roleIds(db).reduce((acc, role) => {
     const source = Array.isArray(existingPermissions[role]) ? existingPermissions[role] as PermissionKey[] : defaultRolePermissions[role] || [];
     acc[role] = Array.from(new Set(source))
       .filter((permission): permission is PermissionKey => allPermissionKeys.includes(permission as PermissionKey));

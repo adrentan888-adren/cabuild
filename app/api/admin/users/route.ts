@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { createVerificationCode, hashVerificationCode, verificationExpiry } from "@/lib/emailVerification";
 import { sendVerificationEmail } from "@/lib/providers/brevo";
-import { allRoles, hashPassword, id, mutateDb, readDb } from "@/lib/store";
+import { hashPassword, id, mutateDb, readDb } from "@/lib/store";
 import { hasPermission, permissionCatalog } from "@/lib/permissions";
+import { applicationRoles, assignableRoles, canManageRole, roleIds } from "@/lib/role-catalog";
 import type { Database, PermissionKey, RolePermissions, User, UserRole } from "@/lib/types";
 
-const roles = allRoles;
-const adminAssignableRoles = ["admin", "manager", "creator", "client", "user"] as const;
+
 
 function safeUser(user: User, db: Database) {
   const workspace = db.workspaces.find((item) => item.id === user.workspaceId);
@@ -39,12 +39,6 @@ function defaultWorkspaceId(db: Database) {
   return db.workspaces.find((workspace) => workspace.id === "ws_demo")?.id || db.workspaces[0]?.id || "";
 }
 
-function canAssignRole(actor: User, role: string) {
-  if (!roles.includes(role as typeof roles[number])) return false;
-  if (actor.role === "super_admin" || actor.role === "owner") return true;
-  return adminAssignableRoles.includes(role as typeof adminAssignableRoles[number]);
-}
-
 export async function GET() {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
@@ -55,7 +49,10 @@ export async function GET() {
     : db.rolePermissions[auth.user.role as UserRole] || [];
   return NextResponse.json({
     users: db.users.map((user) => safeUser(user, db)).sort((a, b) => a.email.localeCompare(b.email)),
-    roles,
+    roles:roleIds(db),
+    roleDefinitions:applicationRoles(db),
+    assignableRoles:assignableRoles(db,auth.user),
+    manageableRoles:roleIds(db).filter(role=>canManageRole(db,auth.user,role)),
     permissions: db.rolePermissions,
     permissionCatalog,
     actorPermissions
@@ -68,16 +65,17 @@ export async function POST(req: Request) {
   const body = await req.json() as Record<string, unknown>;
   const email = String(body.email || "").trim().toLowerCase();
   const password = String(body.password || "");
-  const role = String(body.role || "user");
+  const role = String(body.role || "developer");
   const name = String(body.name || email.split("@")[0] || "User").trim();
   const verified = body.emailVerified !== false;
   if (!email.includes("@") || password.length < 8) return NextResponse.json({ error: "Use a valid email and an 8+ character password." }, { status: 400 });
   if (!hasPermission(auth.db, auth.user, "users.create")) return NextResponse.json({ error: "Permission denied." }, { status: 403 });
-  if (!canAssignRole(auth.user, role)) return NextResponse.json({ error: "You cannot assign that role." }, { status: 403 });
+  if (!canManageRole(auth.db, auth.user, role)) return NextResponse.json({ error: "You cannot assign that role." }, { status: 403 });
 
   const code = createVerificationCode();
   const result = await mutateDb((db) => {
     if (db.users.some((user) => user.email.toLowerCase() === email)) return { error: "Email already exists", status: 409 as const };
+    if (!hasPermission(db,auth.user,"users.create") || !canManageRole(db,auth.user,role)) return {error:"Permission denied.",status:403 as const};
     const workspaceId = defaultWorkspaceId(db);
     if (!workspaceId) return { error: "Default workspace is missing.", status: 500 as const };
     const now = new Date().toISOString();
@@ -117,11 +115,30 @@ export async function PATCH(req: Request) {
   const body = await req.json() as Record<string, unknown>;
   const operation = String(body.operation || "update");
   const userId = String(body.userId || "");
-  if (!["update", "resetPassword", "resendVerification", "delete", "updateRolePermissions"].includes(operation)) return NextResponse.json({error:"Unknown operation."},{status:400});
-  if (operation !== "updateRolePermissions" && !userId) return NextResponse.json({ error: "User is required." }, { status: 400 });
+  if (!["update", "resetPassword", "resendVerification", "delete", "updateRolePermissions", "createRole", "editRole"].includes(operation)) return NextResponse.json({error:"Unknown operation."},{status:400});
+  if (!["updateRolePermissions","createRole","editRole"].includes(operation) && !userId) return NextResponse.json({ error: "User is required." }, { status: 400 });
 
   const code = createVerificationCode();
   const result = await mutateDb((db) => {
+    const roles=roleIds(db);
+    if (operation === "createRole" || operation === "editRole") {
+      if (!hasPermission(db,auth.user,"permissions.manage")) return {error:"Permission denied.",status:403 as const};
+      const definitions=applicationRoles(db), roleId=String(body.roleId||"");
+      const existing=operation==='editRole'?definitions.find(role=>role.id===roleId):undefined;
+      if(operation==='editRole'&&!existing)return {error:"Role not found.",status:404 as const};
+      const name=String(body.name||'').trim(),description=String(body.description||'').trim();
+      if(name.length<2||name.length>50||description.length>240)return {error:"Use a role name of 2–50 characters and a description of up to 240 characters.",status:400 as const};
+      const reserved=['owner','super admin','admin','support admin','manager','creator','client','user'];
+      if(reserved.includes(name.toLowerCase().replaceAll('_',' '))||definitions.some(role=>role.id!==existing?.id&&role.name.toLowerCase()===name.toLowerCase()))return {error:"That role name is already in use or reserved.",status:409 as const};
+      const valid=new Set(permissionCatalog.map(p=>p.key));
+      if(!Array.isArray(body.permissions)||body.permissions.some(key=>!valid.has(key as PermissionKey)))return {error:"Invalid role permissions.",status:400 as const};
+      const permissions=Array.from(new Set(body.permissions)) as PermissionKey[];
+      if(existing&&(body.expectedUpdatedAt!==existing.updatedAt||JSON.stringify([...(db.rolePermissions[roleId]||[])].sort())!==JSON.stringify(Array.isArray(body.expectedPermissions)?[...body.expectedPermissions].sort():null)))return {error:"This role changed since you opened it. Refresh before saving again.",status:409 as const};
+      const role={id:existing?.id||id('custom'),name,description,updatedAt:new Date().toISOString()};
+      db.applicationRoles=existing?definitions.map(item=>item.id===role.id?role:item):[...definitions,role];
+      db.rolePermissions[role.id]=permissions;
+      return {role,roleDefinitions:db.applicationRoles,permissions:db.rolePermissions};
+    }
     if (operation === "updateRolePermissions") {
       if (!hasPermission(db, auth.user, "permissions.manage")) return { error: "Permission denied.", status: 403 as const };
       const submitted = body.permissions as Partial<RolePermissions> | undefined;
@@ -150,6 +167,7 @@ export async function PATCH(req: Request) {
     const target = db.users.find((user) => user.id === userId);
     if (!target) return { error: "User not found.", status: 404 as const };
     if ((target.role === "owner" || target.role === "super_admin") && auth.user.role !== "owner" && auth.user.role !== "super_admin") return { error: "Only owners and super admins can change this account.", status: 403 as const };
+    if (!canManageRole(db,auth.user,target.role)) return {error:"You cannot manage an account with permissions above your own.",status:403 as const};
     if (target.id === auth.user.id && (operation === "disable" || operation === "update")) {
       const nextRole = typeof body.role === "string" ? body.role : target.role;
       const disablingSelf = operation === "disable" || body.disabled === true;
@@ -190,7 +208,7 @@ export async function PATCH(req: Request) {
     if (!hasPermission(db, auth.user, "users.edit")) return { error: "Permission denied.", status: 403 as const };
     const role = typeof body.role === "string" ? body.role : target.role;
     if (role !== target.role && !hasPermission(db, auth.user, "users.assignRole")) return { error: "Permission denied.", status: 403 as const };
-    if (!canAssignRole(auth.user, role)) return { error: "You cannot assign that role.", status: 403 as const };
+    if (!canManageRole(db, auth.user, role)) return { error: "You cannot assign that role.", status: 403 as const };
     if (typeof body.disabled === "boolean" && body.disabled !== Boolean(target.disabledAt) && !hasPermission(db,auth.user,"users.disable")) return {error:"Permission denied.",status:403 as const};
     if (typeof body.name === "string") target.name = body.name.trim() || target.name;
     target.role = role as User["role"];
@@ -209,6 +227,7 @@ export async function PATCH(req: Request) {
     return { user: safeUser(target, db) };
   });
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
+  if ("role" in result) return NextResponse.json({ok:true,...result});
   if ("permissions" in result) return NextResponse.json({ ok: true, permissions: result.permissions });
   if ("deleted" in result) return NextResponse.json({ ok: true, deleted: true });
   if ("resendEmail" in result && result.resendEmail) {
